@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import fs from "fs";
 import path from "path";
 import { URL } from "url";
+import { initDb, insertFrame, exportFramesCsv } from "./db";
 
 // ===========================================================================
 // Camera ingestion server (Stage 1: local development)
@@ -54,6 +55,9 @@ function looksLikeJpeg(buffer: Buffer): boolean {
 }
 
 ensureDir(RECORDINGS_DIR);
+
+// Open the SQLite metadata store (one row per frame; supersedes the CSV index).
+initDb(path.join(RECORDINGS_DIR, "recordings.db"));
 
 // --- Participant assignment (deviceId -> participant) ----------------------
 let assignments: Record<string, string> = {};
@@ -144,6 +148,26 @@ app.get("/devices", (_req, res) => {
     assignments,
     paused: Array.from(pausedParticipants),
   });
+});
+
+// On-demand CSV export from the DB (the DB itself is the live index now).
+app.get("/api/export.csv", (req, res) => {
+  const participant = sanitize(String(req.query.participant ?? ""));
+  const device = sanitize(String(req.query.device ?? ""));
+  const session = Number(req.query.session);
+  if (!participant || !device || !Number.isFinite(session)) {
+    res.status(400).json({
+      error: "query params 'participant', 'device', and 'session' are required",
+    });
+    return;
+  }
+  const csv = exportFramesCsv({ participant, device, session });
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${participant}-${device}-${session}-frames.csv"`,
+  );
+  res.send(csv);
 });
 
 app.post("/assign", (req, res) => {
@@ -242,12 +266,9 @@ wss.on("connection", (ws: WebSocket, req) => {
   const imagesDir = path.join(sessionDir, "images");
   ensureDir(imagesDir);
 
-  const indexFileName = `${participant}-${deviceId}-${sessionStart}-frames.csv`;
-  const indexPath = path.join(sessionDir, indexFileName);
-  const indexStream = fs.createWriteStream(indexPath);
-  indexStream.write(
-    "Index;CaptureDatetime;CaptureEpochMs;ReceivedEpochMs;DeviceFrame;ByteLength;Filename\n",
-  );
+  // One row per frame goes into the SQLite store (recordings.db) at ingestion
+  // time; the JPEG bytes stay on disk. The DB is the index that supersedes the
+  // old per-session CSV. Export a CSV on demand via GET /api/export.csv.
 
   let frameNumber = 0;
   let pendingMeta: { t: number; n: number } | null = null;
@@ -275,20 +296,30 @@ wss.on("connection", (ws: WebSocket, req) => {
       return;
     }
 
+    // Defense in depth: never persist a frame for a paused participant. The
+    // device is told to "pause" the moment it connects, but a frame can be in
+    // flight, or be captured in the brief race right after reconnect (before the
+    // device processes the "pause" message). Drop it here so a paused
+    // participant's images never reach disk, regardless of firmware timing.
+    if (pausedParticipants.has(participant)) {
+      pendingMeta = null;
+      console.log(`[${deviceId}] dropped frame: participant ${participant} is paused`);
+      return;
+    }
+
     const buffer = data;
     frameNumber += 1;
     const receivedEpochMs = Date.now();
 
     const captureEpochMs = pendingMeta?.t ?? null;
-    const deviceFrame = pendingMeta?.n ?? "";
+    const deviceFrame = pendingMeta?.n ?? null;
     pendingMeta = null;
 
     // Use the capture time for the filename when available, else receipt time.
     const stamp = captureEpochMs ?? receivedEpochMs;
-    const captureDatetime =
-      captureEpochMs !== null ? new Date(captureEpochMs).toLocaleString() : "";
 
-    if (!looksLikeJpeg(buffer)) {
+    const jpegOk = looksLikeJpeg(buffer);
+    if (!jpegOk) {
       console.warn(
         `[${deviceId}] frame ${frameNumber} does not look like a complete JPEG (${buffer.length} bytes)`,
       );
@@ -301,14 +332,25 @@ wss.on("connection", (ws: WebSocket, req) => {
       if (err) console.error(`Failed to write ${fileName}:`, err);
     });
 
-    const relPath = `images/${fileName}`;
-    indexStream.write(
-      `${frameNumber};${captureDatetime};${captureEpochMs ?? ""};${receivedEpochMs};${deviceFrame};${buffer.length};${relPath}\n`,
-    );
+    // Index the frame in SQLite. file_path is stored relative to recordings/ so
+    // one row locates its JPEG even if the recordings dir is moved or rsynced.
+    // capture_epoch_ms is NOT NULL in the schema; the firmware always sends it,
+    // but fall back to receipt time if the metadata message was missing.
+    insertFrame({
+      participant,
+      device: deviceId,
+      session: sessionStart,
+      frame_index: frameNumber,
+      capture_epoch_ms: captureEpochMs ?? receivedEpochMs,
+      received_epoch_ms: receivedEpochMs,
+      file_path: path.relative(RECORDINGS_DIR, filePath),
+      device_frame: deviceFrame,
+      byte_length: buffer.length,
+      jpeg_ok: jpegOk ? 1 : 0,
+    });
   });
 
   ws.on("close", () => {
-    indexStream.end();
     if (connections.get(deviceId) === ws) {
       connections.delete(deviceId);
     }

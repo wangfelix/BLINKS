@@ -24,8 +24,15 @@ const char *password = "zebrastreifen";
 // Server (your laptop in the same hotspot).
 // IP found via:  ipconfig getifaddr en0
 // ===========================================================================
-const char *serverHost = "10.157.48.43";
+const char *serverHost = "10.80.121.43";
 const uint16_t serverPort = 3000;
+
+// ===========================================================================
+// Status LED (XIAO ESP32S3 on-board user LED on GPIO21, active-LOW: LOW = lit).
+// GPIO21 is unused by the XIAO_ESP32S3 camera pin map (verified in
+// camera_pins.h). Solid on = powered + idle/paused; ~1 Hz blink = recording.
+// ===========================================================================
+#define LED_PIN 21
 
 // ===========================================================================
 // No participant here. The firmware is identical on every unit. The device
@@ -50,6 +57,9 @@ uint64_t captureEpochMs() {
   gettimeofday(&tv, nullptr);
   return (uint64_t)tv.tv_sec * 1000ULL + (uint64_t)(tv.tv_usec / 1000);
 }
+
+// User LED (GPIO21) is active-low on the XIAO ESP32S3: LOW lights it, HIGH off.
+void setLed(bool on) { digitalWrite(LED_PIN, on ? LOW : HIGH); }
 
 bool initCamera() {
   camera_config_t config;
@@ -145,6 +155,10 @@ void setup() {
   Serial.setDebugOutput(true);
   Serial.println();
 
+  // Status LED on as soon as we power up (solid = idle until recording starts).
+  pinMode(LED_PIN, OUTPUT);
+  setLed(true);
+
   if (!initCamera()) {
     Serial.println("Halting due to camera init failure");
     while (true) {
@@ -183,6 +197,13 @@ void setup() {
 
 void loop() {
   webSocket.loop();
+
+  // Status LED: solid on when idle/paused, ~1 Hz blink while recording.
+  if (wsConnected && !paused) {
+    setLed((millis() / 500) % 2 == 0); // blink: 500 ms on, 500 ms off
+  } else {
+    setLed(true); // solid on: powered + idle or paused
+  }
 
   if (wsConnected && !paused && millis() - lastCapture >= captureIntervalMs) {
     lastCapture = millis();
