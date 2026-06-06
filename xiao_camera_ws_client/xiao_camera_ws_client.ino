@@ -30,7 +30,10 @@ const uint16_t serverPort = 3000;
 // ===========================================================================
 // Status LED (XIAO ESP32S3 on-board user LED on GPIO21, active-LOW: LOW = lit).
 // GPIO21 is unused by the XIAO_ESP32S3 camera pin map (verified in
-// camera_pins.h). Solid on = powered + idle/paused; ~1 Hz blink = recording.
+// camera_pins.h). Three states:
+//   fast 2 Hz blink = searching for the server (powered, not connected)
+//   solid on        = connected to the server, idle/paused
+//   slow 1 Hz blink = recording
 // ===========================================================================
 #define LED_PIN 21
 
@@ -60,6 +63,20 @@ uint64_t captureEpochMs() {
 
 // User LED (GPIO21) is active-low on the XIAO ESP32S3: LOW lights it, HIGH off.
 void setLed(bool on) { digitalWrite(LED_PIN, on ? LOW : HIGH); }
+
+// Status LED state machine (called from loop() and the blocking setup loops):
+//   not connected           -> fast 2 Hz blink (searching for the server)
+//   connected + paused/idle -> solid on
+//   connected + recording   -> slow 1 Hz blink
+void updateStatusLed() {
+  if (!wsConnected) {
+    setLed((millis() / 250) % 2 == 0); // 2 Hz: looking for server connection
+  } else if (paused) {
+    setLed(true);                      // solid: connected, idle/paused
+  } else {
+    setLed((millis() / 500) % 2 == 0); // 1 Hz: recording
+  }
+}
 
 bool initCamera() {
   camera_config_t config;
@@ -139,6 +156,7 @@ void syncTime() {
   Serial.print("Syncing time via NTP");
   int tries = 0;
   while (time(nullptr) < 1700000000 && tries < 40) { // ~8s max
+    updateStatusLed(); // fast blink: still searching (WS not up yet)
     delay(200);
     Serial.print(".");
     tries++;
@@ -155,9 +173,10 @@ void setup() {
   Serial.setDebugOutput(true);
   Serial.println();
 
-  // Status LED on as soon as we power up (solid = idle until recording starts).
+  // Drive the status LED from boot. It starts fast-blinking ("searching")
+  // and stays that way until the WebSocket connects.
   pinMode(LED_PIN, OUTPUT);
-  setLed(true);
+  updateStatusLed();
 
   if (!initCamera()) {
     Serial.println("Halting due to camera init failure");
@@ -171,7 +190,8 @@ void setup() {
 
   Serial.print("WiFi connecting");
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+    updateStatusLed(); // fast blink: not connected yet
+    delay(250);
     Serial.print(".");
   }
   Serial.println();
@@ -198,12 +218,7 @@ void setup() {
 void loop() {
   webSocket.loop();
 
-  // Status LED: solid on when idle/paused, ~1 Hz blink while recording.
-  if (wsConnected && !paused) {
-    setLed((millis() / 500) % 2 == 0); // blink: 500 ms on, 500 ms off
-  } else {
-    setLed(true); // solid on: powered + idle or paused
-  }
+  updateStatusLed();
 
   if (wsConnected && !paused && millis() - lastCapture >= captureIntervalMs) {
     lastCapture = millis();
