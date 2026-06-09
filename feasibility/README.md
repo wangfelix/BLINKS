@@ -12,11 +12,16 @@ landing overnight, the architecture is viable and we build spike #2 (add the VPN
 
 ## Two parts
 
-- [`esp32-ble-camera/`](esp32-ble-camera/) — minimal ESP32-S3 firmware: a BLE
-  peripheral that sends one VGA JPEG every 30 s. No WiFi.
+- `esp32-ble-camera/` — **promoted to [`../camera-firmware/`](../camera-firmware/)**
+  after the spike validated the architecture; it is now the production firmware
+  (with the stale-frame/FB-OVF fixes and a pause/resume control characteristic).
+  Minimal ESP32-S3 firmware: a BLE peripheral that sends one VGA JPEG every N s.
+  No WiFi.
 - [`blinks-ble-app/`](blinks-ble-app/) — minimal Expo (Android) app: BLE central
   + foreground service that saves each frame to the phone, with a built-in
-  "Analyze saved frames" readout (delivery % and largest gap).
+  "Analyze saved frames" readout (delivery % and largest gap). Superseded by the
+  production app in [`../blinks-edge-app/`](../blinks-edge-app/), which ports its
+  BLE + foreground-service solution.
 
 They share a tiny BLE protocol (4-byte big-endian length, then raw JPEG chunks).
 

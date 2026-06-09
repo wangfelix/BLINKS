@@ -3,18 +3,21 @@
 #include <NimBLEDevice.h>
 
 // ===========================================================================
-// BLINKS feasibility spike — ESP32-S3 BLE camera peripheral.
+// BLINKS — ESP32-S3 BLE camera peripheral (production firmware).
 //
 // Captures one VGA JPEG every CAPTURE_INTERVAL_MS and streams it to a connected
-// phone over BLE (NimBLE). No WiFi, no NTP, no server. The phone (the companion
-// Expo app) reassembles frames and saves them locally. This exists ONLY to test
-// whether an Android foreground service can keep the BLE link alive and frames
-// flowing while the app is backgrounded overnight.
+// phone over BLE (NimBLE). No WiFi, no NTP — the phone (blinks-edge-app) is the
+// BLE central + relay: it reassembles frames, stamps capture time on header
+// receipt, and forwards them to the KIT-internal server over its VPN. A
+// writable control characteristic lets the phone pause/resume capture.
+//
+// Started as the feasibility spike (overnight-validated 2026-06, see
+// feasibility/README.md) and promoted to production.
 //
 // Requires:
 //   - board_config.h + camera_pins.h copied from the CameraWebServer example
 //     into THIS folder (with #define CAMERA_MODEL_XIAO_ESP32S3 active), exactly
-//     like the existing xiao_camera_ws_client sketch.
+//     like the legacy xiao-camera-ws-client sketch.
 //   - Library: "NimBLE-Arduino" (Library Manager). Targets NimBLE 2.x API.
 //     (NimBLE is used instead of the built-in Bluedroid BLE because it has a
 //     much smaller RAM footprint, which matters next to the camera driver.)

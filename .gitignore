@@ -1,8 +1,10 @@
 *.jpg
+.DS_Store
 CLAUDE.md
 node_modules/
 
-# SQLite metadata store (created at runtime under recordings/)
-recordings/recordings.db
-recordings/recordings.db-wal
-recordings/recordings.db-shm
+# SQLite stores (created at runtime: frame index under server/recordings/,
+# auth DB under server/data/)
+*.db
+*.db-wal
+*.db-shm
