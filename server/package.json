@@ -1,14 +1,16 @@
 {
-  "name": "camera-ingest-server",
+  "name": "blinks-server",
   "version": "1.0.0",
   "private": true,
-  "description": "WebSocket ingestion server for XIAO ESP32S3 Sense camera frames",
+  "description": "BLINKS ingestion + API server (phone relays camera frames over an authenticated WebSocket)",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-    "build": "tsc"
+    "build": "tsc",
+    "create-user": "tsx scripts/create-user.ts"
   },
   "dependencies": {
+    "argon2": "^0.44.0",
     "better-sqlite3": "^12.10.0",
     "express": "^4.19.2",
     "ws": "^8.18.0"

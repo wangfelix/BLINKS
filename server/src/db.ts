@@ -38,9 +38,31 @@ interface ExportRow {
   vlm_label: string | null;
 }
 
+// Rows returned by the participant-facing read API.
+export interface SessionRow {
+  device: string;
+  session: number;
+  started_at_ms: number;
+  ended_at_ms: number;
+  frame_count: number;
+}
+
+export interface FrameRow {
+  frame_index: number;
+  capture_epoch_ms: number;
+  vlm_status: string;
+  vlm_label: string | null;
+  file_path: string;
+}
+
 let db: Database.Database;
 let insertStmt: Database.Statement;
 let exportStmt: Database.Statement;
+let listSessionsStmt: Database.Statement;
+let listFramesStmt: Database.Statement;
+let getFrameStmt: Database.Statement;
+let deleteFrameStmt: Database.Statement;
+let maxFrameIndexStmt: Database.Statement;
 
 export function initDb(dbPath: string): void {
   db = new Database(dbPath);
@@ -95,6 +117,88 @@ export function initDb(dbPath: string): void {
     WHERE participant = @participant AND device = @device AND session = @session
     ORDER BY frame_index
   `);
+
+  listSessionsStmt = db.prepare(`
+    SELECT device, session,
+           MIN(capture_epoch_ms) AS started_at_ms,
+           MAX(capture_epoch_ms) AS ended_at_ms,
+           COUNT(*)              AS frame_count
+    FROM frames
+    WHERE participant = ?
+    GROUP BY device, session
+    ORDER BY started_at_ms DESC
+  `);
+
+  listFramesStmt = db.prepare(`
+    SELECT frame_index, capture_epoch_ms, vlm_status, vlm_label, file_path
+    FROM frames
+    WHERE participant = ? AND device = ? AND session = ?
+    ORDER BY frame_index
+  `);
+
+  getFrameStmt = db.prepare(`
+    SELECT file_path FROM frames
+    WHERE participant = ? AND device = ? AND session = ? AND frame_index = ?
+  `);
+
+  deleteFrameStmt = db.prepare(`
+    DELETE FROM frames
+    WHERE participant = ? AND device = ? AND session = ? AND frame_index = ?
+  `);
+
+  maxFrameIndexStmt = db.prepare(`
+    SELECT COALESCE(MAX(frame_index), 0) AS max_index FROM frames
+    WHERE participant = ? AND device = ? AND session = ?
+  `);
+}
+
+export function listSessions(participant: string): SessionRow[] {
+  return listSessionsStmt.all(participant) as SessionRow[];
+}
+
+export function listFrames(
+  participant: string,
+  device: string,
+  session: number,
+): FrameRow[] {
+  return listFramesStmt.all(participant, device, session) as FrameRow[];
+}
+
+export function getFrameFilePath(
+  participant: string,
+  device: string,
+  session: number,
+  frameIndex: number,
+): string | undefined {
+  const row = getFrameStmt.get(participant, device, session, frameIndex) as
+    | { file_path: string }
+    | undefined;
+  return row?.file_path;
+}
+
+export function deleteFrameRow(
+  participant: string,
+  device: string,
+  session: number,
+  frameIndex: number,
+): boolean {
+  return (
+    deleteFrameStmt.run(participant, device, session, frameIndex).changes > 0
+  );
+}
+
+// Lets a reconnecting phone continue a session's frame numbering instead of
+// colliding with rows already written under the same (participant, device,
+// session) key.
+export function maxFrameIndex(
+  participant: string,
+  device: string,
+  session: number,
+): number {
+  const row = maxFrameIndexStmt.get(participant, device, session) as {
+    max_index: number;
+  };
+  return row.max_index;
 }
 
 export function insertFrame(row: FrameInsert): void {

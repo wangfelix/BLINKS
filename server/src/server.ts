@@ -4,34 +4,53 @@ import { WebSocketServer, WebSocket } from "ws";
 import fs from "fs";
 import path from "path";
 import { URL } from "url";
-import { initDb, insertFrame, exportFramesCsv } from "./db";
+
+import {
+  AuthenticatedRequest,
+  hashPassword,
+  issueToken,
+  participantFromAuthHeader,
+  requireAuth,
+  verifyPassword,
+  verifyUserPassword,
+} from "./auth";
+import { getUser, initAuthDb, updatePasswordHash } from "./auth-db";
+import {
+  deleteFrameRow,
+  exportFramesCsv,
+  getFrameFilePath,
+  initDb,
+  insertFrame,
+  listFrames,
+  listSessions,
+  maxFrameIndex,
+} from "./db";
 
 // ===========================================================================
-// Camera ingestion server (Stage 1: local development)
+// BLINKS ingestion + API server (BLE phone-relay architecture).
 //
-// Receives JPEG frames from one or more XIAO ESP32S3 Sense devices over a
-// WebSocket connection and writes them to disk, organised by participant and
-// device. Each frame is preceded by a small JSON text message carrying the
-// device-side capture timestamp (NTP-synced epoch milliseconds). The server
-// records both the capture time and the receipt time, so transmission latency
-// can be measured later.
+// The WebSocket client is the participant's PHONE (blinks-edge-app), not the
+// ESP32: the camera has no WiFi and talks BLE to the phone, which relays each
+// JPEG over its KIT VPN to this server. The phone authenticates with a bearer
+// token (issued at /api/login) on the upgrade request and declares the session
+// it is writing into, so BLE/WS reconnects continue the same session.
 //
-// Device identity is the ESP32 MAC address (set automatically on the device).
-// The firmware is therefore identical across all units. The mapping from a
-// device to a participant is done here on the server, not in firmware:
+//   WS /ingest?session=<epochSeconds>&device=<cameraId>
+//     per frame: JSON text {"t":<captureEpochMs>,"n":<cameraFrameCounter>}
+//                followed by the binary JPEG
 //
-//   POST /assign?device=<MAC>&participant=<id>   assign a participant
-//   GET  /devices                                list connected devices
+// Capture timestamps are PHONE-stamped (header-receipt time, within ~100 ms of
+// true capture): the ESP32 has no clock. `device` is the camera's BLE MAC with
+// colons stripped, supplied by the phone.
 //
-// Reassigning a connected device closes its socket so it reconnects and starts
-// a fresh session under the new participant. No reflashing, no physical access.
-//
-// Connection path:  /camera/{deviceId}
+// The old MAC-based /assign model is gone: identity comes from login, and a
+// participant can only ever read or delete their own frames.
 // ===========================================================================
 
 const PORT = Number(process.env.CAMERA_PORT ?? 3000);
-const RECORDINGS_DIR = path.join(__dirname, "..", "recordings");
-const ASSIGNMENTS_PATH = path.join(RECORDINGS_DIR, "assignments.json");
+const RECORDINGS_DIR =
+  process.env.RECORDINGS_DIR ?? path.join(__dirname, "..", "recordings");
+const DATA_DIR = process.env.DATA_DIR ?? path.join(__dirname, "..", "data");
 const PAUSED_PATH = path.join(RECORDINGS_DIR, "paused.json");
 
 function ensureDir(dir: string): void {
@@ -55,38 +74,17 @@ function looksLikeJpeg(buffer: Buffer): boolean {
 }
 
 ensureDir(RECORDINGS_DIR);
+ensureDir(DATA_DIR);
 
-// Open the SQLite metadata store (one row per frame; supersedes the CSV index).
+// Frame metadata lives next to the JPEGs (rsynced together for analysis);
+// credentials live in their own DB outside the recordings tree (see auth-db).
 initDb(path.join(RECORDINGS_DIR, "recordings.db"));
-
-// --- Participant assignment (deviceId -> participant) ----------------------
-let assignments: Record<string, string> = {};
-
-function loadAssignments(): void {
-  try {
-    if (fs.existsSync(ASSIGNMENTS_PATH)) {
-      assignments = JSON.parse(fs.readFileSync(ASSIGNMENTS_PATH, "utf8"));
-    }
-  } catch (err) {
-    console.error("Failed to load assignments.json:", err);
-  }
-}
-
-function persistAssignments(): void {
-  try {
-    fs.writeFileSync(ASSIGNMENTS_PATH, JSON.stringify(assignments, null, 2));
-  } catch (err) {
-    console.error("Failed to persist assignments.json:", err);
-  }
-}
-
-loadAssignments();
+initAuthDb(process.env.AUTH_DB_PATH ?? path.join(DATA_DIR, "auth.db"));
 
 // --- Pause state (participant -> paused) -----------------------------------
-// Mobile clients call POST /pause and POST /resume per participant. The state
-// is authoritative on the server: a camera that reconnects (or is reassigned)
-// is told the current state immediately so it cannot silently start streaming
-// while the participant is paused.
+// The app pauses the camera directly over BLE; this server-side state is the
+// defense-in-depth gate that drops any frame still in flight (or raced around
+// the BLE control write) so a paused participant's images never reach disk.
 let pausedParticipants = new Set<string>();
 
 function loadPaused(): void {
@@ -113,20 +111,6 @@ function persistPaused(): void {
 
 loadPaused();
 
-// Live WebSocket connections, keyed by deviceId.
-const connections = new Map<string, WebSocket>();
-
-function broadcastToParticipant(participant: string, message: string): number {
-  let sent = 0;
-  for (const [device, ws] of connections) {
-    if (assignments[device] !== participant) continue;
-    if (ws.readyState !== WebSocket.OPEN) continue;
-    ws.send(message);
-    sent += 1;
-  }
-  return sent;
-}
-
 const app = express();
 app.use(express.json());
 
@@ -134,31 +118,159 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });
 });
 
-app.get("/devices", (_req, res) => {
-  const connected = Array.from(connections.keys()).map((device) => {
-    const participant = assignments[device] ?? "unassigned";
-    return {
-      device,
-      participant,
-      paused: pausedParticipants.has(participant),
+// --- Auth -------------------------------------------------------------------
+
+app.post("/api/login", async (req, res) => {
+  const { username, password } = req.body as {
+    username?: string;
+    password?: string;
+  };
+  if (typeof username !== "string" || typeof password !== "string") {
+    res.status(400).json({ error: "username and password are required" });
+    return;
+  }
+  const cleanUsername = sanitize(username);
+  const passwordOk = await verifyUserPassword(cleanUsername, password);
+  if (!cleanUsername || !passwordOk) {
+    res.status(401).json({ error: "wrong username or password" });
+    return;
+  }
+  const token = issueToken(cleanUsername);
+  console.log(`Login: ${cleanUsername}`);
+  res.json({ token, username: cleanUsername });
+});
+
+app.post(
+  "/api/change-password",
+  requireAuth,
+  async (req: AuthenticatedRequest, res) => {
+    const participant = req.participant!;
+    const { currentPassword, newPassword } = req.body as {
+      currentPassword?: string;
+      newPassword?: string;
     };
-  });
-  res.json({
-    connected,
-    assignments,
-    paused: Array.from(pausedParticipants),
+    if (
+      typeof currentPassword !== "string" ||
+      typeof newPassword !== "string"
+    ) {
+      res
+        .status(400)
+        .json({ error: "currentPassword and newPassword are required" });
+      return;
+    }
+    if (newPassword.length < 8) {
+      res
+        .status(400)
+        .json({ error: "the new password needs at least 8 characters" });
+      return;
+    }
+    const user = getUser(participant);
+    if (!user || !(await verifyPassword(user.password_hash, currentPassword))) {
+      res.status(403).json({ error: "current password is incorrect" });
+      return;
+    }
+    updatePasswordHash(participant, await hashPassword(newPassword));
+    console.log(`Password changed: ${participant}`);
+    res.json({ ok: true });
+  },
+);
+
+// --- Participant read/edit API (each participant sees only their own data) --
+
+app.get("/api/sessions", requireAuth, (req: AuthenticatedRequest, res) => {
+  const sessions = listSessions(req.participant!).map((row) => ({
+    device: row.device,
+    session: row.session,
+    startedAtMs: row.started_at_ms,
+    endedAtMs: row.ended_at_ms,
+    frameCount: row.frame_count,
+  }));
+  res.json({ sessions });
+});
+
+app.get(
+  "/api/sessions/:device/:session/frames",
+  requireAuth,
+  (req: AuthenticatedRequest, res) => {
+    const device = sanitize(req.params.device);
+    const session = Number(req.params.session);
+    if (!device || !Number.isInteger(session)) {
+      res.status(400).json({ error: "invalid device or session" });
+      return;
+    }
+    const frames = listFrames(req.participant!, device, session).map((row) => ({
+      frameIndex: row.frame_index,
+      captureEpochMs: row.capture_epoch_ms,
+      vlmStatus: row.vlm_status,
+      vlmLabel: row.vlm_label,
+      imageUrl: `/frames/${row.file_path}`,
+    }));
+    res.json({ frames });
+  },
+);
+
+// GDPR-relevant: deletes the JPEG from disk AND the index row.
+app.delete(
+  "/api/sessions/:device/:session/frames/:frameIndex",
+  requireAuth,
+  (req: AuthenticatedRequest, res) => {
+    const participant = req.participant!;
+    const device = sanitize(req.params.device);
+    const session = Number(req.params.session);
+    const frameIndex = Number(req.params.frameIndex);
+    if (!device || !Number.isInteger(session) || !Number.isInteger(frameIndex)) {
+      res.status(400).json({ error: "invalid device, session, or frameIndex" });
+      return;
+    }
+
+    const filePath = getFrameFilePath(participant, device, session, frameIndex);
+    if (filePath === undefined) {
+      res.status(404).json({ error: "frame not found" });
+      return;
+    }
+
+    deleteFrameRow(participant, device, session, frameIndex);
+    fs.unlink(path.join(RECORDINGS_DIR, filePath), (err) => {
+      if (err && err.code !== "ENOENT") {
+        console.error(`Failed to delete ${filePath}:`, err);
+      }
+    });
+    console.log(
+      `Deleted frame: ${participant}/${device}/${session}/#${frameIndex}`,
+    );
+    res.json({ ok: true });
+  },
+);
+
+// Serves the JPEG bytes. Not express.static: every request must prove the
+// requested path belongs to the authenticated participant (these are images
+// of people and their homes).
+app.get("/frames/*", requireAuth, (req: AuthenticatedRequest, res) => {
+  const relativePath = decodeURIComponent(req.path.slice("/frames/".length));
+  const normalized = path.normalize(relativePath);
+  if (
+    normalized.startsWith("..") ||
+    path.isAbsolute(normalized) ||
+    !normalized.startsWith(`${req.participant!}${path.sep}`)
+  ) {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  res.sendFile(normalized, { root: RECORDINGS_DIR }, (err) => {
+    if (err && !res.headersSent) res.status(404).json({ error: "not found" });
   });
 });
 
-// On-demand CSV export from the DB (the DB itself is the live index now).
-app.get("/api/export.csv", (req, res) => {
-  const participant = sanitize(String(req.query.participant ?? ""));
+// On-demand CSV export from the DB, for the authenticated participant's own
+// sessions (analysis on the VM reads the SQLite file directly instead).
+app.get("/api/export.csv", requireAuth, (req: AuthenticatedRequest, res) => {
+  const participant = req.participant!;
   const device = sanitize(String(req.query.device ?? ""));
   const session = Number(req.query.session);
-  if (!participant || !device || !Number.isFinite(session)) {
-    res.status(400).json({
-      error: "query params 'participant', 'device', and 'session' are required",
-    });
+  if (!device || !Number.isFinite(session)) {
+    res
+      .status(400)
+      .json({ error: "query params 'device' and 'session' are required" });
     return;
   }
   const csv = exportFramesCsv({ participant, device, session });
@@ -170,111 +282,68 @@ app.get("/api/export.csv", (req, res) => {
   res.send(csv);
 });
 
-app.post("/assign", (req, res) => {
-  const device = sanitize(String(req.query.device ?? ""));
-  const participant = sanitize(String(req.query.participant ?? ""));
+// --- Pause / resume (participant from token) --------------------------------
 
-  if (!device || !participant) {
-    res
-      .status(400)
-      .json({ error: "query params 'device' and 'participant' are required" });
-    return;
-  }
-
-  assignments[device] = participant;
-  persistAssignments();
-  console.log(`Assigned device ${device} to participant ${participant}`);
-
-  // If the device is currently streaming, drop the connection so it reconnects
-  // and opens a fresh session under the new participant.
-  const live = connections.get(device);
-  if (live) {
-    live.close();
-  }
-
-  res.json({ ok: true, device, participant });
-});
-
-// Pause and resume act per participant. A participant may be wearing more than
-// one device (e.g. headcam + glasses) and a single tap in the mobile UI should
-// stop all of them at once.
-app.post("/pause", (req, res) => {
-  const participant = sanitize(String(req.query.participant ?? ""));
-  if (!participant) {
-    res.status(400).json({ error: "query param 'participant' is required" });
-    return;
-  }
-  pausedParticipants.add(participant);
+app.post("/api/pause", requireAuth, (req: AuthenticatedRequest, res) => {
+  pausedParticipants.add(req.participant!);
   persistPaused();
-  const notified = broadcastToParticipant(participant, "pause");
-  console.log(`Paused participant ${participant} (notified ${notified} device(s))`);
-  res.json({ ok: true, participant, paused: true, notified });
+  console.log(`Paused participant ${req.participant}`);
+  res.json({ ok: true, paused: true });
 });
 
-app.post("/resume", (req, res) => {
-  const participant = sanitize(String(req.query.participant ?? ""));
-  if (!participant) {
-    res.status(400).json({ error: "query param 'participant' is required" });
-    return;
-  }
-  pausedParticipants.delete(participant);
+app.post("/api/resume", requireAuth, (req: AuthenticatedRequest, res) => {
+  pausedParticipants.delete(req.participant!);
   persistPaused();
-  const notified = broadcastToParticipant(participant, "resume");
-  console.log(`Resumed participant ${participant} (notified ${notified} device(s))`);
-  res.json({ ok: true, participant, paused: false, notified });
+  console.log(`Resumed participant ${req.participant}`);
+  res.json({ ok: true, paused: false });
 });
+
+// --- WebSocket ingestion (the phone is the client) ---------------------------
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 wss.on("connection", (ws: WebSocket, req) => {
   const requestUrl = new URL(req.url ?? "", `http://${req.headers.host}`);
-  const parts = requestUrl.pathname.split("/").filter(Boolean);
 
-  // Expect: ["camera", deviceId]
-  if (parts[0] !== "camera" || parts.length < 2) {
-    console.error(`Rejected connection with path: ${requestUrl.pathname}`);
-    ws.close();
+  if (requestUrl.pathname !== "/ingest") {
+    console.error(`Rejected WS connection with path: ${requestUrl.pathname}`);
+    ws.close(1008, "unknown path");
     return;
   }
 
-  const deviceId = sanitize(parts[1]);
-  if (!deviceId) {
-    console.error("Rejected connection: empty deviceId");
-    ws.close();
+  const participant = participantFromAuthHeader(req.headers.authorization);
+  if (!participant) {
+    console.error("Rejected WS connection: invalid or missing token");
+    ws.close(1008, "unauthorized");
     return;
   }
 
-  const participant = assignments[deviceId] ?? "unassigned";
-  connections.set(deviceId, ws);
-
-  // If this participant is currently paused, tell the device immediately so it
-  // does not stream frames during the gap between connect and the next /pause
-  // call. The firmware resets its local paused flag on disconnect, so it always
-  // listens for the server's authoritative state on reconnect.
-  if (pausedParticipants.has(participant)) {
-    ws.send("pause");
+  const device = sanitize(requestUrl.searchParams.get("device") ?? "");
+  const session = Number(requestUrl.searchParams.get("session"));
+  if (!device || !Number.isInteger(session) || session <= 0) {
+    console.error(
+      `Rejected WS connection for ${participant}: bad device/session params`,
+    );
+    ws.close(1008, "device and session query params required");
+    return;
   }
 
-  const sessionStart = Math.floor(Date.now() / 1000);
   const sessionDir = path.join(
     RECORDINGS_DIR,
     participant,
-    deviceId,
-    String(sessionStart),
+    device,
+    String(session),
   );
   const imagesDir = path.join(sessionDir, "images");
   ensureDir(imagesDir);
 
-  // One row per frame goes into the SQLite store (recordings.db) at ingestion
-  // time; the JPEG bytes stay on disk. The DB is the index that supersedes the
-  // old per-session CSV. Export a CSV on demand via GET /api/export.csv.
-
-  let frameNumber = 0;
-  let pendingMeta: { t: number; n: number } | null = null;
+  // Continue numbering across reconnects within the same declared session.
+  let frameNumber = maxFrameIndex(participant, device, session);
+  let pendingMeta: { t: number; n: number | null } | null = null;
 
   console.log(
-    `Camera connected: device=${deviceId} participant=${participant} session=${sessionStart}`,
+    `Phone connected: participant=${participant} device=${device} session=${session} (resuming at frame ${frameNumber})`,
   );
 
   ws.on("message", (data: Buffer, isBinary: boolean) => {
@@ -286,24 +355,26 @@ wss.on("connection", (ws: WebSocket, req) => {
       try {
         const meta = JSON.parse(text);
         if (typeof meta.t === "number") {
-          pendingMeta = { t: meta.t, n: Number(meta.n) || 0 };
+          pendingMeta = {
+            t: meta.t,
+            n: Number.isFinite(meta.n) ? Number(meta.n) : null,
+          };
           return;
         }
       } catch {
         // not JSON, fall through to control logging
       }
-      console.log(`[${deviceId}] control: ${text}`);
+      console.log(`[${participant}/${device}] control: ${text}`);
       return;
     }
 
-    // Defense in depth: never persist a frame for a paused participant. The
-    // device is told to "pause" the moment it connects, but a frame can be in
-    // flight, or be captured in the brief race right after reconnect (before the
-    // device processes the "pause" message). Drop it here so a paused
-    // participant's images never reach disk, regardless of firmware timing.
+    // Defense in depth: never persist a frame for a paused participant, no
+    // matter what the phone or camera did with the pause state.
     if (pausedParticipants.has(participant)) {
       pendingMeta = null;
-      console.log(`[${deviceId}] dropped frame: participant ${participant} is paused`);
+      console.log(
+        `[${participant}/${device}] dropped frame: participant is paused`,
+      );
       return;
     }
 
@@ -312,7 +383,7 @@ wss.on("connection", (ws: WebSocket, req) => {
     const receivedEpochMs = Date.now();
 
     const captureEpochMs = pendingMeta?.t ?? null;
-    const deviceFrame = pendingMeta?.n ?? null;
+    const cameraFrame = pendingMeta?.n ?? null;
     pendingMeta = null;
 
     // Use the capture time for the filename when available, else receipt time.
@@ -321,7 +392,7 @@ wss.on("connection", (ws: WebSocket, req) => {
     const jpegOk = looksLikeJpeg(buffer);
     if (!jpegOk) {
       console.warn(
-        `[${deviceId}] frame ${frameNumber} does not look like a complete JPEG (${buffer.length} bytes)`,
+        `[${participant}/${device}] frame ${frameNumber} does not look like a complete JPEG (${buffer.length} bytes)`,
       );
     }
 
@@ -332,41 +403,34 @@ wss.on("connection", (ws: WebSocket, req) => {
       if (err) console.error(`Failed to write ${fileName}:`, err);
     });
 
-    // Index the frame in SQLite. file_path is stored relative to recordings/ so
-    // one row locates its JPEG even if the recordings dir is moved or rsynced.
-    // capture_epoch_ms is NOT NULL in the schema; the firmware always sends it,
-    // but fall back to receipt time if the metadata message was missing.
     insertFrame({
       participant,
-      device: deviceId,
-      session: sessionStart,
+      device,
+      session,
       frame_index: frameNumber,
       capture_epoch_ms: captureEpochMs ?? receivedEpochMs,
       received_epoch_ms: receivedEpochMs,
       file_path: path.relative(RECORDINGS_DIR, filePath),
-      device_frame: deviceFrame,
+      device_frame: cameraFrame,
       byte_length: buffer.length,
       jpeg_ok: jpegOk ? 1 : 0,
     });
   });
 
   ws.on("close", () => {
-    if (connections.get(deviceId) === ws) {
-      connections.delete(deviceId);
-    }
     console.log(
-      `Connection closed: ${deviceId} (${frameNumber} frames written)`,
+      `Phone disconnected: ${participant}/${device} session=${session} (at frame ${frameNumber})`,
     );
   });
 
   ws.on("error", (err) => {
-    console.error(`WebSocket error for device ${deviceId}:`, err);
+    console.error(`WebSocket error for ${participant}/${device}:`, err);
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`Camera ingestion server listening on ws://0.0.0.0:${PORT}`);
+  console.log(`BLINKS server listening on http://0.0.0.0:${PORT}`);
   console.log(`Health:  http://localhost:${PORT}/health`);
-  console.log(`Devices: http://localhost:${PORT}/devices`);
+  console.log(`Ingest:  ws://localhost:${PORT}/ingest (bearer token required)`);
   console.log(`Recordings directory: ${RECORDINGS_DIR}`);
 });

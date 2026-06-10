@@ -4,12 +4,22 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.initDb = initDb;
+exports.listSessions = listSessions;
+exports.listFrames = listFrames;
+exports.getFrameFilePath = getFrameFilePath;
+exports.deleteFrameRow = deleteFrameRow;
+exports.maxFrameIndex = maxFrameIndex;
 exports.insertFrame = insertFrame;
 exports.exportFramesCsv = exportFramesCsv;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 let db;
 let insertStmt;
 let exportStmt;
+let listSessionsStmt;
+let listFramesStmt;
+let getFrameStmt;
+let deleteFrameStmt;
+let maxFrameIndexStmt;
 function initDb(dbPath) {
     db = new better_sqlite3_1.default(dbPath);
     // WAL lets the VLM reader run alongside the ingestion writer; NORMAL is the
@@ -60,6 +70,54 @@ function initDb(dbPath) {
     WHERE participant = @participant AND device = @device AND session = @session
     ORDER BY frame_index
   `);
+    listSessionsStmt = db.prepare(`
+    SELECT device, session,
+           MIN(capture_epoch_ms) AS started_at_ms,
+           MAX(capture_epoch_ms) AS ended_at_ms,
+           COUNT(*)              AS frame_count
+    FROM frames
+    WHERE participant = ?
+    GROUP BY device, session
+    ORDER BY started_at_ms DESC
+  `);
+    listFramesStmt = db.prepare(`
+    SELECT frame_index, capture_epoch_ms, vlm_status, vlm_label, file_path
+    FROM frames
+    WHERE participant = ? AND device = ? AND session = ?
+    ORDER BY frame_index
+  `);
+    getFrameStmt = db.prepare(`
+    SELECT file_path FROM frames
+    WHERE participant = ? AND device = ? AND session = ? AND frame_index = ?
+  `);
+    deleteFrameStmt = db.prepare(`
+    DELETE FROM frames
+    WHERE participant = ? AND device = ? AND session = ? AND frame_index = ?
+  `);
+    maxFrameIndexStmt = db.prepare(`
+    SELECT COALESCE(MAX(frame_index), 0) AS max_index FROM frames
+    WHERE participant = ? AND device = ? AND session = ?
+  `);
+}
+function listSessions(participant) {
+    return listSessionsStmt.all(participant);
+}
+function listFrames(participant, device, session) {
+    return listFramesStmt.all(participant, device, session);
+}
+function getFrameFilePath(participant, device, session, frameIndex) {
+    const row = getFrameStmt.get(participant, device, session, frameIndex);
+    return row?.file_path;
+}
+function deleteFrameRow(participant, device, session, frameIndex) {
+    return (deleteFrameStmt.run(participant, device, session, frameIndex).changes > 0);
+}
+// Lets a reconnecting phone continue a session's frame numbering instead of
+// colliding with rows already written under the same (participant, device,
+// session) key.
+function maxFrameIndex(participant, device, session) {
+    const row = maxFrameIndexStmt.get(participant, device, session);
+    return row.max_index;
 }
 function insertFrame(row) {
     insertStmt.run(row);
