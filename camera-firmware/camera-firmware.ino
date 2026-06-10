@@ -158,17 +158,24 @@ class ControlCallbacks : public NimBLECharacteristicCallbacks {
 };
 
 // Every notification is tagged so the receiver can always resync:
-//   header: [0x01][len BE 4 bytes]      data: [0x02][payload...]
+//   header: [0x01][len BE 4B][frame counter BE 4B]   data: [0x02][payload...]
 // A dropped/short notification only loses one frame; the next 0x01 header
 // resynchronises cleanly (the old untagged framing desynced permanently).
+// The camera's own frame counter rides in the header so the server can detect
+// frames that were captured but never delivered (gaps in the counter); a
+// receiver that only reads the length ignores the extra bytes.
 void sendFrame(const uint8_t* buf, size_t len) {
-  uint8_t header[5];
+  uint8_t header[9];
   header[0] = 0x01;
   header[1] = (uint8_t)((len >> 24) & 0xFF);
   header[2] = (uint8_t)((len >> 16) & 0xFF);
   header[3] = (uint8_t)((len >> 8) & 0xFF);
   header[4] = (uint8_t)(len & 0xFF);
-  frameChar->setValue(header, 5);
+  header[5] = (uint8_t)((frameCounter >> 24) & 0xFF);
+  header[6] = (uint8_t)((frameCounter >> 16) & 0xFF);
+  header[7] = (uint8_t)((frameCounter >> 8) & 0xFF);
+  header[8] = (uint8_t)(frameCounter & 0xFF);
+  frameChar->setValue(header, 9);
   frameChar->notify();
   delay(8);
 
