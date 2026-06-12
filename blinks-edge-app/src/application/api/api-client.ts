@@ -28,7 +28,10 @@ const request = async <TResponse>(
   } catch {
     throw new ApiError(
       0,
-      "Server not reachable. Check that the KIT VPN is connected.",
+      `Server not reachable at ${appConfig.serverUrl}. ` +
+        (__DEV__
+          ? "Check that the phone and laptop are on the same WiFi and that EXPO_PUBLIC_SERVER_URL was set when Metro started."
+          : "Check that the KIT VPN is connected."),
     );
   }
 

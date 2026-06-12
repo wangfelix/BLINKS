@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppButton } from "@/application/components/app-button";
 import { AppText } from "@/application/components/app-text";
 import { AppTextInput } from "@/application/components/app-text-input";
+import { appConfig } from "@/application/config/app-config";
 import { colors, spacing } from "@/application/theme/theme";
 import { useLoginModel } from "@/authentication/model/use-login-model";
 
@@ -61,6 +62,15 @@ const LoginScreen = () => {
             disabled={!canSubmit}
             loading={isSubmitting}
           />
+          {__DEV__ ? (
+            <AppText
+              variant="caption"
+              color={colors.textMuted}
+              style={styles.subtitle}
+            >
+              Server: {appConfig.serverUrl}
+            </AppText>
+          ) : null}
         </View>
       </View>
     </KeyboardAvoidingView>

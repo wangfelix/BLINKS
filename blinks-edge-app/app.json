@@ -22,7 +22,10 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.WAKE_LOCK"
+        "android.permission.WAKE_LOCK",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT"
       ]
     },
     "plugins": [
@@ -41,7 +44,9 @@
         "react-native-ble-plx",
         {
           "isBackgroundEnabled": true,
-          "modes": ["central"],
+          "modes": [
+            "central"
+          ],
           "bluetoothAlwaysPermission": "Allow BLINKS to connect to the camera"
         }
       ],
@@ -55,6 +60,11 @@
       ],
       "./plugins/with-notifee-foreground-service-type.js"
     ],
-    "extra": {}
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "8bbefbdb-4379-40df-9ec3-628203799c3d"
+      }
+    }
   }
 }
