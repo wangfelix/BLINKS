@@ -94,10 +94,17 @@ bool initCamera() {
   config.xclk_freq_hz = 20000000;
   config.frame_size = FRAMESIZE_VGA; // 640x480
   config.pixel_format = PIXFORMAT_JPEG;
-  config.grab_mode = CAMERA_GRAB_LATEST;
+  // Single buffer + GRAB_WHEN_EMPTY throttles the sensor: it captures one frame
+  // then idles until we drain it, instead of free-running at ~20 fps. With slow
+  // polling (one frame every CAPTURE_INTERVAL_MS) the old 2-buffer GRAB_LATEST
+  // config spent almost the entire gap with both buffers full and overflowing
+  // (cam_hal: FB-OVF), which over minutes wedged the driver: esp_camera_fb_get
+  // started returning NULL ("Capture failed") and sometimes blocked outright,
+  // freezing loop() with the LED stuck solid. Throttling removes the overflow.
+  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.jpeg_quality = 12;
-  config.fb_count = 2;
+  config.fb_count = 1;
 
   if (!psramFound()) {
     config.fb_location = CAMERA_FB_IN_DRAM;
@@ -113,6 +120,20 @@ bool initCamera() {
   sensor_t *s = esp_camera_sensor_get();
   s->set_framesize(s, FRAMESIZE_VGA);
   return true;
+}
+
+// Self-heal a wedged camera without a physical power cycle. If the driver stops
+// returning frames (esp_camera_fb_get -> NULL), deinit + reinit it in place
+// after a few consecutive failures so an unattended overnight run recovers on
+// its own. Throttling (above) should prevent the wedge; this is the backstop.
+uint8_t captureFailures = 0;
+void recoverCameraIfWedged() {
+  if (++captureFailures < 3) return;
+  Serial.println("Camera unresponsive, reinitializing driver");
+  esp_camera_deinit();
+  delay(100);
+  Serial.println(initCamera() ? "Camera reinitialized" : "Camera reinit FAILED");
+  captureFailures = 0;
 }
 
 class ServerCallbacks : public NimBLEServerCallbacks {
@@ -240,24 +261,27 @@ void loop() {
   if (connected && !paused && millis() - lastCapture >= CAPTURE_INTERVAL_MS) {
     lastCapture = millis();
 
-    // With slow polling, esp_camera_fb_get() returns a frame the continuously
-    // running driver captured up to one interval ago, so the timestamp would
-    // say "now" for an image that is CAPTURE_INTERVAL_MS old (misaligned with
-    // biosignals). Discard fb_count buffered frames so the next get is fresh.
-    for (int i = 0; i < 2; i++) {
-      camera_fb_t* stale = esp_camera_fb_get();
-      if (stale) esp_camera_fb_return(stale);
-    }
+    // The single buffered frame is stale (the driver captured it right after
+    // the previous cycle, up to one interval ago), so its timestamp would not
+    // match the scene. Discard it: returning the buffer makes the WHEN_EMPTY
+    // driver capture exactly one fresh frame of the current scene, which the
+    // next get() returns. Deterministic with fb_count = 1 (the old "drain 2
+    // from a free-running pool" was not, and added blocking get() calls).
+    camera_fb_t* stale = esp_camera_fb_get();
+    if (stale) esp_camera_fb_return(stale);
 
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb) {
       Serial.println("Capture failed");
+      recoverCameraIfWedged();
       return;
     }
+    captureFailures = 0;
 
-    // Copy the JPEG out and return the framebuffer BEFORE the BLE send: large
-    // frames (40-54 KB) take seconds over BLE, and holding one of the driver's
-    // two buffers that long overflows the pool (cam_hal: FB-OVF).
+    // Copy the JPEG out and return the framebuffer BEFORE the multi-second BLE
+    // send so the camera buffer is never held during transmission. Returning it
+    // lets the WHEN_EMPTY driver pre-capture the next (stale) frame and idle,
+    // rather than stalling capture for the whole send.
     size_t jpegLen = fb->len;
     uint8_t* jpegCopy = (uint8_t*)ps_malloc(jpegLen);
     if (!jpegCopy) jpegCopy = (uint8_t*)malloc(jpegLen);
