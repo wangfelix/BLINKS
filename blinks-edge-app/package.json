@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "expo start --dev-client",
+    "start-tunnel": "npx expo start --tunnel --dev-client",
     "android": "expo run:android",
     "lint": "expo lint",
     "ts:check": "tsc --noEmit",
