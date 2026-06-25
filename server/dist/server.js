@@ -194,6 +194,13 @@ app.get("/frames/*", auth_1.requireAuth, (req, res) => {
         res.status(403).json({ error: "forbidden" });
         return;
     }
+    // Serving gate: never hand back a frame whose face has not been blurred yet.
+    // Anonymization happens in place shortly after ingestion (face-blur worker);
+    // until face_status='done' the image is withheld, even from its owner.
+    if ((0, db_1.getFrameStatusByPath)(req.participant, normalized) !== "done") {
+        res.status(404).json({ error: "frame not available yet" });
+        return;
+    }
     res.sendFile(normalized, { root: RECORDINGS_DIR }, (err) => {
         if (err && !res.headersSent)
             res.status(404).json({ error: "not found" });

@@ -1,15 +1,57 @@
-import assert from "assert";
-import WebSocket from "ws";
+import assert = require("assert");
+import path = require("path");
+import Database = require("better-sqlite3");
+import WebSocket = require("ws");
 
 // End-to-end smoke test against a locally running server. Expects:
 //   RECORDINGS_DIR/DATA_DIR pointing at a throwaway directory
 //   a user created via create-user
-// Run via: npm run smoke-test (see scripts/run-smoke-test.sh)
+// The test reads RECORDINGS_DIR to reach
+// recordings.db, so it can simulate the face-blur worker marking frames done.
+// Run via: npx tsx scripts/smoke-test.ts (against a running server)
 
 const BASE_URL = process.env.SMOKE_BASE_URL ?? "http://127.0.0.1:3100";
 const WS_URL = BASE_URL.replace(/^http/, "ws");
+const RECORDINGS_DIR = process.env.RECORDINGS_DIR;
 const USERNAME = "smoketester";
 const PASSWORD = "password123";
+
+// Opens the same recordings.db the server writes, so the test can stand in for
+// the separate Python face-blur worker (which marks frames face_status='done').
+const openRecordingsDb = (): Database.Database => {
+  if (!RECORDINGS_DIR) {
+    throw new Error(
+      "set RECORDINGS_DIR (the same value the server runs with) to run this test",
+    );
+  }
+  return new Database(path.join(RECORDINGS_DIR, "recordings.db"));
+};
+
+// One still-pending frame path, to prove the serving gate refuses it directly.
+const peekPendingFilePath = (): string => {
+  const db = openRecordingsDb();
+  const row = db
+    .prepare(
+      "SELECT file_path FROM frames WHERE face_status = 'pending' LIMIT 1",
+    )
+    .get() as { file_path: string } | undefined;
+  db.close();
+  assert.ok(row, "expected a pending frame on disk");
+  return row!.file_path;
+};
+
+// Stand in for the face-blur worker: mark every pending frame anonymized.
+const markAllAnonymized = (): number => {
+  const db = openRecordingsDb();
+  const info = db
+    .prepare(
+      "UPDATE frames SET face_status = 'done', face_count = 0, " +
+        "face_method = 'smoke', face_completed_at = ? WHERE face_status = 'pending'",
+    )
+    .run(Date.now());
+  db.close();
+  return info.changes;
+};
 
 // Minimal bytes that pass the SOI/EOI JPEG sanity check.
 const FAKE_JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x42, 0x42, 0xff, 0xd9]);
@@ -68,7 +110,7 @@ const sendFramesOverWs = (
 const expectWsRejected = (headers?: Record<string, string>): Promise<void> =>
   new Promise((resolve, reject) => {
     const ws = new WebSocket(`${WS_URL}/ingest?session=1&device=X`, { headers });
-    ws.on("close", (code) => {
+    ws.on("close", (code: number) => {
       code === 1008
         ? resolve()
         : reject(new Error(`expected close 1008, got ${code}`));
@@ -115,6 +157,24 @@ const main = async (): Promise<void> => {
   assert.strictEqual(sessions[0].startedAtMs, baseT, "phone capture time kept");
 
   const device = sessions[0].device;
+
+  // Serving gate: until the face-blur worker marks a frame done, it is withheld
+  // from both the frame list and direct /frames serving (defense in depth).
+  const pendingList = await api(
+    `/api/sessions/${device}/${session}/frames`,
+    { token },
+  );
+  assert.strictEqual(
+    pendingList.frames.length,
+    0,
+    "frames withheld until face-blurred",
+  );
+  const pendingPath = peekPendingFilePath();
+  await api(`/frames/${pendingPath}`, { token, expectStatus: 404 });
+
+  // Stand in for the worker finishing, then the same frames become available.
+  assert.strictEqual(markAllAnonymized(), 4, "worker marked 4 frames done");
+
   const { frames } = await api(
     `/api/sessions/${device}/${session}/frames`,
     { token },

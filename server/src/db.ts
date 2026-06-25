@@ -63,6 +63,19 @@ let listFramesStmt: Database.Statement;
 let getFrameStmt: Database.Statement;
 let deleteFrameStmt: Database.Statement;
 let maxFrameIndexStmt: Database.Statement;
+let frameStatusByPathStmt: Database.Statement;
+
+// Adds a column to the frames table only if it is missing, so an existing
+// recordings.db (written before the column was introduced) is upgraded in
+// place without losing rows. Must be called after the table exists.
+function migrateAddColumn(column: string, ddl: string): void {
+  const cols = db.prepare(`PRAGMA table_info(frames)`).all() as {
+    name: string;
+  }[];
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE frames ADD COLUMN ${ddl}`);
+  }
+}
 
 export function initDb(dbPath: string): void {
   db = new Database(dbPath);
@@ -90,12 +103,36 @@ export function initDb(dbPath: string): void {
       vlm_description   TEXT,
       vlm_descriptor    TEXT,
       vlm_completed_at  INTEGER,
+      -- Face anonymization, filled by the separate face-blur worker (Python).
+      -- Faces are pixelated in place BEFORE the frame is ever served; the read
+      -- API only exposes frames whose face_status='done'.
+      face_status       TEXT    NOT NULL DEFAULT 'pending',  -- pending|processing|done|failed
+      face_count        INTEGER,                             -- faces detected/obscured
+      face_method       TEXT,                                -- e.g. 'mosaic:centerface@0.2'
+      face_completed_at INTEGER,
       PRIMARY KEY (participant, device, session, frame_index)
     );
     CREATE INDEX IF NOT EXISTS idx_frames_time
       ON frames (participant, capture_epoch_ms);
     CREATE INDEX IF NOT EXISTS idx_frames_pending
       ON frames (capture_epoch_ms) WHERE vlm_status = 'pending';
+  `);
+
+  // Migrate DBs created before the face_* columns existed (the columns are part
+  // of the CREATE above for fresh DBs; ALTER adds them to existing ones). Every
+  // pre-existing row gets face_status='pending', so the worker backfills them.
+  migrateAddColumn(
+    "face_status",
+    "face_status TEXT NOT NULL DEFAULT 'pending'",
+  );
+  migrateAddColumn("face_count", "face_count INTEGER");
+  migrateAddColumn("face_method", "face_method TEXT");
+  migrateAddColumn("face_completed_at", "face_completed_at INTEGER");
+
+  // Created after the column exists so the migration path also gets the index.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_frames_face_pending
+      ON frames (capture_epoch_ms) WHERE face_status = 'pending';
   `);
 
   insertStmt = db.prepare(`
@@ -129,10 +166,14 @@ export function initDb(dbPath: string): void {
     ORDER BY started_at_ms DESC
   `);
 
+  // Only anonymized frames are exposed: a frame still pending (or being
+  // processed / failed) in the face-blur worker is withheld so an unblurred
+  // face is never listed or served.
   listFramesStmt = db.prepare(`
     SELECT frame_index, capture_epoch_ms, vlm_status, vlm_label, file_path
     FROM frames
     WHERE participant = ? AND device = ? AND session = ?
+      AND face_status = 'done'
     ORDER BY frame_index
   `);
 
@@ -149,6 +190,11 @@ export function initDb(dbPath: string): void {
   maxFrameIndexStmt = db.prepare(`
     SELECT COALESCE(MAX(frame_index), 0) AS max_index FROM frames
     WHERE participant = ? AND device = ? AND session = ?
+  `);
+
+  frameStatusByPathStmt = db.prepare(`
+    SELECT face_status FROM frames
+    WHERE participant = ? AND file_path = ?
   `);
 }
 
@@ -174,6 +220,19 @@ export function getFrameFilePath(
     | { file_path: string }
     | undefined;
   return row?.file_path;
+}
+
+// Serving gate: returns the face anonymization status for a frame identified by
+// its on-disk path, scoped to the owner. Used by /frames to refuse a frame
+// whose face has not been blurred yet. Returns undefined if no such row.
+export function getFrameStatusByPath(
+  participant: string,
+  filePath: string,
+): string | undefined {
+  const row = frameStatusByPathStmt.get(participant, filePath) as
+    | { face_status: string }
+    | undefined;
+  return row?.face_status;
 }
 
 export function deleteFrameRow(

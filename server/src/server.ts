@@ -19,6 +19,7 @@ import {
   deleteFrameRow,
   exportFramesCsv,
   getFrameFilePath,
+  getFrameStatusByPath,
   initDb,
   insertFrame,
   listFrames,
@@ -254,6 +255,13 @@ app.get("/frames/*", requireAuth, (req: AuthenticatedRequest, res) => {
     !normalized.startsWith(`${req.participant!}${path.sep}`)
   ) {
     res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  // Serving gate: never hand back a frame whose face has not been blurred yet.
+  // Anonymization happens in place shortly after ingestion (face-blur worker);
+  // until face_status='done' the image is withheld, even from its owner.
+  if (getFrameStatusByPath(req.participant!, normalized) !== "done") {
+    res.status(404).json({ error: "frame not available yet" });
     return;
   }
   res.sendFile(normalized, { root: RECORDINGS_DIR }, (err) => {
