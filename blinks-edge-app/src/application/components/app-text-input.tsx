@@ -22,6 +22,7 @@ export const AppTextInput = ({
       <TextInput
         style={[
           styles.input,
+          inputProps.multiline && styles.inputMultiline,
           isFocused && styles.inputFocused,
           !!errorMessage && styles.inputError,
         ]}
@@ -52,6 +53,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.textPrimary,
   },
+  inputMultiline: { minHeight: 96, textAlignVertical: "top" },
   inputFocused: { borderColor: colors.primary },
   inputError: { borderColor: colors.danger },
 });

@@ -3,7 +3,7 @@ import { ApiError } from "@/application/api/api-error";
 import { sessionHolder } from "@/authentication/storage/session-holder";
 
 interface RequestOptions {
-  method: "GET" | "POST" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
   // The login request must not trigger the global sign-out-on-401 handling.
   skipUnauthorizedHandling?: boolean;
@@ -60,6 +60,8 @@ export const apiClient = {
     body?: unknown,
     options?: Pick<RequestOptions, "skipUnauthorizedHandling">,
   ) => request<TResponse>(path, { method: "POST", body, ...options }),
+  put: <TResponse>(path: string, body?: unknown) =>
+    request<TResponse>(path, { method: "PUT", body }),
   delete: <TResponse>(path: string) =>
     request<TResponse>(path, { method: "DELETE" }),
 };

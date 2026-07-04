@@ -15,6 +15,7 @@ const DashboardScreen = () => {
   const tabBarHeight = useCustomTabBarHeight();
   const {
     username,
+    studyDurationDays,
     participatedDays,
     remainingDays,
     hasSessionToday,
@@ -32,6 +33,7 @@ const DashboardScreen = () => {
       </View>
 
       <StudyProgressCard
+        studyDurationDays={studyDurationDays}
         participatedDays={participatedDays}
         remainingDays={remainingDays}
       />

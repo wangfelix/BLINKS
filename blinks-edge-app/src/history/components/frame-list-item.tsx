@@ -19,51 +19,36 @@ export const FrameListItem = ({
   frame,
   onDelete,
   isDeleting,
-}: FrameListItemProps) => {
-  const hasLabel = frame.vlmStatus === "done" && !!frame.vlmLabel;
-
-  return (
-    <View style={styles.row}>
-      <Image
-        source={{
-          uri: `${appConfig.serverUrl}${frame.imageUrl}`,
-          headers: { Authorization: `Bearer ${sessionHolder.getToken() ?? ""}` },
-        }}
-        style={styles.thumbnail}
-        contentFit="cover"
-        transition={150}
-      />
-      <View style={styles.textColumn}>
-        <AppText variant="subheading">
-          {formatTimeOfDay(frame.captureEpochMs)}
-        </AppText>
-        <View
-          style={[styles.labelChip, !hasLabel && styles.labelChipPending]}
-        >
-          <AppText
-            variant="caption"
-            color={hasLabel ? colors.primary : colors.textMuted}
-            numberOfLines={1}
-          >
-            {hasLabel ? frame.vlmLabel : "pending"}
-          </AppText>
-        </View>
-      </View>
-      <Pressable
-        onPress={onDelete}
-        disabled={isDeleting}
-        hitSlop={spacing.sm}
-        style={({ pressed }) => [styles.deleteButton, pressed && { opacity: 0.6 }]}
-      >
-        {isDeleting ? (
-          <ActivityIndicator size="small" color={colors.danger} />
-        ) : (
-          <TrashIcon size={22} color={colors.danger} />
-        )}
-      </Pressable>
+}: FrameListItemProps) => (
+  <View style={styles.row}>
+    <Image
+      source={{
+        uri: `${appConfig.serverUrl}${frame.imageUrl}`,
+        headers: { Authorization: `Bearer ${sessionHolder.getToken() ?? ""}` },
+      }}
+      style={styles.thumbnail}
+      contentFit="cover"
+      transition={150}
+    />
+    <View style={styles.textColumn}>
+      <AppText variant="subheading">
+        {formatTimeOfDay(frame.captureEpochMs)}
+      </AppText>
     </View>
-  );
-};
+    <Pressable
+      onPress={onDelete}
+      disabled={isDeleting}
+      hitSlop={spacing.sm}
+      style={({ pressed }) => [styles.deleteButton, pressed && { opacity: 0.6 }]}
+    >
+      {isDeleting ? (
+        <ActivityIndicator size="small" color={colors.danger} />
+      ) : (
+        <TrashIcon size={22} color={colors.danger} />
+      )}
+    </Pressable>
+  </View>
+);
 
 const styles = StyleSheet.create({
   row: {
@@ -82,14 +67,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     backgroundColor: colors.surfaceMuted,
   },
-  textColumn: { flex: 1, gap: spacing.xs, alignItems: "flex-start" },
-  labelChip: {
-    backgroundColor: colors.primaryMuted,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 2,
-    maxWidth: "100%",
-  },
-  labelChipPending: { backgroundColor: colors.surfaceMuted },
+  textColumn: { flex: 1, alignItems: "flex-start" },
   deleteButton: { padding: spacing.sm },
 });

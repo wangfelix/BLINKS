@@ -2,20 +2,21 @@ import { StyleSheet, View } from "react-native";
 
 import { AppCard } from "@/application/components/app-card";
 import { AppText } from "@/application/components/app-text";
-import { appConfig } from "@/application/config/app-config";
 import { colors, spacing } from "@/application/theme/theme";
 
 interface StudyProgressCardProps {
+  studyDurationDays: number;
   participatedDays: number;
   remainingDays: number;
 }
 
 export const StudyProgressCard = ({
+  studyDurationDays,
   participatedDays,
   remainingDays,
 }: StudyProgressCardProps) => {
   const dayNumbers = Array.from(
-    { length: appConfig.studyDurationDays },
+    { length: studyDurationDays },
     (_, index) => index + 1,
   );
 
@@ -41,7 +42,7 @@ export const StudyProgressCard = ({
         })}
       </View>
       <AppText variant="caption">
-        {participatedDays} of {appConfig.studyDurationDays} days completed
+        {participatedDays} of {studyDurationDays} days completed
         {remainingDays > 0 ? ` · ${remainingDays} remaining` : " · all done!"}
       </AppText>
     </AppCard>

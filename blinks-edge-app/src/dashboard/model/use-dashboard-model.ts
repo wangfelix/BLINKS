@@ -7,6 +7,7 @@ import { toLocalDayKey } from "@/application/utils/format-time";
 import { useAuth } from "@/authentication/context/auth-context";
 import { useRecordingSession } from "@/capture/model/use-recording-session";
 import { requestCapturePermissions } from "@/capture/permissions/request-capture-permissions";
+import { profileQueryOptions } from "@/profile/query-options/profile-queries";
 import { sessionsQueryOptions } from "@/sessions/query-options/session-queries";
 
 export const useDashboardModel = () => {
@@ -14,6 +15,7 @@ export const useDashboardModel = () => {
   const { username } = useAuth();
   const { session, startSession } = useRecordingSession();
   const sessionsQuery = useQuery(sessionsQueryOptions());
+  const profileQuery = useQuery(profileQueryOptions());
 
   // ---- STATE ----
 
@@ -27,11 +29,16 @@ export const useDashboardModel = () => {
   // A session running right now may not have reached the server list yet.
   if (isSessionActive) participatedDayKeys.add(todayKey);
 
+  // The study length = the participant's DRM condition plan length; the
+  // appConfig constant is only the fallback while the profile loads.
+  const studyDurationDays =
+    profileQuery.data?.studyDurationDays ?? appConfig.studyDurationDays;
+
   const participatedDays = Math.min(
     participatedDayKeys.size,
-    appConfig.studyDurationDays,
+    studyDurationDays,
   );
-  const remainingDays = appConfig.studyDurationDays - participatedDays;
+  const remainingDays = studyDurationDays - participatedDays;
   const hasSessionToday = participatedDayKeys.has(todayKey);
 
   // One self-administered session per day; an active session can always be
@@ -65,6 +72,7 @@ export const useDashboardModel = () => {
   return {
     username,
     isLoading: sessionsQuery.isLoading,
+    studyDurationDays,
     participatedDays,
     remainingDays,
     hasSessionToday,

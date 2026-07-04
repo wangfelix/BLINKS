@@ -8,13 +8,12 @@ export interface SessionSummary {
   frameCount: number;
 }
 
-export type VlmStatus = "pending" | "processing" | "done" | "failed";
-
+// Deliberately carries NO VLM output: the app must never show the VLM's
+// labels to participants (it would bias the control condition of the DRM
+// study). The server stopped sending vlmStatus/vlmLabel for the same reason.
 export interface SessionFrame {
   frameIndex: number;
   captureEpochMs: number;
-  vlmStatus: VlmStatus;
-  vlmLabel: string | null;
   // Path on the server (e.g. /frames/...); prefix with appConfig.serverUrl
   // and send the bearer token to load it.
   imageUrl: string;

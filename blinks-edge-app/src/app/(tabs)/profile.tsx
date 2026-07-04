@@ -8,6 +8,7 @@ import { AppTextInput } from "@/application/components/app-text-input";
 import { ScreenContainer } from "@/application/components/screen-container";
 import { colors, spacing } from "@/application/theme/theme";
 import { useCustomTabBarHeight } from "@/navigation/components/custom-tab-bar/utils/custom-tab-bar-hooks";
+import { OccupationCard } from "@/profile/components/occupation-card";
 import { useProfileModel } from "@/profile/model/use-profile-model";
 
 const ProfileScreen = () => {
@@ -37,6 +38,8 @@ const ProfileScreen = () => {
           <AppText variant="caption">Study participant</AppText>
         </View>
       </AppCard>
+
+      <OccupationCard />
 
       <AppCard style={styles.passwordCard}>
         <AppText variant="subheading">Change password</AppText>
