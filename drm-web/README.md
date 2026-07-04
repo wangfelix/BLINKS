@@ -35,26 +35,26 @@ server-side.
 
 ```bash
 npm install
-NEXT_PUBLIC_API_URL=http://localhost:3000 npm run dev   # http://localhost:3002
+npm run dev   # http://localhost:3002 (BLINKS API expected on :3000)
 ```
 
 - Dev server runs on port **3002** (3000 is the BLINKS API, 3001 is this app's
   production port, and Expo/Metro of the phone app tends to sit on 8081+).
-- `NEXT_PUBLIC_API_URL` points the app at the API during development. In
-  production it is unset: the app calls same-origin paths (`/api/...`,
-  `/frames/...`) and Apache routes them to the Node API (see below).
-- Note: browsers enforce CORS for cross-origin `fetch`; `localhost:3002` →
-  `localhost:3000` is same-site so the image cookie flows, but the JSON API
-  must be reachable without CORS errors. If the server does not send CORS
-  headers, either add them for dev or run this app behind the same origin as
-  the API.
+- **No CORS setup needed:** in dev, Next proxies `/api/*`, `/frames/*`, and
+  `/health` to the Express server (rewrites in `next.config.ts`), so the app
+  is same-origin in dev exactly like in production (where Apache does the
+  routing). Point the proxy elsewhere with `API_PROXY_TARGET`, e.g.
+  `API_PROXY_TARGET=http://127.0.0.1:3100 npm run dev`.
+- For clickable local test data (demo user, one control + one assisted day
+  with labeled frames), see `server/scripts/seed-demo-data.ts`.
 
 Env vars:
 
-| Variable              | Default          | Meaning                                              |
-| --------------------- | ---------------- | ---------------------------------------------------- |
-| `NEXT_PUBLIC_API_URL` | `""` (same origin) | API base URL; set for local dev only               |
-| `NEXT_PUBLIC_DRM_TZ`  | `Europe/Berlin`  | Study timezone; keep in sync with the server's `DRM_TZ` |
+| Variable              | Default                  | Meaning                                              |
+| --------------------- | ------------------------ | ---------------------------------------------------- |
+| `API_PROXY_TARGET`    | `http://127.0.0.1:3000`  | Dev-proxy target for `/api`, `/frames`, `/health`    |
+| `NEXT_PUBLIC_API_URL` | `""` (same origin)       | API base override; normally never needed             |
+| `NEXT_PUBLIC_DRM_TZ`  | `Europe/Berlin`          | Study timezone; keep in sync with the server's `DRM_TZ` |
 
 ## Build + run (production)
 
