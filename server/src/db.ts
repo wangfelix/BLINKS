@@ -1,5 +1,7 @@
 import Database from "better-sqlite3";
 
+import { dayKeyFromEpochMs, dayUtcRange } from "./time";
+
 // ===========================================================================
 // SQLite metadata store (recordings.db, WAL mode, via better-sqlite3).
 //
@@ -8,6 +10,11 @@ import Database from "better-sqlite3";
 // index over them, superseding the old per-session CSV, and the place the
 // separate VLM process later writes labels / descriptions / descriptors back.
 // See CLAUDE.md, "Storage and VLM metadata", for the rationale and full schema.
+//
+// DRM subproject additions: participants (occupation / condition plan / push
+// token), reconstructions (one per participant+day), activities (the
+// reconstruction unit), plus per-frame vlm_category and user_corrected_*
+// columns filled by propagating a submitted reconstruction onto its frames.
 // ===========================================================================
 
 // Inserted at ingestion time. The vlm_* columns are filled later by the VLM
@@ -25,7 +32,10 @@ export interface FrameInsert {
   jpeg_ok: number; // 0/1 from the SOI/EOI check
 }
 
-// Shape returned by the CSV export query.
+// Shape returned by the CSV export query. Deliberately NO vlm_* columns: the
+// export is participant-facing (bearer token), and a control-day participant
+// must never be able to obtain VLM output (the researcher reads recordings.db
+// directly on the VM for analysis).
 interface ExportRow {
   frame_index: number;
   capture_epoch_ms: number;
@@ -34,8 +44,6 @@ interface ExportRow {
   byte_length: number | null;
   jpeg_ok: number | null;
   file_path: string;
-  vlm_status: string;
-  vlm_label: string | null;
 }
 
 // Rows returned by the participant-facing read API.
@@ -47,12 +55,105 @@ export interface SessionRow {
   frame_count: number;
 }
 
+// Deliberately carries no vlm_* columns: the mobile app must never receive
+// VLM output (anti-leak for the DRM control condition).
 export interface FrameRow {
   frame_index: number;
   capture_epoch_ms: number;
+  file_path: string;
+}
+
+// --- DRM row shapes ---------------------------------------------------------
+
+export interface ParticipantRow {
+  username: string;
+  occupation: string | null;
+  work_description: string | null;
+  condition_plan: string; // JSON array of 'control'|'assisted'
+  push_token: string | null;
+  last_reminder_day: string | null;
+  last_followup_day: string | null;
+  created_at: number;
+  updated_at: number | null;
+}
+
+export interface ReconstructionRow {
+  participant: string;
+  day: string;
+  condition: string; // 'control'|'assisted'
+  status: string; // 'draft'|'submitted'
+  created_at: number;
+  submitted_at: number | null;
+}
+
+export interface ActivityRow {
+  id: number;
+  position: number;
+  start_ms: number;
+  end_ms: number;
+  raw_label: string | null;
+  category_label: string | null; // 'work'|'break'|'other'
+  source: string; // 'vlm'|'user'
+  vlm_raw_label: string | null;
+  vlm_category: string | null;
+}
+
+// Replace-all write shape; the DB layer assigns position from array order and
+// fills vlm_raw_label/vlm_category from a matching existing 'vlm' row (same
+// [start_ms, end_ms] span) unless the caller supplies them (generation path).
+export interface ActivityWriteInput {
+  start_ms: number;
+  end_ms: number;
+  raw_label: string | null;
+  category_label: string | null;
+  source: "vlm" | "user";
+  vlm_raw_label?: string | null;
+  vlm_category?: string | null;
+}
+
+// Per-day frame aggregate for /api/reconstruction/days.
+export interface DayAggregate {
+  day: string;
+  frameCount: number;
+  vlmPendingCount: number; // vlm_status IN ('pending','processing')
+}
+
+// Frame rows of one local day, for the reconstruction API + segmentation.
+export interface DayFrameRow {
+  capture_epoch_ms: number;
+  file_path: string;
+  face_status: string;
   vlm_status: string;
   vlm_label: string | null;
-  file_path: string;
+  vlm_category: string | null;
+}
+
+export const DEFAULT_CONDITION_PLAN = [
+  "control",
+  "control",
+  "assisted",
+  "assisted",
+];
+
+// Parses a participants.condition_plan JSON string, falling back to the
+// default plan on anything malformed (defensive: the column is provisioned
+// by create-user, but a hand-edited DB must not take the API down).
+export function parseConditionPlan(planJson: string | null | undefined): string[] {
+  if (planJson) {
+    try {
+      const parsed: unknown = JSON.parse(planJson);
+      if (
+        Array.isArray(parsed) &&
+        parsed.length > 0 &&
+        parsed.every((entry) => entry === "control" || entry === "assisted")
+      ) {
+        return parsed as string[];
+      }
+    } catch {
+      // fall through to the default plan
+    }
+  }
+  return [...DEFAULT_CONDITION_PLAN];
 }
 
 let db: Database.Database;
@@ -64,6 +165,36 @@ let getFrameStmt: Database.Statement;
 let deleteFrameStmt: Database.Statement;
 let maxFrameIndexStmt: Database.Statement;
 let frameStatusByPathStmt: Database.Statement;
+
+// DRM statements
+let getParticipantStmt: Database.Statement;
+let insertParticipantStmt: Database.Statement;
+let updateConditionPlanStmt: Database.Statement;
+let updateProfileStmt: Database.Statement;
+let updatePushTokenStmt: Database.Statement;
+let updateLastReminderDayStmt: Database.Statement;
+let updateLastFollowupDayStmt: Database.Statement;
+let listPushParticipantsStmt: Database.Statement;
+let frameDayStatsStmt: Database.Statement;
+let framesInRangeStmt: Database.Statement;
+let getReconstructionStmt: Database.Statement;
+let insertReconstructionStmt: Database.Statement;
+let markSubmittedStmt: Database.Statement;
+let listActivitiesStmt: Database.Statement;
+let listVlmSpanActivitiesStmt: Database.Statement;
+let deleteActivitiesStmt: Database.Statement;
+let insertActivityStmt: Database.Statement;
+let propagateCorrectionsStmt: Database.Statement;
+let replaceActivitiesTx: Database.Transaction<
+  (
+    participant: string,
+    day: string,
+    condition: string,
+    activities: ActivityWriteInput[],
+    submit: boolean,
+    now: number,
+  ) => number | null
+>;
 
 // Adds a column to the frames table only if it is missing, so an existing
 // recordings.db (written before the column was introduced) is upgraded in
@@ -103,6 +234,12 @@ export function initDb(dbPath: string): void {
       vlm_description   TEXT,
       vlm_descriptor    TEXT,
       vlm_completed_at  INTEGER,
+      -- DRM: per-frame work|break|other from the VLM worker, plus the labels
+      -- the participant's SUBMITTED reconstruction propagates back onto the
+      -- frames (NULL = never touched by a submitted reconstruction).
+      vlm_category      TEXT,
+      user_corrected_category_label TEXT,
+      user_corrected_activity_label TEXT,
       -- Face anonymization, filled by the separate face-blur worker (Python).
       -- Faces are pixelated in place BEFORE the frame is ever served; the read
       -- API only exposes frames whose face_status='done'.
@@ -135,6 +272,59 @@ export function initDb(dbPath: string): void {
       ON frames (capture_epoch_ms) WHERE face_status = 'pending';
   `);
 
+  // DRM migration (additive, same pattern as face_*): category + propagated
+  // user-corrected labels on frames, plus the participants / reconstructions /
+  // activities tables.
+  migrateAddColumn("vlm_category", "vlm_category TEXT");
+  migrateAddColumn(
+    "user_corrected_category_label",
+    "user_corrected_category_label TEXT",
+  );
+  migrateAddColumn(
+    "user_corrected_activity_label",
+    "user_corrected_activity_label TEXT",
+  );
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS participants (
+      username          TEXT PRIMARY KEY,
+      occupation        TEXT,
+      work_description  TEXT,
+      condition_plan    TEXT NOT NULL DEFAULT '["control","control","assisted","assisted"]',
+      push_token        TEXT,
+      last_reminder_day TEXT,
+      last_followup_day TEXT,
+      created_at        INTEGER NOT NULL,
+      updated_at        INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS reconstructions (
+      participant  TEXT NOT NULL,
+      day          TEXT NOT NULL,
+      condition    TEXT NOT NULL,
+      status       TEXT NOT NULL DEFAULT 'draft',
+      created_at   INTEGER NOT NULL,
+      submitted_at INTEGER,
+      PRIMARY KEY (participant, day)
+    );
+    CREATE TABLE IF NOT EXISTS activities (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      participant    TEXT NOT NULL,
+      day            TEXT NOT NULL,
+      position       INTEGER NOT NULL,
+      start_ms       INTEGER NOT NULL,
+      end_ms         INTEGER NOT NULL,
+      raw_label      TEXT,
+      category_label TEXT,
+      source         TEXT NOT NULL,
+      vlm_raw_label  TEXT,
+      vlm_category   TEXT,
+      created_at     INTEGER NOT NULL,
+      updated_at     INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_activities_day
+      ON activities (participant, day, position);
+  `);
+
   insertStmt = db.prepare(`
     INSERT INTO frames (
       participant, device, session, frame_index,
@@ -149,7 +339,7 @@ export function initDb(dbPath: string): void {
 
   exportStmt = db.prepare(`
     SELECT frame_index, capture_epoch_ms, received_epoch_ms, device_frame,
-           byte_length, jpeg_ok, file_path, vlm_status, vlm_label
+           byte_length, jpeg_ok, file_path
     FROM frames
     WHERE participant = @participant AND device = @device AND session = @session
     ORDER BY frame_index
@@ -170,7 +360,7 @@ export function initDb(dbPath: string): void {
   // processed / failed) in the face-blur worker is withheld so an unblurred
   // face is never listed or served.
   listFramesStmt = db.prepare(`
-    SELECT frame_index, capture_epoch_ms, vlm_status, vlm_label, file_path
+    SELECT frame_index, capture_epoch_ms, file_path
     FROM frames
     WHERE participant = ? AND device = ? AND session = ?
       AND face_status = 'done'
@@ -196,6 +386,190 @@ export function initDb(dbPath: string): void {
     SELECT face_status FROM frames
     WHERE participant = ? AND file_path = ?
   `);
+
+  // --- DRM statements --------------------------------------------------------
+
+  getParticipantStmt = db.prepare(`
+    SELECT username, occupation, work_description, condition_plan, push_token,
+           last_reminder_day, last_followup_day, created_at, updated_at
+    FROM participants WHERE username = ?
+  `);
+
+  insertParticipantStmt = db.prepare(`
+    INSERT OR IGNORE INTO participants (username, created_at) VALUES (?, ?)
+  `);
+
+  updateConditionPlanStmt = db.prepare(`
+    UPDATE participants SET condition_plan = ?, updated_at = ? WHERE username = ?
+  `);
+
+  updateProfileStmt = db.prepare(`
+    UPDATE participants
+    SET occupation = ?, work_description = ?, updated_at = ?
+    WHERE username = ?
+  `);
+
+  updatePushTokenStmt = db.prepare(`
+    UPDATE participants SET push_token = ?, updated_at = ? WHERE username = ?
+  `);
+
+  updateLastReminderDayStmt = db.prepare(`
+    UPDATE participants SET last_reminder_day = ? WHERE username = ?
+  `);
+
+  updateLastFollowupDayStmt = db.prepare(`
+    UPDATE participants SET last_followup_day = ? WHERE username = ?
+  `);
+
+  listPushParticipantsStmt = db.prepare(`
+    SELECT username, occupation, work_description, condition_plan, push_token,
+           last_reminder_day, last_followup_day, created_at, updated_at
+    FROM participants WHERE push_token IS NOT NULL
+  `);
+
+  frameDayStatsStmt = db.prepare(`
+    SELECT capture_epoch_ms, vlm_status, face_status FROM frames
+    WHERE participant = ?
+    ORDER BY capture_epoch_ms
+  `);
+
+  framesInRangeStmt = db.prepare(`
+    SELECT capture_epoch_ms, file_path, face_status, vlm_status, vlm_label,
+           vlm_category
+    FROM frames
+    WHERE participant = ? AND capture_epoch_ms BETWEEN ? AND ?
+    ORDER BY capture_epoch_ms
+  `);
+
+  getReconstructionStmt = db.prepare(`
+    SELECT participant, day, condition, status, created_at, submitted_at
+    FROM reconstructions WHERE participant = ? AND day = ?
+  `);
+
+  insertReconstructionStmt = db.prepare(`
+    INSERT OR IGNORE INTO reconstructions (participant, day, condition, status, created_at)
+    VALUES (?, ?, ?, 'draft', ?)
+  `);
+
+  markSubmittedStmt = db.prepare(`
+    UPDATE reconstructions SET status = 'submitted', submitted_at = ?
+    WHERE participant = ? AND day = ?
+  `);
+
+  listActivitiesStmt = db.prepare(`
+    SELECT id, position, start_ms, end_ms, raw_label, category_label, source,
+           vlm_raw_label, vlm_category
+    FROM activities
+    WHERE participant = ? AND day = ?
+    ORDER BY position
+  `);
+
+  listVlmSpanActivitiesStmt = db.prepare(`
+    SELECT start_ms, end_ms, vlm_raw_label, vlm_category
+    FROM activities
+    WHERE participant = ? AND day = ? AND source = 'vlm'
+  `);
+
+  deleteActivitiesStmt = db.prepare(`
+    DELETE FROM activities WHERE participant = ? AND day = ?
+  `);
+
+  insertActivityStmt = db.prepare(`
+    INSERT INTO activities (
+      participant, day, position, start_ms, end_ms,
+      raw_label, category_label, source, vlm_raw_label, vlm_category,
+      created_at, updated_at
+    ) VALUES (
+      @participant, @day, @position, @start_ms, @end_ms,
+      @raw_label, @category_label, @source, @vlm_raw_label, @vlm_category,
+      @created_at, @updated_at
+    )
+  `);
+
+  // Label-quality propagation (contract): a submitted activity stamps its
+  // labels onto every frame in its time span.
+  propagateCorrectionsStmt = db.prepare(`
+    UPDATE frames
+    SET user_corrected_category_label = ?, user_corrected_activity_label = ?
+    WHERE participant = ? AND capture_epoch_ms BETWEEN ? AND ?
+  `);
+
+  // Replace-all write for a day's activities. Draft saves and submissions
+  // share it; submit additionally locks the reconstruction and propagates the
+  // labels onto the frames — all atomically.
+  replaceActivitiesTx = db.transaction(
+    (
+      participant: string,
+      day: string,
+      condition: string,
+      activities: ActivityWriteInput[],
+      submit: boolean,
+      now: number,
+    ): number | null => {
+      // Snapshot the original VLM proposals before the delete, keyed by span,
+      // so unchanged spans keep their vlm_* provenance across saves.
+      const existingVlmRows = listVlmSpanActivitiesStmt.all(participant, day) as {
+        start_ms: number;
+        end_ms: number;
+        vlm_raw_label: string | null;
+        vlm_category: string | null;
+      }[];
+      const vlmBySpan = new Map(
+        existingVlmRows.map((row) => [`${row.start_ms}|${row.end_ms}`, row]),
+      );
+
+      deleteActivitiesStmt.run(participant, day);
+      activities.forEach((activity, position) => {
+        const matched = vlmBySpan.get(`${activity.start_ms}|${activity.end_ms}`);
+        insertActivityStmt.run({
+          participant,
+          day,
+          position,
+          start_ms: activity.start_ms,
+          end_ms: activity.end_ms,
+          raw_label: activity.raw_label,
+          category_label: activity.category_label,
+          source: activity.source,
+          vlm_raw_label: activity.vlm_raw_label ?? matched?.vlm_raw_label ?? null,
+          vlm_category: activity.vlm_category ?? matched?.vlm_category ?? null,
+          created_at: now,
+          updated_at: now,
+        });
+      });
+
+      insertReconstructionStmt.run(participant, day, condition, now);
+      if (!submit) return null;
+
+      markSubmittedStmt.run(now, participant, day);
+      // Defense in depth: the API validates every span against the day, but
+      // the propagation additionally clamps to the day's UTC range so a bug
+      // upstream can never rewrite another (possibly submitted) day's frames.
+      const { fromMs, toMs } = dayUtcRange(day);
+      for (const activity of activities) {
+        propagateCorrectionsStmt.run(
+          activity.category_label,
+          activity.raw_label,
+          participant,
+          Math.max(activity.start_ms, fromMs),
+          Math.min(activity.end_ms, toMs),
+        );
+      }
+      return now;
+    },
+  );
+}
+
+// Pins a day's condition the first time the participant opens it (INSERT OR
+// IGNORE = no-op when a row already exists). Without pinning, the condition
+// would keep deriving from the day's position among the participant's frame
+// days — mutable data: deleting an earlier day's frames could renumber the
+// days and silently flip an already-seen control day to assisted (or back).
+export function pinReconstructionCondition(
+  participant: string,
+  day: string,
+  condition: string,
+): void {
+  insertReconstructionStmt.run(participant, day, condition, Date.now());
 }
 
 export function listSessions(participant: string): SessionRow[] {
@@ -270,14 +644,148 @@ export interface ExportQuery {
   session: number;
 }
 
+// --- DRM: participants -------------------------------------------------------
+
+export function getParticipant(username: string): ParticipantRow | undefined {
+  return getParticipantStmt.get(username) as ParticipantRow | undefined;
+}
+
+// Creates the participants row if missing (condition_plan gets the schema
+// default); never touches an existing row.
+export function ensureParticipant(username: string): void {
+  insertParticipantStmt.run(username, Date.now());
+}
+
+export function setConditionPlan(username: string, planJson: string): void {
+  ensureParticipant(username);
+  updateConditionPlanStmt.run(planJson, Date.now(), username);
+}
+
+// Profile upsert: occupation + work description only — deliberately never
+// clobbers condition_plan (that is provisioning state, not profile state).
+export function upsertParticipantProfile(
+  username: string,
+  occupation: string,
+  workDescription: string,
+): void {
+  ensureParticipant(username);
+  updateProfileStmt.run(occupation, workDescription, Date.now(), username);
+}
+
+export function setPushToken(username: string, pushToken: string): void {
+  ensureParticipant(username);
+  updatePushTokenStmt.run(pushToken, Date.now(), username);
+}
+
+export function setLastReminderDay(username: string, day: string): void {
+  updateLastReminderDayStmt.run(day, username);
+}
+
+export function setLastFollowupDay(username: string, day: string): void {
+  updateLastFollowupDayStmt.run(day, username);
+}
+
+export function listPushParticipants(): ParticipantRow[] {
+  return listPushParticipantsStmt.all() as ParticipantRow[];
+}
+
+// --- DRM: day aggregation ----------------------------------------------------
+
+// Distinct local study days (>=1 frame) for a participant, ascending by day,
+// with frame + VLM-pending counts. Day keys are computed in the study TZ from
+// capture_epoch_ms (SQLite has no timezone support, so bucketing happens here;
+// a participant's whole study is a few thousand rows).
+export function aggregateFrameDays(participant: string): DayAggregate[] {
+  const rows = frameDayStatsStmt.all(participant) as {
+    capture_epoch_ms: number;
+    vlm_status: string;
+    face_status: string;
+  }[];
+  const byDay = new Map<string, DayAggregate>();
+  for (const row of rows) {
+    const day = dayKeyFromEpochMs(row.capture_epoch_ms);
+    let aggregate = byDay.get(day);
+    if (!aggregate) {
+      aggregate = { day, frameCount: 0, vlmPendingCount: 0 };
+      byDay.set(day, aggregate);
+    }
+    aggregate.frameCount += 1;
+    // A face_status='failed' frame can never become VLM-done (the VLM gate
+    // requires face 'done'), so it must not count as pending — otherwise one
+    // failed blur would keep an assisted day in "still processing" forever.
+    if (
+      (row.vlm_status === "pending" || row.vlm_status === "processing") &&
+      row.face_status !== "failed"
+    ) {
+      aggregate.vlmPendingCount += 1;
+    }
+  }
+  return Array.from(byDay.values()).sort((a, b) => (a.day < b.day ? -1 : 1));
+}
+
+// Every frame of one local day, ordered by capture time. A conservative UTC
+// range narrows the indexed scan; the exact local-day filter happens here.
+export function listFramesOnDay(
+  participant: string,
+  day: string,
+): DayFrameRow[] {
+  const { fromMs, toMs } = dayUtcRange(day);
+  const rows = framesInRangeStmt.all(participant, fromMs, toMs) as DayFrameRow[];
+  return rows.filter((row) => dayKeyFromEpochMs(row.capture_epoch_ms) === day);
+}
+
+export function countFramesOnDay(participant: string, day: string): number {
+  return listFramesOnDay(participant, day).length;
+}
+
+// --- DRM: reconstructions + activities ---------------------------------------
+
+export function getReconstruction(
+  participant: string,
+  day: string,
+): ReconstructionRow | undefined {
+  return getReconstructionStmt.get(participant, day) as
+    | ReconstructionRow
+    | undefined;
+}
+
+export function listActivities(
+  participant: string,
+  day: string,
+): ActivityRow[] {
+  return listActivitiesStmt.all(participant, day) as ActivityRow[];
+}
+
+// Atomic replace-all save of a day's activities (creates the reconstructions
+// row on first save). With submit=true also locks the reconstruction and
+// propagates each activity's labels onto the frames in its span; returns the
+// submitted_at timestamp (null for draft saves).
+export function replaceActivities(options: {
+  participant: string;
+  day: string;
+  condition: string;
+  activities: ActivityWriteInput[];
+  submit: boolean;
+}): { submittedAt: number | null } {
+  const submittedAt = replaceActivitiesTx(
+    options.participant,
+    options.day,
+    options.condition,
+    options.activities,
+    options.submit,
+    Date.now(),
+  );
+  return { submittedAt };
+}
+
 // Reconstructs a per-session CSV from the DB on demand (the DB is the live
 // index now). CaptureDatetime is intentionally dropped (derive it from
-// capture_epoch_ms if needed); vlm_status / vlm_label are included since they
-// are now part of the record.
+// capture_epoch_ms if needed). NO vlm_* columns: participant-facing output
+// must never carry VLM labels (DRM control-condition anti-leak; see ExportRow).
 export function exportFramesCsv(q: ExportQuery): string {
   const rows = exportStmt.all(q) as ExportRow[];
   const header =
-    "FrameIndex;CaptureEpochMs;ReceivedEpochMs;DeviceFrame;ByteLength;JpegOk;FilePath;VlmStatus;VlmLabel";
+    "FrameIndex;CaptureEpochMs;ReceivedEpochMs;DeviceFrame;ByteLength;JpegOk;FilePath";
   const lines = rows.map((r) =>
     [
       r.frame_index,
@@ -287,8 +795,6 @@ export function exportFramesCsv(q: ExportQuery): string {
       r.byte_length ?? "",
       r.jpeg_ok ?? "",
       r.file_path,
-      r.vlm_status,
-      r.vlm_label ?? "",
     ].join(";"),
   );
   return [header, ...lines].join("\n") + "\n";

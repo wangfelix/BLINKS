@@ -5,6 +5,12 @@ Language Model, and writes a per-image **scene-state descriptor** + label +
 description back to the row. This is the context layer the biosignal study aligns
 against and the source of change-point-detection features.
 
+For the **DRM subproject** it additionally classifies every frame into
+`work | break | other` (`vlm_category`) and picks the activity label from a
+curated vocabulary (`ACTIVITY_VOCABULARY`), conditioned on the participant's
+occupation + work description. See "What it writes" and "Occupation context"
+below.
+
 It is a **separate long-lived Python process**, never inline with WS ingestion —
 same rule as the face-blur worker. VLM latency or API errors can never cost a
 frame, and old sessions can be re-processed later with a better model or prompt.
@@ -75,19 +81,48 @@ already marked `done`.
 | `POLL_INTERVAL_S` | `3.0` | sleep between polls when the queue is empty |
 | `BATCH_SIZE` | `20` | rows claimed per poll |
 
-## What it writes (existing `vlm_*` columns)
+## What it writes (`vlm_*` columns)
 
 - `vlm_status`: `pending → processing → done` (or `failed` after retries)
 - `vlm_model`: the model name, so every pass is traceable
-- `vlm_label`: 2-5 word activity summary (shown in the app's History)
+- `vlm_label`: the model's `"activity"` — the closest entry from
+  `ACTIVITY_VOCABULARY` (in `vlm_worker.py`), or a concise 2-4 word label the
+  model coins when nothing in the list fits
+- `vlm_category`: `work | break | other` (DRM subproject). Anything the model
+  returns outside those three values is coerced to `other`. Semantics: `work` =
+  the participant's own occupation work (their occupation + work description
+  provide the context); `break` = intentional restorative pause ("erholsame
+  Pause": coffee, resting, deliberate walk, socializing to recover); `other` =
+  neither work nor restorative (chores, answering the door, errands, possibly
+  cooking).
 - `vlm_description`: one short sentence
 - `vlm_descriptor`: JSON of the scene-state dimensions —
   `posture, movement, screen_engagement, object_manipulation, proximity, social_interaction`
 
-The descriptor enums (in `vlm_worker.py`, `DESCRIPTOR_ENUMS`) are a **v1 starting
-point** — refine the taxonomy for the study as needed. They are deliberately
-small closed vocabularies (plus `unknown`) so the output is stable enough for
-downstream change-point detection.
+The **Node server owns the `vlm_category` migration** (`server/src/db.ts`
+`initDb`). If the column is missing (server not yet deployed/restarted with the
+DRM migration), the worker refuses to start with a clear message instead of
+failing every frame.
+
+The descriptor enums (`DESCRIPTOR_ENUMS`) and the activity vocabulary
+(`ACTIVITY_VOCABULARY`) in `vlm_worker.py` are a **v1 starting point** —
+**review and extend the activity vocabulary before the study** (it drives label
+consistency across participants and days) and refine the descriptor taxonomy as
+needed. They are deliberately small closed vocabularies so the output is stable
+enough for downstream analysis, with graceful escapes (`unknown` for descriptor
+dimensions, a coined label for activities).
+
+## Occupation context
+
+The `work` category is relative to the participant's own job, so the prompt
+includes their **occupation + work description** from the `participants` table
+in `recordings.db` (written by the Node server via `PUT /api/profile`; queried
+once per participant per batch). If the table, the row, or the values are
+missing, the prompt states the occupation is unknown — the worker never crashes
+over it. Frames processed before a participant filled in their profile keep the
+occupation-less classification; requeue them (`UPDATE frames SET
+vlm_status='pending' WHERE participant='...'`) if you want them re-classified
+with context.
 
 ## Operational notes
 

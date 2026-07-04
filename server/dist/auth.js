@@ -8,6 +8,7 @@ exports.issueToken = issueToken;
 exports.authenticateToken = authenticateToken;
 exports.participantFromAuthHeader = participantFromAuthHeader;
 exports.requireAuth = requireAuth;
+exports.requireAuthWithCookieFallback = requireAuthWithCookieFallback;
 exports.verifyUserPassword = verifyUserPassword;
 const argon2_1 = __importDefault(require("argon2"));
 const crypto_1 = __importDefault(require("crypto"));
@@ -43,6 +44,43 @@ function participantFromAuthHeader(headerValue) {
 }
 function requireAuth(req, res, next) {
     const participant = participantFromAuthHeader(req.headers.authorization);
+    if (!participant) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+    }
+    req.participant = participant;
+    next();
+}
+// Extracts the blinks_token cookie value from a raw Cookie header. Parsed by
+// hand (no cookie-parser dependency): split on ';', first '=' separates name
+// from value.
+const tokenFromCookieHeader = (cookieHeader) => {
+    if (!cookieHeader)
+        return undefined;
+    for (const part of cookieHeader.split(";")) {
+        const separatorIndex = part.indexOf("=");
+        if (separatorIndex === -1)
+            continue;
+        const name = part.slice(0, separatorIndex).trim();
+        if (name !== "blinks_token")
+            continue;
+        const rawValue = part.slice(separatorIndex + 1).trim();
+        try {
+            return decodeURIComponent(rawValue);
+        }
+        catch {
+            return rawValue;
+        }
+    }
+    return undefined;
+};
+// Like requireAuth, but additionally accepts the token from a blinks_token
+// cookie. ONLY for GET /frames/* image serving: the DRM website renders the
+// frames via <img> tags, which cannot send an Authorization header. JSON APIs
+// stay header-only (CSRF hygiene: a cookie must never authorize a mutation).
+function requireAuthWithCookieFallback(req, res, next) {
+    const participant = participantFromAuthHeader(req.headers.authorization) ??
+        authenticateToken(tokenFromCookieHeader(req.headers.cookie));
     if (!participant) {
         res.status(401).json({ error: "unauthorized" });
         return;

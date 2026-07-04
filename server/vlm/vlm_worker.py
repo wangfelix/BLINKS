@@ -7,6 +7,14 @@ described (vlm_status='pending' AND face_status='done'), sends each JPEG to a
 Vision Language Model, and writes a per-image scene-state descriptor + label +
 description back to the row.
 
+DRM subproject additions (2026-07): per frame the model now also returns
+  - "activity": the closest entry from ACTIVITY_VOCABULARY (or a coined concise
+    label if nothing fits) -> written to vlm_label
+  - "category": 'work' | 'break' | 'other'                 -> written to vlm_category
+Classification is conditioned on the participant's occupation + work description
+(read from the participants table, which the Node server owns; if the table or
+the row is missing the prompt states the occupation is unknown).
+
 Same design rule as the face-blur worker: a separate long-lived process, never
 inline with WS ingestion, so VLM latency / API errors can never cost a frame and
 old sessions can be re-processed later with a better model or prompt.
@@ -18,7 +26,7 @@ old sessions can be re-processed later with a better model or prompt.
                                       |
                                       v
                                [this worker]  vlm_status pending->done
-                                              writes vlm_label/description/descriptor
+                                              writes vlm_label/category/description/descriptor
 
 THE ORDERING GATE IS A COLUMN, NOT A LOCK. Both workers run as independent
 daemons in parallel; this one simply never selects a frame until
@@ -95,6 +103,78 @@ VLM_MAX_RETRIES = int(os.environ.get("VLM_MAX_RETRIES", "3"))
 POLL_INTERVAL_S = float(os.environ.get("POLL_INTERVAL_S", "3.0"))
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "20"))
 
+# --- Activity vocabulary (v1) ------------------------------------------------
+# RESEARCHER NOTE: review and extend this list BEFORE the study. It is the
+# closed(ish) vocabulary the VLM picks the per-frame "activity" from (the model
+# may coin a concise 2-4 word label when nothing here fits, so gaps degrade
+# gracefully, but a curated list keeps labels consistent across participants
+# and days). Short lowercase noun phrases only.
+ACTIVITY_VOCABULARY = [
+    # computer work
+    "computer work",
+    "email or messaging",
+    "browsing the web",
+    "coding or data analysis",
+    "preparing slides or documents",
+    # meetings
+    "in-person meeting",
+    "video meeting",
+    "presentation or lecture",
+    # calls
+    "phone call",
+    # reading / writing
+    "reading printed material",
+    "reading on a screen",
+    "writing by hand",
+    # eating / drinking
+    "eating a meal",
+    "snacking",
+    "drinking coffee or tea",
+    # resting
+    "resting with eyes open",
+    "napping or lying down",
+    "sitting and relaxing",
+    # walking / exercise
+    "walking indoors",
+    "walking outdoors",
+    "exercising or stretching",
+    # socializing
+    "casual conversation",
+    "coffee break with others",
+    "social gathering",
+    # phone / entertainment
+    "using phone",
+    "watching tv or videos",
+    "playing games",
+    "listening to music or podcast",
+    # cooking
+    "cooking or preparing food",
+    "setting or clearing the table",
+    # chores / errands
+    "cleaning or tidying",
+    "laundry or dishes",
+    "shopping or errands",
+    "answering the door",
+    "organizing belongings",
+    # hygiene / dressing
+    "personal hygiene",
+    "getting dressed",
+    # commuting
+    "commuting by car",
+    "commuting by public transport",
+    "cycling",
+    # childcare / pets
+    "childcare",
+    "caring for pets",
+    # unclear or transition
+    "transitioning between activities",
+    "unclear activity",
+]
+
+# The three-way DRM category. Anything the model returns outside this set is
+# coerced to 'other' (never fails a frame over a category typo).
+VLM_CATEGORIES = ("work", "break", "other")
+
 # --- Scene-state descriptor schema (v1) -------------------------------------
 # Each dimension is a small closed vocabulary so the output is consistent enough
 # to feed change-point detection downstream. "unknown" is always allowed so a
@@ -119,22 +199,40 @@ SYSTEM_PROMPT = (
 )
 
 
-def _build_user_prompt() -> str:
+def _build_user_prompt(occupation: str | None, work_description: str | None) -> str:
+    """The per-participant user prompt (occupation context varies per participant)."""
     enums = "\n".join(
         f'  "{k}": one of {v}' for k, v in DESCRIPTOR_ENUMS.items()
     )
+    vocabulary = "; ".join(ACTIVITY_VOCABULARY)
+    occupation = (occupation or "").strip()
+    work_description = (work_description or "").strip()
+    if occupation:
+        occupation_context = f"The camera wearer's occupation: {occupation}."
+        if work_description:
+            occupation_context += f" Description of their work: {work_description}."
+    else:
+        occupation_context = "The camera wearer's occupation is unknown."
     return (
+        f"{occupation_context}\n\n"
         "Describe this scene and return STRICT JSON only (no prose, no code "
         "fences) with exactly these keys:\n"
         '  "label": a 2-5 word activity summary (string)\n'
         '  "description": one short sentence about the scene (string)\n'
+        '  "activity": the single closest activity from this list: '
+        f"{vocabulary}. "
+        "If nothing in the list fits, coin a concise 2-4 word label instead.\n"
+        '  "category": one of ["work", "break", "other"]. '
+        '"work" = the wearer\'s own occupation work (their occupation and work '
+        "description above provide the context for what counts as work). "
+        '"break" = an intentional restorative pause ("erholsame Pause": coffee, '
+        "resting, a deliberate walk, socializing to recover). "
+        '"other" = neither work nor restorative (chores, answering the door, '
+        "errands, possibly cooking).\n"
         f"{enums}\n"
         "Pick the single best value for each dimension; use \"unknown\" only "
         "when the frame is genuinely ambiguous."
     )
-
-
-USER_PROMPT = _build_user_prompt()
 
 _shutdown = False
 
@@ -165,18 +263,33 @@ def _extract_json_object(text: str) -> dict:
 
 
 def _normalize(raw: dict) -> dict:
-    """Coerce the model's JSON into our fixed shape (label, description, dims)."""
+    """Coerce the model's JSON into our fixed shape (activity, category, description, dims)."""
     label = str(raw.get("label", "")).strip()[:200]
     description = str(raw.get("description", "")).strip()[:1000]
+    # "activity" is what goes into vlm_label; fall back to the generic scene
+    # summary if the model omitted it, so a frame never ends up label-less.
+    activity = str(raw.get("activity", "")).strip()[:200] or label
+    category = str(raw.get("category", "")).strip().lower()
+    if category not in VLM_CATEGORIES:
+        category = "other"
     descriptor = {}
     for key, allowed in DESCRIPTOR_ENUMS.items():
         value = str(raw.get(key, "unknown")).strip().lower()
         descriptor[key] = value if value in allowed else "unknown"
-    return {"label": label, "description": description, "descriptor": descriptor}
+    return {
+        "label": label,
+        "description": description,
+        "activity": activity,
+        "category": category,
+        "descriptor": descriptor,
+    }
 
 
-def infer(client: OpenAI, image_bytes: bytes) -> dict:
-    """One VLM call -> normalized {label, description, descriptor}. Raises on failure."""
+def infer(client: OpenAI, image_bytes: bytes, user_prompt: str) -> dict:
+    """One VLM call -> normalized {label, description, activity, category, descriptor}.
+
+    Raises on failure. `user_prompt` is per-participant (occupation context).
+    """
     b64 = base64.b64encode(image_bytes).decode("ascii")
     response = client.chat.completions.create(
         model=VLM_MODEL,
@@ -186,7 +299,7 @@ def infer(client: OpenAI, image_bytes: bytes) -> dict:
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": USER_PROMPT},
+                    {"type": "text", "text": user_prompt},
                     {
                         "type": "image_url",
                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
@@ -208,6 +321,51 @@ def _connect() -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA busy_timeout = 5000")
     return conn
+
+
+def _ensure_vlm_category_column(conn: sqlite3.Connection) -> bool:
+    """Fail fast, with a clear message instead of a stack trace, if the
+    frames.vlm_category column is missing.
+
+    The Node server owns the migration (server/src/db.ts initDb ALTERs the
+    column in on startup, same additive pattern as the face_* columns); this
+    worker only writes the column. Returns False when the frames table itself
+    does not exist yet (fresh DB, server not started) so the caller can keep
+    polling instead of dying.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(frames)")}
+    if not columns:
+        return False  # no frames table yet; the normal "db not ready" path applies
+    if "vlm_category" not in columns:
+        _log(
+            "FATAL: frames.vlm_category column is missing in recordings.db. "
+            "The Node server owns this migration (server/src/db.ts initDb) - "
+            "deploy and start the updated server once so it adds the column, "
+            "then restart this worker."
+        )
+        sys.exit(2)
+    return True
+
+
+def _fetch_participant_context(
+    conn: sqlite3.Connection, participant: str
+) -> tuple[str | None, str | None]:
+    """(occupation, work_description) from the participants table.
+
+    The table is owned by the Node server and may not exist yet on an older
+    deployment; treat any schema error, a missing row, or NULL columns as
+    "occupation unknown" instead of crashing.
+    """
+    try:
+        row = conn.execute(
+            "SELECT occupation, work_description FROM participants WHERE username = ?",
+            (participant,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return (None, None)  # participants table not migrated in yet
+    if row is None:
+        return (None, None)
+    return (row["occupation"], row["work_description"])
 
 
 def _reclaim_stale_processing(conn: sqlite3.Connection) -> int:
@@ -252,13 +410,14 @@ def _write_result(conn: sqlite3.Connection, row: sqlite3.Row, result: dict) -> N
     conn.execute(
         """
         UPDATE frames
-        SET vlm_status = 'done', vlm_model = ?, vlm_label = ?,
+        SET vlm_status = 'done', vlm_model = ?, vlm_label = ?, vlm_category = ?,
             vlm_description = ?, vlm_descriptor = ?, vlm_completed_at = ?
         WHERE participant = ? AND device = ? AND session = ? AND frame_index = ?
         """,
         (
             VLM_MODEL,
-            result["label"],
+            result["activity"],
+            result["category"],
             result["description"],
             json.dumps(result["descriptor"], separators=(",", ":")),
             int(time.time() * 1000),
@@ -284,7 +443,9 @@ def _mark_failed(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
 
 # --- Worker -----------------------------------------------------------------
 
-def process_frame(conn: sqlite3.Connection, client: OpenAI, row: sqlite3.Row) -> bool:
+def process_frame(
+    conn: sqlite3.Connection, client: OpenAI, row: sqlite3.Row, user_prompt: str
+) -> bool:
     abs_path = RECORDINGS_DIR / row["file_path"]
     try:
         image_bytes = abs_path.read_bytes()
@@ -298,9 +459,12 @@ def process_frame(conn: sqlite3.Connection, client: OpenAI, row: sqlite3.Row) ->
         if _shutdown:
             return False
         try:
-            result = infer(client, image_bytes)
+            result = infer(client, image_bytes, user_prompt)
             _write_result(conn, row, result)
-            _log(f"done {row['file_path']} -> {result['label']!r}")
+            _log(
+                f"done {row['file_path']} -> "
+                f"{result['activity']!r} [{result['category']}]"
+            )
             return True
         except Exception as exc:  # noqa: BLE001 - API or parse error; retry then fail
             last_err = exc
@@ -322,12 +486,15 @@ def run(once: bool, max_frames: int | None) -> None:
     _log(f"model={VLM_MODEL} via {KIT_BASE_URL}")
     client = OpenAI(api_key=KIT_API_KEY, base_url=KIT_BASE_URL, timeout=VLM_TIMEOUT, max_retries=0)
 
+    schema_checked = False
     if RECORDINGS_DB.exists():
         conn = _connect()
-        reclaimed = _reclaim_stale_processing(conn)
+        schema_checked = _ensure_vlm_category_column(conn)  # exits with a clear message if the column is missing
+        if schema_checked:
+            reclaimed = _reclaim_stale_processing(conn)
+            if reclaimed:
+                _log(f"reclaimed {reclaimed} interrupted 'processing' row(s)")
         conn.close()
-        if reclaimed:
-            _log(f"reclaimed {reclaimed} interrupted 'processing' row(s)")
 
     processed = 0
     while not _shutdown:
@@ -335,6 +502,12 @@ def run(once: bool, max_frames: int | None) -> None:
             time.sleep(POLL_INTERVAL_S)
             continue
         conn = _connect()
+        if not schema_checked:
+            schema_checked = _ensure_vlm_category_column(conn)
+            if not schema_checked:
+                conn.close()
+                time.sleep(POLL_INTERVAL_S)
+                continue
         try:
             rows = _claim_batch(conn, BATCH_SIZE)
         except sqlite3.OperationalError as exc:
@@ -350,10 +523,17 @@ def run(once: bool, max_frames: int | None) -> None:
             time.sleep(POLL_INTERVAL_S)
             continue
 
+        # Occupation context is per participant; cache the built prompt per
+        # batch (one extra participants-table query per distinct participant).
+        prompt_cache: dict[str, str] = {}
         for row in rows:
             if _shutdown:
                 break
-            process_frame(conn, client, row)
+            participant = row["participant"]
+            if participant not in prompt_cache:
+                occupation, work_description = _fetch_participant_context(conn, participant)
+                prompt_cache[participant] = _build_user_prompt(occupation, work_description)
+            process_frame(conn, client, row, prompt_cache[participant])
             processed += 1
             if max_frames is not None and processed >= max_frames:
                 break
