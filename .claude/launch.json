@@ -3,8 +3,15 @@
   "configurations": [
     {
       "name": "drm-web",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "drm-web", "run", "dev"],
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PATH=/Users/felixwang/.nvm/versions/node/v22.22.0/bin:/usr/bin:/bin",
+        "npm",
+        "--prefix",
+        "drm-web",
+        "run",
+        "dev"
+      ],
       "port": 3002
     }
   ]
