@@ -4,7 +4,7 @@ import "./globals.css";
 import { Providers } from "@/components/providers";
 
 export const metadata: Metadata = {
-  title: "BLINKS — Day Reconstruction",
+  title: "BLINKS — Day Reconstruction Study",
   description:
     "Evening day reconstruction for the BLINKS study (KIT, KD2School / KD2Lab).",
 };

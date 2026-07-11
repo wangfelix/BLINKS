@@ -48,9 +48,10 @@ export const AssistedActivityRow = ({
   return (
     <div className="space-y-3 rounded-xl border bg-card p-4 shadow-xs">
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-sm font-medium tabular-nums">
+        <span className="text-sm font-medium tabular-nums">
           {formatTimeSpan(startMs, endMs)}
         </span>
+
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="sm" onClick={onAdjustBoundaries}>
             Adjust times

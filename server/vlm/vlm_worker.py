@@ -54,16 +54,27 @@ Config (environment variables; a local .env next to this file is auto-loaded):
     VLM_TEMPERATURE   sampling temperature        (default: 0.1)
     VLM_MAX_RETRIES   retries per frame on API/parse error (default: 3)
     POLL_INTERVAL_S   sleep between polls when the queue is empty (default: 3.0)
-    BATCH_SIZE        rows fetched per poll       (default: 20)
+    BATCH_SIZE        rows claimed per poll       (default: 20)
+    VLM_CONCURRENCY   endpoint calls in flight at once (default: 8)
+    DRM_TZ            study timezone for current-day-first ordering
+                        (default: Europe/Berlin; match the server's DRM_TZ)
 
 CLI:
     python vlm_worker.py            # daemon: poll forever
     python vlm_worker.py --once     # process the current backlog, then exit
     python vlm_worker.py --max 50   # stop after N frames (testing)
 
-Single-worker assumption: on startup any row left in 'processing' (from a crash)
-is reclaimed to 'pending'. If you ever run more than one VLM worker at once,
-switch to a time-based reclaim instead.
+Concurrency: the VLM endpoint calls are I/O-bound, so within one process the
+worker runs up to VLM_CONCURRENCY of them in parallel (a thread pool); the
+endpoint was measured to parallelize cleanly with no rate-limit wall or latency
+penalty at 8. Only the network calls run in threads — every DB read/write stays
+on the main thread (a sqlite3 connection is not shareable across threads), so
+there are no concurrent-write hazards and the batch claim stays atomic.
+
+Single-worker assumption (still one PROCESS): on startup any row left in
+'processing' (from a crash) is reclaimed to 'pending'. Scale via VLM_CONCURRENCY,
+NOT by launching multiple processes — a second process would need an atomic
+claim and a time-based (not startup-blanket) reclaim, which are not built.
 """
 
 from __future__ import annotations
@@ -76,7 +87,10 @@ import signal
 import sqlite3
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -101,6 +115,10 @@ VLM_TIMEOUT = float(os.environ.get("VLM_TIMEOUT", "60"))
 VLM_TEMPERATURE = float(os.environ.get("VLM_TEMPERATURE", "0.1"))
 VLM_MAX_RETRIES = int(os.environ.get("VLM_MAX_RETRIES", "3"))
 POLL_INTERVAL_S = float(os.environ.get("POLL_INTERVAL_S", "3.0"))
+VLM_CONCURRENCY = max(1, int(os.environ.get("VLM_CONCURRENCY", "8")))
+# Study timezone, matching the server's DRM_TZ, so "today" agrees with the
+# reconstruction gate. Drives current-day-first claim ordering.
+DRM_TZ = os.environ.get("DRM_TZ", "Europe/Berlin")
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "20"))
 
 # --- Activity vocabulary (v1) ------------------------------------------------
@@ -377,23 +395,52 @@ def _reclaim_stale_processing(conn: sqlite3.Connection) -> int:
     return info.rowcount
 
 
+def _today_start_ms() -> int | None:
+    """Epoch ms of local midnight today in DRM_TZ, or None if TZ data is missing."""
+    try:
+        now_local = datetime.now(ZoneInfo(DRM_TZ))
+    except Exception:  # noqa: BLE001 - unknown zone / missing tzdata
+        return None
+    midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(midnight.timestamp() * 1000)
+
+
 def _claim_batch(conn: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
     """Atomically mark up to `limit` ready frames 'processing' and return them.
 
     Ready = anonymized (face_status='done') and not yet described. Claiming up
     front means a crash mid-call leaves them 'processing' (reclaimed on restart)
     rather than silently re-billed.
+
+    Ordering is current-day-first: today's frames (in DRM_TZ) are processed
+    before any older backlog, so an evening reconstruction is never stuck behind
+    days of catch-up; within each group it's oldest-first, so the oldest
+    still-incomplete day is what finishes next. If TZ data is unavailable it
+    degrades to newest-first, which still puts today ahead of older days.
     """
-    rows = conn.execute(
-        """
-        SELECT participant, device, session, frame_index, file_path
-        FROM frames
-        WHERE vlm_status = 'pending' AND face_status = 'done'
-        ORDER BY capture_epoch_ms
-        LIMIT ?
-        """,
-        (limit,),
-    ).fetchall()
+    today_start = _today_start_ms()
+    if today_start is not None:
+        rows = conn.execute(
+            """
+            SELECT participant, device, session, frame_index, file_path
+            FROM frames
+            WHERE vlm_status = 'pending' AND face_status = 'done'
+            ORDER BY (capture_epoch_ms >= ?) DESC, capture_epoch_ms ASC
+            LIMIT ?
+            """,
+            (today_start, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT participant, device, session, frame_index, file_path
+            FROM frames
+            WHERE vlm_status = 'pending' AND face_status = 'done'
+            ORDER BY capture_epoch_ms DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
     for row in rows:
         conn.execute(
             """
@@ -443,37 +490,66 @@ def _mark_failed(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
 
 # --- Worker -----------------------------------------------------------------
 
-def process_frame(
-    conn: sqlite3.Connection, client: OpenAI, row: sqlite3.Row, user_prompt: str
-) -> bool:
+# Runs in a worker thread: reads the image and calls the endpoint (with retry).
+# Deliberately does NO database access — the sqlite3 connection lives on the
+# main thread, which writes the outcome this returns. Returns one of:
+#   ("done", result_dict) | ("failed", reason_str) | ("skip", reason_str)
+def _infer_frame(
+    client: OpenAI, row: sqlite3.Row, user_prompt: str
+) -> tuple[str, object]:
     abs_path = RECORDINGS_DIR / row["file_path"]
     try:
         image_bytes = abs_path.read_bytes()
     except OSError as exc:
-        _log(f"FAILED unreadable {row['file_path']}: {exc}")
-        _mark_failed(conn, row)
-        return False
+        return ("failed", f"unreadable {row['file_path']}: {exc}")
 
     last_err = None
     for attempt in range(1, VLM_MAX_RETRIES + 1):
         if _shutdown:
-            return False
+            return ("skip", "shutdown")
         try:
-            result = infer(client, image_bytes, user_prompt)
-            _write_result(conn, row, result)
-            _log(
-                f"done {row['file_path']} -> "
-                f"{result['activity']!r} [{result['category']}]"
-            )
-            return True
+            return ("done", infer(client, image_bytes, user_prompt))
         except Exception as exc:  # noqa: BLE001 - API or parse error; retry then fail
             last_err = exc
             if attempt < VLM_MAX_RETRIES:
                 time.sleep(min(2 ** attempt, 10))  # 2s, 4s, 8s backoff
 
-    _log(f"FAILED {row['file_path']} after {VLM_MAX_RETRIES} tries: {repr(last_err)[:200]}")
-    _mark_failed(conn, row)
-    return False
+    return ("failed", f"after {VLM_MAX_RETRIES} tries: {repr(last_err)[:200]}")
+
+
+# Main thread: run a claimed batch through the endpoint VLM_CONCURRENCY-at-a-time
+# and persist each outcome as it returns. Returns how many rows reached a
+# terminal state (done/failed); 'skip' rows (shutdown mid-flight) are left
+# 'processing' and reclaimed on the next start. All DB writes happen here.
+def _process_batch(
+    conn: sqlite3.Connection,
+    client: OpenAI,
+    rows: list[sqlite3.Row],
+    prompt_cache: dict[str, str],
+) -> int:
+    settled = 0
+    with ThreadPoolExecutor(max_workers=VLM_CONCURRENCY) as pool:
+        future_to_row = {
+            pool.submit(_infer_frame, client, row, prompt_cache[row["participant"]]): row
+            for row in rows
+        }
+        for future in as_completed(future_to_row):
+            row = future_to_row[future]
+            status, payload = future.result()
+            if status == "done":
+                result = payload  # type: ignore[assignment]
+                _write_result(conn, row, result)
+                _log(
+                    f"done {row['file_path']} -> "
+                    f"{result['activity']!r} [{result['category']}]"
+                )
+                settled += 1
+            elif status == "failed":
+                _log(f"FAILED {row['file_path']} {payload}")
+                _mark_failed(conn, row)
+                settled += 1
+            # status == "skip": leave 'processing' for the startup reclaim
+    return settled
 
 
 def run(once: bool, max_frames: int | None) -> None:
@@ -484,6 +560,7 @@ def run(once: bool, max_frames: int | None) -> None:
     _log(f"db={RECORDINGS_DB}")
     _log(f"recordings={RECORDINGS_DIR}")
     _log(f"model={VLM_MODEL} via {KIT_BASE_URL}")
+    _log(f"concurrency={VLM_CONCURRENCY} (in-flight endpoint calls), batch={BATCH_SIZE}")
     client = OpenAI(api_key=KIT_API_KEY, base_url=KIT_BASE_URL, timeout=VLM_TIMEOUT, max_retries=0)
 
     schema_checked = False
@@ -508,8 +585,17 @@ def run(once: bool, max_frames: int | None) -> None:
                 conn.close()
                 time.sleep(POLL_INTERVAL_S)
                 continue
+        # Never claim more than --max still allows, so a capped run leaves no
+        # extra rows stranded in 'processing'.
+        claim_limit = BATCH_SIZE
+        if max_frames is not None:
+            claim_limit = min(BATCH_SIZE, max_frames - processed)
+            if claim_limit <= 0:
+                conn.close()
+                break
+
         try:
-            rows = _claim_batch(conn, BATCH_SIZE)
+            rows = _claim_batch(conn, claim_limit)
         except sqlite3.OperationalError as exc:
             _log(f"db not ready ({exc}); retrying")
             conn.close()
@@ -525,18 +611,15 @@ def run(once: bool, max_frames: int | None) -> None:
 
         # Occupation context is per participant; cache the built prompt per
         # batch (one extra participants-table query per distinct participant).
+        # Built here on the main thread — the pool tasks only read this dict.
         prompt_cache: dict[str, str] = {}
         for row in rows:
-            if _shutdown:
-                break
             participant = row["participant"]
             if participant not in prompt_cache:
                 occupation, work_description = _fetch_participant_context(conn, participant)
                 prompt_cache[participant] = _build_user_prompt(occupation, work_description)
-            process_frame(conn, client, row, prompt_cache[participant])
-            processed += 1
-            if max_frames is not None and processed >= max_frames:
-                break
+
+        processed += _process_batch(conn, client, rows, prompt_cache)
         conn.close()
 
         if max_frames is not None and processed >= max_frames:

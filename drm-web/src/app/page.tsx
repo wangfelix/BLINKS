@@ -48,10 +48,10 @@ const LandingPage = () => {
       <div className="w-full max-w-md space-y-6">
         <div className="space-y-2 text-center">
           <p className="text-xs font-medium tracking-widest text-muted-foreground uppercase">
-            Karlsruhe Institute of Technology · KD2Lab
+            Karlsruhe Institute of Technology
           </p>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            BLINKS — Day Reconstruction
+          <h1 className="text-2xl tracking-tight">
+            BLINKS — Day Reconstruction Study
           </h1>
           <p className="text-sm leading-relaxed text-muted-foreground">
             Each evening of the study, please reconstruct your day as a
@@ -120,7 +120,14 @@ const LandingPage = () => {
         </Card>
 
         <p className="text-center text-xs text-muted-foreground">
-          Questions or trouble signing in? Contact the study team.
+          Questions or trouble signing in?{" "}
+          <a
+            href="mailto:felix-wang@outlook.de"
+            className="underline hover:text-foreground transition-colors"
+          >
+            Contact
+          </a>
+          {" "}the study team.
         </p>
       </div>
     </main>

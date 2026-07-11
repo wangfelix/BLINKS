@@ -167,8 +167,8 @@ const ReconstructContent = () => {
     <main className="mx-auto w-full max-w-4xl flex-1 space-y-6 px-4 py-8">
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-xs font-medium tracking-widest text-muted-foreground uppercase">
-            BLINKS — Day Reconstruction
+          <p className="text-xs font-medium tracking-widest text-muted-foreground">
+            BLINKS — Day Reconstruction Study
           </p>
           <h1 className="text-xl font-semibold tracking-tight">
             Reconstruct your day

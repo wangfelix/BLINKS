@@ -50,7 +50,7 @@ export const ReadOnlyActivityList = ({
             className="space-y-3 rounded-xl border bg-card p-4"
           >
             <div className="flex flex-wrap items-center gap-3">
-              <span className="font-mono text-sm font-medium tabular-nums">
+              <span className="text-sm font-medium tabular-nums">
                 {formatTimeSpan(activity.startMs, activity.endMs)}
               </span>
               <span className="flex-1 text-sm">

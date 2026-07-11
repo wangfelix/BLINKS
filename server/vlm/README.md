@@ -80,6 +80,30 @@ already marked `done`.
 | `VLM_MAX_RETRIES` | `3` | retries per frame on API/parse error before marking `failed` |
 | `POLL_INTERVAL_S` | `3.0` | sleep between polls when the queue is empty |
 | `BATCH_SIZE` | `20` | rows claimed per poll |
+| `VLM_CONCURRENCY` | `8` | endpoint calls in flight at once (in-process thread pool) |
+| `DRM_TZ` | `Europe/Berlin` | study timezone for current-day-first ordering (match the server) |
+
+### Claim ordering (current-day-first)
+
+Frames are claimed **today-first** (today in `DRM_TZ`) so an evening
+reconstruction is never stuck behind days of catch-up; within the backlog it's
+oldest-first, so the oldest still-incomplete day is what finishes next. If TZ
+data is unavailable it degrades to newest-first (still today-before-older).
+
+### Throughput / concurrency
+
+The endpoint calls are I/O-bound, so the worker runs up to `VLM_CONCURRENCY`
+of them in parallel within the single process (a thread pool). Only the network
+calls run in threads; every DB read/write stays on the main thread (a `sqlite3`
+connection is not shareable across threads), so the batch claim stays atomic and
+there are no concurrent-write hazards. The KIT Gemma endpoint was measured to
+parallelize cleanly with no rate-limit wall or latency penalty at 8 concurrent.
+
+**Scale with `VLM_CONCURRENCY`, not by launching multiple processes.** A second
+process would double-process rows (the claim is a non-atomic select-then-update)
+and its startup reclaim would reset the first process's in-flight rows. If you
+ever truly need multiple processes, first switch to an atomic claim
+(`UPDATE ... WHERE vlm_status='pending' ... RETURNING`) and a time-based reclaim.
 
 ## What it writes (`vlm_*` columns)
 
