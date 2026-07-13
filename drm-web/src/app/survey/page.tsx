@@ -25,11 +25,11 @@ const SurveyContent = () => {
     <main className="flex flex-1 items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Daily questionnaire</CardTitle>
+          <CardTitle>Final questionnaire</CardTitle>
           <CardDescription>
-            Thank you — your reconstruction has been submitted. To finish
-            today&apos;s session, please complete the short daily
-            questionnaire. It opens in a new tab; come back here afterwards.
+            Thank you — both steps of your reconstruction are submitted. To
+            finish the evening, please complete the questionnaire. It opens
+            in a new tab; come back here afterwards.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">

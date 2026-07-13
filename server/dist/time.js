@@ -10,6 +10,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.dayKeyFromEpochMs = dayKeyFromEpochMs;
 exports.currentLocalHour = currentLocalHour;
+exports.currentLocalMinutes = currentLocalMinutes;
+exports.timeOfDayToMinutes = timeOfDayToMinutes;
 exports.todayKey = todayKey;
 exports.dayUtcRange = dayUtcRange;
 const DRM_TZ = process.env.DRM_TZ ?? "Europe/Berlin";
@@ -26,14 +28,33 @@ const hourFormatter = new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
     hourCycle: "h23",
 });
+const hourMinuteFormatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: DRM_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+});
 // Local calendar date (YYYY-MM-DD) of an epoch-ms instant in the study TZ.
 function dayKeyFromEpochMs(epochMs) {
     return dayKeyFormatter.format(new Date(epochMs));
 }
-// Current hour of day (0-23) in the study TZ; drives the evening gate and the
-// push reminder schedule.
+// Current hour of day (0-23) in the study TZ; drives the evening gate.
 function currentLocalHour() {
     return Number(hourFormatter.format(new Date()));
+}
+// Current minutes since local midnight (0-1439) in the study TZ; drives the
+// per-participant bedtime push reminder.
+function currentLocalMinutes() {
+    const [hour, minute] = hourMinuteFormatter.format(new Date()).split(":");
+    return Number(hour) * 60 + Number(minute);
+}
+// "HH:MM" -> minutes since midnight, or undefined for anything malformed.
+// Participant-entered (app onboarding), so parse defensively.
+function timeOfDayToMinutes(value) {
+    if (!value || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value))
+        return undefined;
+    const [hour, minute] = value.split(":").map(Number);
+    return hour * 60 + minute;
 }
 // Today's day key in the study TZ.
 function todayKey() {

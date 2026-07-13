@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { getStoredToken, login, storeToken } from "@/lib/api-client";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 
 const LandingPage = () => {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
@@ -30,6 +31,10 @@ const LandingPage = () => {
   const loginMutation = useMutation({
     mutationFn: () => login(username.trim(), password),
     onSuccess: (response) => {
+      // Drop every cached response from a previous session BEFORE entering:
+      // stale data from another account must never render (anti-leak — a
+      // main-arm user's assisted round in a control participant's browser).
+      queryClient.clear();
       // Token in localStorage for API calls (Authorization header) AND in the
       // blinks_token cookie so <img> requests to /frames/* are authenticated.
       storeToken(response.token);
@@ -54,10 +59,11 @@ const LandingPage = () => {
             BLINKS — Day Reconstruction Study
           </h1>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Each evening of the study, please reconstruct your day as a
-            sequence of activities. It takes about 10 minutes. Sign in with the
-            participant credentials you received from the study team, then
-            follow the steps on the next pages.
+            In the evening of your recording day, please reconstruct your day
+            as a sequence of activities — in two steps, one after the other.
+            It takes about 20 minutes. Sign in with the participant
+            credentials you received from the study team, then follow the
+            steps on the next pages.
           </p>
         </div>
 

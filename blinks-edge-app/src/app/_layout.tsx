@@ -20,9 +20,10 @@ const RootNavigator = () => {
   usePushNotifications();
 
   // Block the main app until the participant has provided an occupation (the
-  // AI assistant needs it as classification context). Unknown while the
-  // profile is loading (or unreachable) — then the tabs stay up and the guard
-  // flips as soon as the profile arrives without an occupation.
+  // AI assistant needs it as classification context) AND their usual wake/bed
+  // times (the bedtime drives the evening fallback push reminder). Unknown
+  // while the profile is loading (or unreachable) — then the tabs stay up and
+  // the guard flips as soon as the profile arrives incomplete.
   const profileQuery = useQuery({
     ...profileQueryOptions(),
     enabled: isSignedIn,
@@ -30,7 +31,9 @@ const RootNavigator = () => {
   const needsOnboarding =
     isSignedIn &&
     profileQuery.data !== undefined &&
-    !(profileQuery.data.occupation ?? "").trim();
+    (!(profileQuery.data.occupation ?? "").trim() ||
+      !(profileQuery.data.wakeTime ?? "").trim() ||
+      !(profileQuery.data.bedTime ?? "").trim());
 
   useEffect(() => {
     if (status !== "restoring") void SplashScreen.hideAsync();

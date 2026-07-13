@@ -36,9 +36,13 @@ Env knobs (all optional; prepend to the command, e.g. `DISABLE_PUSH=1 npm run de
 | `WEB_URL` | `http://blinks.win.kit.edu` | DRM website URL put into push notifications |
 | `DRM_TZ` | `Europe/Berlin` | study timezone for day keys + the gate |
 | `DRM_AVAILABLE_FROM_HOUR` | `19` | hour today's reconstruction opens; **set `0` for testing** |
-| `DRM_REMINDER_HOUR` | `19` | first push reminder |
-| `DRM_FOLLOWUP_HOUR` | `21` | follow-up push if not submitted |
+| `DRM_DEFAULT_BEDTIME` | `22:00` | fallback-push bedtime for participants without a stored one |
 | `DISABLE_PUSH` | (off) | `1` turns the push scheduler off (use in dev/tests) |
+
+The push is a single **bedtime fallback**: at the participant's reported
+bedtime (app onboarding) minus 10 min, if they captured frames today and round
+2 is not submitted yet. Bedtimes before noon (after-midnight sleepers) clamp
+the reminder to 23:50.
 
 Typical dev run (gate open, no push spam):
 
@@ -49,38 +53,41 @@ DRM_AVAILABLE_FROM_HOUR=0 DISABLE_PUSH=1 npm run dev
 ### Create / manage participants
 
 ```bash
-# default plan control,control,assisted,assisted (4-day study)
+# main arm (default): round 2 = VLM-assisted
 npm run create-user -- participant1 <password>
 
-# custom treatment order (counterbalance across participants):
-npm run create-user -- participant2 <password> --plan assisted,assisted,control,control
-npm run create-user -- participant3 <password> --plan control,assisted,control,assisted
+# control arm: round 2 = self again (pure repetition baseline)
+npm run create-user -- participant7 <password> --arm control
 
-# reset a password (keeps occupation + plan unless --plan is also given):
+# reset a password (keeps occupation/schedule + arm unless --arm is also given):
 npm run create-user -- participant1 <newpassword> --reset
 
-# reset a password AND change the plan:
-npm run create-user -- participant1 <newpassword> --reset --plan control,control,assisted,assisted
+# reset a password AND change the arm:
+npm run create-user -- participant1 <newpassword> --reset --arm control
 ```
 
-- `--plan` = comma-separated `control`/`assisted`, one entry per study day. Its
-  **length is the study length** (shown in the app). Day _i_ uses
-  `plan[min(i-1, len-1)]`, so extra recorded days repeat the last entry.
+- `--arm` = `main` (round 2 assisted) or `control` (round 2 self again);
+  round 1 is always self. The arm can be changed until the participant first
+  opens round 2 (its mode is pinned then).
 - Username: letters/digits/`-`/`_` only (it becomes the recordings folder name).
 - Password: ≥ 8 chars.
 - Writes the auth user (`auth.db`) **and** a `participants` row (`recordings.db`).
   Run it with the **same `RECORDINGS_DIR`/`DATA_DIR`** the server uses, or it
-  writes to a different DB. Occupation is entered by the participant in the app.
+  writes to a different DB. Occupation + wake/bed times are entered by the
+  participant in the app.
 
 ### Tests
 
 ```bash
 npx tsx scripts/test-segmentation.ts    # pure segmentation unit tests (10 cases)
 
-# end-to-end smoke test (needs its own throwaway dirs + a matching server):
+# end-to-end smoke test (needs its own throwaway dirs + a matching server;
+# one user per study arm):
 rm -rf /tmp/blinks-smoke && mkdir -p /tmp/blinks-smoke/{recordings,data}
 DATA_DIR=/tmp/blinks-smoke/data RECORDINGS_DIR=/tmp/blinks-smoke/recordings \
-  npx tsx scripts/create-user.ts smoketester password123 --plan control,assisted
+  npx tsx scripts/create-user.ts smoketester password123
+DATA_DIR=/tmp/blinks-smoke/data RECORDINGS_DIR=/tmp/blinks-smoke/recordings \
+  npx tsx scripts/create-user.ts smokecontrol password123 --arm control
 RECORDINGS_DIR=/tmp/blinks-smoke/recordings DATA_DIR=/tmp/blinks-smoke/data \
   CAMERA_PORT=3100 DRM_AVAILABLE_FROM_HOUR=0 DISABLE_PUSH=1 node dist/server.js &   # (npm run build first)
 SMOKE_BASE_URL=http://127.0.0.1:3100 RECORDINGS_DIR=/tmp/blinks-smoke/recordings \
@@ -152,11 +159,13 @@ npm run build && npm start   # production build on port 3001
 ```bash
 cd server
 RECORDINGS_DIR=<same as server> DATA_DIR=<same as server> \
-  npx tsx scripts/seed-demo-data.ts        # user demo / demo12345
+  npx tsx scripts/seed-demo-data.ts        # demo + democtl, password demo12345
 ```
 
-Creates one control + one assisted day, both fully labeled, so the whole
-reconstruction flow is clickable immediately. Re-runnable (resets the demo days).
+Creates two participants, each with one fully labeled field day (today):
+`demo` = main arm (step 2 VLM-assisted), `democtl` = control arm (step 2 self
+again), so the whole two-round flow is clickable for both arms immediately.
+Re-runnable (resets the demo users).
 
 ---
 
@@ -210,22 +219,26 @@ cd server/vlm && .venv/bin/python vlm_worker.py
 cd drm-web && npm run dev        # http://localhost:3002
 ```
 
-Then `npm run create-user -- <user> <pw> --plan ...`, record from the phone
-(or `npx tsx scripts/seed-demo-data.ts` for instant demo data), and open the web
-app in the evening (or with `DRM_AVAILABLE_FROM_HOUR=0`, any time).
+Then `npm run create-user -- <user> <pw> [--arm control]`, record from the
+phone (or `npx tsx scripts/seed-demo-data.ts` for instant demo data), and open
+the web app in the evening (or with `DRM_AVAILABLE_FROM_HOUR=0`, any time).
 
 ## Handy DB peeks (`server/recordings/recordings.db`)
 
 ```bash
-# per-day frame status for a participant (why an assisted day is/ isn't ready):
+# frame status for a participant (why the assisted round is/ isn't ready):
 sqlite3 recordings/recordings.db \
   "SELECT vlm_status, COUNT(*) FROM frames WHERE participant='<user>' GROUP BY vlm_status"
 
-# a participant's condition plan:
+# a participant's arm + profile:
 sqlite3 recordings/recordings.db \
-  "SELECT username, condition_plan, occupation FROM participants"
+  "SELECT username, arm, occupation, wake_time, bed_time FROM participants"
 
-# submitted reconstructions:
+# reconstruction rounds (mode is pinned when the round is first opened):
 sqlite3 recordings/recordings.db \
-  "SELECT participant, day, condition, status, submitted_at FROM reconstructions"
+  "SELECT participant, round, mode, day, status, submitted_at FROM reconstructions"
+
+# unlock a submitted round for a participant (researcher-only escape hatch):
+sqlite3 recordings/recordings.db \
+  "UPDATE reconstructions SET status='draft', submitted_at=NULL WHERE participant='<user>' AND round=2"
 ```

@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PlusIcon } from "lucide-react";
 
@@ -9,14 +8,10 @@ import type {
   Activity,
   ActivityInput,
   CategoryLabel,
-  Condition,
   Frame,
+  RoundMode,
 } from "@/lib/api-types";
-import {
-  ApiError,
-  saveReconstructionDraft,
-  submitReconstruction,
-} from "@/lib/api-client";
+import { ApiError, saveRoundDraft, submitRound } from "@/lib/api-client";
 import { dayTimeToEpochMs, formatDayLabel } from "@/lib/time";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -29,7 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { AssistedActivityRow } from "@/components/reconstruct/assisted-activity-row";
-import { ControlActivityRow } from "@/components/reconstruct/control-activity-row";
+import { SelfActivityRow } from "@/components/reconstruct/self-activity-row";
 import {
   computeRowIssues,
   fromServerActivity,
@@ -70,23 +65,27 @@ const InsertBetweenButton = ({ onClick }: { onClick: () => void }) => (
 );
 
 /**
- * Editable reconstruction for one (non-submitted) day. Assisted days show the
- * VLM-proposed segmentation with frame thumbnails; control days start empty
- * and are filled in from memory. Drafts autosave (debounced); Submit locks
- * the day permanently.
+ * Editable reconstruction for one (non-submitted) round. Self rounds start
+ * from memory (manual time entry, no frames — round 1 for everyone, round 2
+ * in the control arm); the assisted round shows the VLM-proposed segmentation
+ * with frame thumbnails. Drafts autosave (debounced); Submit locks the round
+ * permanently (and, for round 1, unlocks round 2).
  */
-export const DayEditor = ({
+export const RoundEditor = ({
+  round,
+  mode,
   day,
-  condition,
   initialActivities,
   frames,
+  onSubmitted,
 }: {
+  round: 1 | 2;
+  mode: RoundMode;
   day: string;
-  condition: Condition;
   initialActivities: Activity[];
-  frames: Frame[] | null; // present for assisted days only
+  frames: Frame[] | null; // present for the assisted round only
+  onSubmitted: () => void;
 }) => {
-  const router = useRouter();
   const queryClient = useQueryClient();
 
   const [rows, setRows] = useState<EditableActivity[]>(() =>
@@ -110,12 +109,12 @@ export const DayEditor = ({
 
   const saveMutation = useMutation({
     mutationFn: (activities: ActivityInput[]) =>
-      saveReconstructionDraft(day, activities),
+      saveRoundDraft(round, activities),
     onMutate: () => setSaveState("saving"),
     onSuccess: () => {
       setSaveState("saved");
-      // Day status badge may move none -> draft.
-      void queryClient.invalidateQueries({ queryKey: ["reconstruction-days"] });
+      // Round status may move none -> draft.
+      void queryClient.invalidateQueries({ queryKey: ["study-state"] });
     },
     onError: () => setSaveState("error"),
   });
@@ -135,21 +134,20 @@ export const DayEditor = ({
     return () => clearTimeout(timeout);
   }, [editVersion, saveDraft]);
 
-  // Flush a still-pending draft when the editor unmounts (day switch or
-  // navigation) so the last edits are not lost.
+  // Flush a still-pending draft when the editor unmounts (navigation) so the
+  // last edits are not lost.
   useEffect(() => {
     return () => {
       if (pendingSaveRef.current) {
         pendingSaveRef.current = false;
-        void saveReconstructionDraft(
-          day,
-          toActivityInputs(rowsRef.current),
-        ).catch(() => {
-          // Best-effort flush; the draft remains editable next time.
-        });
+        void saveRoundDraft(round, toActivityInputs(rowsRef.current)).catch(
+          () => {
+            // Best-effort flush; the draft remains editable next time.
+          },
+        );
       }
     };
-  }, [day]);
+  }, [round]);
 
   const cancelPendingAutosave = () => {
     pendingSaveRef.current = false;
@@ -160,13 +158,12 @@ export const DayEditor = ({
   };
 
   const submitMutation = useMutation({
-    mutationFn: () =>
-      submitReconstruction(day, toActivityInputs(rowsRef.current)),
+    mutationFn: () => submitRound(round, toActivityInputs(rowsRef.current)),
     onSuccess: () => {
       cancelPendingAutosave(); // a late draft PUT would 409 against the lock
-      void queryClient.invalidateQueries({ queryKey: ["reconstruction-days"] });
-      void queryClient.invalidateQueries({ queryKey: ["reconstruction", day] });
-      router.push("/survey");
+      void queryClient.invalidateQueries({ queryKey: ["study-state"] });
+      void queryClient.invalidateQueries({ queryKey: ["round", round] });
+      onSubmitted();
     },
   });
 
@@ -191,7 +188,7 @@ export const DayEditor = ({
     markEdited();
   };
 
-  const addControlRow = () => {
+  const addSelfRow = () => {
     setRows((previous) => [
       ...previous,
       {
@@ -279,7 +276,7 @@ export const DayEditor = ({
     markEdited();
   };
 
-  const handleControlTimeChange = (
+  const handleSelfTimeChange = (
     localId: string,
     field: "startMs" | "endMs",
     timeOfDay: string,
@@ -290,7 +287,7 @@ export const DayEditor = ({
 
   // --- Validation + submit ---------------------------------------------------
 
-  const issues = computeRowIssues(rows, condition === "control");
+  const issues = computeRowIssues(rows, mode === "self");
   const issueByLocalId = new Map(
     issues.map((issue) => [issue.localId, issue.message]),
   );
@@ -385,22 +382,25 @@ export const DayEditor = ({
 
   // --- Render ------------------------------------------------------------------
 
+  const editorHint =
+    mode === "assisted"
+      ? "Review the proposed activities, correct the labels and time spans until they match your day."
+      : round === 2
+        ? "Go through your day once more from memory — add every activity you can remember now."
+        : "Reconstruct your day from memory, one activity at a time.";
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold">{formatDayLabel(day)}</h2>
-          <p className="text-sm text-muted-foreground">
-            {condition === "assisted"
-              ? "Review the proposed activities, correct the labels and time spans until they match your day."
-              : "Reconstruct your day from memory, one activity at a time."}
-          </p>
+          <p className="text-sm text-muted-foreground">{editorHint}</p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground" aria-live="polite">
             {SAVE_INDICATOR_TEXT[saveState]}
           </span>
-          <Button onClick={handleSubmitClick}>Submit day</Button>
+          <Button onClick={handleSubmitClick}>Submit step {round}</Button>
         </div>
       </div>
 
@@ -425,7 +425,7 @@ export const DayEditor = ({
         </Alert>
       )}
 
-      {condition === "assisted" ? (
+      {mode === "assisted" ? (
         <div className="space-y-1">
           <InsertBetweenButton
             onClick={() =>
@@ -475,16 +475,16 @@ export const DayEditor = ({
             </p>
           )}
           {rows.map((row) => (
-            <ControlActivityRow
+            <SelfActivityRow
               key={row.localId}
               activity={row}
               issue={issueByLocalId.get(row.localId) ?? null}
               showValidation={showValidation}
               onChangeStartTime={(timeOfDay) =>
-                handleControlTimeChange(row.localId, "startMs", timeOfDay)
+                handleSelfTimeChange(row.localId, "startMs", timeOfDay)
               }
               onChangeEndTime={(timeOfDay) =>
-                handleControlTimeChange(row.localId, "endMs", timeOfDay)
+                handleSelfTimeChange(row.localId, "endMs", timeOfDay)
               }
               onChangeLabel={(rawLabel) => updateRow(row.localId, { rawLabel })}
               onChangeCategory={(categoryLabel: CategoryLabel) =>
@@ -494,7 +494,7 @@ export const DayEditor = ({
             />
           ))}
           <div className="flex justify-center">
-            <Button variant="outline" onClick={addControlRow}>
+            <Button variant="outline" onClick={addSelfRow}>
               <PlusIcon />
               Add activity
             </Button>
@@ -505,10 +505,11 @@ export const DayEditor = ({
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Submit this day?</DialogTitle>
+            <DialogTitle>Submit step {round} of 2?</DialogTitle>
             <DialogDescription>
-              Submitting finalizes your reconstruction for{" "}
-              {formatDayLabel(day)}. You cannot edit this day afterwards.
+              {round === 1
+                ? "Submitting finalizes step 1 — you cannot change it afterwards, and step 2 opens."
+                : `Submitting finalizes your reconstruction for ${formatDayLabel(day)}. You cannot edit it afterwards.`}
             </DialogDescription>
           </DialogHeader>
           {submitMutation.isError && (
@@ -530,7 +531,7 @@ export const DayEditor = ({
               onClick={handleConfirmSubmit}
               disabled={submitMutation.isPending}
             >
-              {submitMutation.isPending ? "Submitting…" : "Submit day"}
+              {submitMutation.isPending ? "Submitting…" : `Submit step ${round}`}
             </Button>
           </DialogFooter>
         </DialogContent>

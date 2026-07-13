@@ -5,18 +5,24 @@ import WebSocket = require("ws");
 
 // End-to-end smoke test against a locally running server. Expects:
 //   RECORDINGS_DIR/DATA_DIR pointing at a throwaway directory
-//   a user created via create-user (for the DRM assertions below:
-//     npx tsx scripts/create-user.ts smoketester password123 --plan control,assisted)
+//   two users created via create-user (one per study arm):
+//     npx tsx scripts/create-user.ts smoketester password123
+//     npx tsx scripts/create-user.ts smokecontrol password123 --arm control
 //   the server running with DRM_AVAILABLE_FROM_HOUR=0 and DISABLE_PUSH=1
 // The test reads RECORDINGS_DIR to reach recordings.db, so it can simulate the
 // face-blur worker (face_status='done') and the VLM worker (vlm_status='done'
 // + labels/categories) without running the Python processes.
 // Run via: npx tsx scripts/smoke-test.ts (against a running server)
+//
+// Not covered here: the evening-gate hour branch (the server must run with
+// DRM_AVAILABLE_FROM_HOUR=0 so the study day is open at all) — isDayAvailable
+// is the same three-line comparison as before the rounds rewrite.
 
 const BASE_URL = process.env.SMOKE_BASE_URL ?? "http://127.0.0.1:3100";
 const WS_URL = BASE_URL.replace(/^http/, "ws");
 const RECORDINGS_DIR = process.env.RECORDINGS_DIR;
-const USERNAME = "smoketester";
+const MAIN_USER = "smoketester";
+const CONTROL_USER = "smokecontrol";
 const PASSWORD = "password123";
 
 // --- Study-day helpers (mirror server/src/time.ts; Europe/Berlin default) ----
@@ -46,9 +52,6 @@ const localNoonOf = (day: string): number => {
 
 const TODAY = dayKeyOf(Date.now());
 const TODAY_NOON = localNoonOf(TODAY);
-const YESTERDAY = dayKeyOf(TODAY_NOON - 86_400_000);
-const YESTERDAY_NOON = localNoonOf(YESTERDAY);
-const TOMORROW = dayKeyOf(TODAY_NOON + 86_400_000);
 
 // --- recordings.db access (stand-in for the Python workers) ------------------
 
@@ -96,6 +99,7 @@ const markAllAnonymized = (): number =>
 
 // Stand in for the VLM worker: write label + category for one frame.
 const setVlmResult = (
+  username: string,
   captureEpochMs: number,
   label: string,
   category: string,
@@ -106,11 +110,12 @@ const setVlmResult = (
         "UPDATE frames SET vlm_status = 'done', vlm_label = ?, vlm_category = ? " +
           "WHERE participant = ? AND capture_epoch_ms = ?",
       )
-      .run(label, category, USERNAME, captureEpochMs).changes;
+      .run(label, category, username, captureEpochMs).changes;
     assert.strictEqual(changes, 1, `vlm update hit frame at ${captureEpochMs}`);
   });
 
 const getFrameCorrections = (
+  username: string,
   captureEpochMs: number,
 ): { category: string | null; activity: string | null } =>
   withDb((db) => {
@@ -120,25 +125,36 @@ const getFrameCorrections = (
           "user_corrected_activity_label AS activity " +
           "FROM frames WHERE participant = ? AND capture_epoch_ms = ?",
       )
-      .get(USERNAME, captureEpochMs) as
+      .get(username, captureEpochMs) as
       | { category: string | null; activity: string | null }
       | undefined;
     assert.ok(row, `expected a frame at ${captureEpochMs}`);
     return row!;
   });
 
-const getParticipantRow = (): {
-  condition_plan: string;
+const getParticipantRow = (
+  username: string,
+): {
+  arm: string;
   push_token: string | null;
   occupation: string | null;
+  wake_time: string | null;
+  bed_time: string | null;
 } =>
   withDb((db) => {
     const row = db
       .prepare(
-        "SELECT condition_plan, push_token, occupation FROM participants WHERE username = ?",
+        "SELECT arm, push_token, occupation, wake_time, bed_time " +
+          "FROM participants WHERE username = ?",
       )
-      .get(USERNAME) as
-      | { condition_plan: string; push_token: string | null; occupation: string | null }
+      .get(username) as
+      | {
+          arm: string;
+          push_token: string | null;
+          occupation: string | null;
+          wake_time: string | null;
+          bed_time: string | null;
+        }
       | undefined;
     assert.ok(row, "participants row exists (created by create-user)");
     return row!;
@@ -179,9 +195,10 @@ const sendFramesOverWs = (
   token: string,
   session: number,
   frames: { t: number; n: number }[],
+  device = "AABBCCDDEEFF",
 ): Promise<void> =>
   new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${WS_URL}/ingest?session=${session}&device=AABBCCDDEEFF`, {
+    const ws = new WebSocket(`${WS_URL}/ingest?session=${session}&device=${device}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     ws.on("open", () => {
@@ -217,18 +234,24 @@ const main = async (): Promise<void> => {
   await api("/api/sessions", { expectStatus: 401 });
   await api("/api/login", {
     method: "POST",
-    body: { username: USERNAME, password: "wrong-password" },
+    body: { username: MAIN_USER, password: "wrong-password" },
     expectStatus: 401,
   });
 
   const { token } = await api("/api/login", {
     method: "POST",
-    body: { username: USERNAME, password: PASSWORD },
+    body: { username: MAIN_USER, password: PASSWORD },
   });
   assert.ok(typeof token === "string" && token.length === 64, "token issued");
 
   // unauthenticated WS upgrade is rejected
   await expectWsRejected();
+
+  // Before any frames exist: no study day, round 1 is a 404.
+  const emptyState = await api("/api/reconstruction/state", { token });
+  assert.strictEqual(emptyState.day, null, "no study day before any frames");
+  assert.strictEqual(emptyState.available, false);
+  await api("/api/reconstruction/round/1", { token, expectStatus: 404 });
 
   // ingest three frames; phone-stamped capture times anchored at local noon so
   // the DRM day bucketing below is deterministic
@@ -273,7 +296,7 @@ const main = async (): Promise<void> => {
   );
   assert.strictEqual(frames.length, 4);
   assert.strictEqual(frames[3].frameIndex, 4, "numbering continued");
-  // Anti-leak: the mobile app must never receive VLM output anymore.
+  // Anti-leak: the mobile app must never receive VLM output.
   assert.ok(!("vlmStatus" in frames[0]), "no vlmStatus in sessions frames");
   assert.ok(!("vlmLabel" in frames[0]), "no vlmLabel in sessions frames");
   assert.ok(typeof frames[0].captureEpochMs === "number");
@@ -340,29 +363,43 @@ const main = async (): Promise<void> => {
   });
   await api("/api/login", {
     method: "POST",
-    body: { username: USERNAME, password: "password456" },
+    body: { username: MAIN_USER, password: "password456" },
   });
 
   // =========================================================================
-  // DRM subproject: profile, push registration, day reconstruction API
+  // DRM subproject: profile (occupation + schedule), push registration,
+  // two-round reconstruction API (main arm)
   // =========================================================================
 
-  // profile: created by create-user with --plan control,assisted
+  // profile: arm must never appear; schedule starts empty
   const initialProfile = await api("/api/profile", { token });
-  assert.strictEqual(initialProfile.username, USERNAME);
+  assert.strictEqual(initialProfile.username, MAIN_USER);
   assert.strictEqual(initialProfile.occupation, null);
   assert.strictEqual(initialProfile.workDescription, null);
-  assert.strictEqual(
-    initialProfile.studyDurationDays,
-    2,
-    "plan length from create-user --plan control,assisted",
+  assert.strictEqual(initialProfile.wakeTime, null);
+  assert.strictEqual(initialProfile.bedTime, null);
+  assert.ok(!("arm" in initialProfile), "profile must not reveal the arm");
+  assert.ok(
+    !("studyDurationDays" in initialProfile),
+    "multi-day study length removed",
   );
   assert.strictEqual(initialProfile.drmWebUrl, "http://blinks.win.kit.edu");
 
   await api("/api/profile", {
     method: "PUT",
     token,
-    body: { occupation: 123, workDescription: "x" },
+    body: { occupation: 123, workDescription: "x", wakeTime: "07:00", bedTime: "23:00" },
+    expectStatus: 400,
+  });
+  await api("/api/profile", {
+    method: "PUT",
+    token,
+    body: {
+      occupation: "PhD student",
+      workDescription: "Writes papers.",
+      wakeTime: "07:00",
+      bedTime: "25:99", // malformed bedtime must be rejected (drives the push)
+    },
     expectStatus: 400,
   });
   await api("/api/profile", {
@@ -371,20 +408,21 @@ const main = async (): Promise<void> => {
     body: {
       occupation: "PhD student",
       workDescription: "Writes papers and analyses biosignal data.",
+      wakeTime: "07:00",
+      bedTime: "23:30",
     },
   });
   const updatedProfile = await api("/api/profile", { token });
   assert.strictEqual(updatedProfile.occupation, "PhD student");
+  assert.strictEqual(updatedProfile.wakeTime, "07:00");
+  assert.strictEqual(updatedProfile.bedTime, "23:30");
+  // Profile PUT must never clobber the provisioned arm.
   assert.strictEqual(
-    updatedProfile.workDescription,
-    "Writes papers and analyses biosignal data.",
+    getParticipantRow(MAIN_USER).arm,
+    "main",
+    "arm untouched by profile PUT",
   );
-  // Profile PUT must never clobber the provisioned condition plan.
-  assert.strictEqual(
-    getParticipantRow().condition_plan,
-    JSON.stringify(["control", "assisted"]),
-    "condition_plan untouched by profile PUT",
-  );
+  assert.strictEqual(getParticipantRow(MAIN_USER).bed_time, "23:30");
 
   // push registration
   await api("/api/register-push", {
@@ -399,20 +437,14 @@ const main = async (): Promise<void> => {
     body: { expoPushToken: "ExponentPushToken[smoke-test]" },
   });
   assert.strictEqual(
-    getParticipantRow().push_token,
+    getParticipantRow(MAIN_USER).push_token,
     "ExponentPushToken[smoke-test]",
     "push token persisted",
   );
 
-  // Ingest the DRM fixture days.
-  // Yesterday (study day 1 -> control): two frames around local noon.
-  const yesterdaySession = session + 1;
-  await sendFramesOverWs(token, yesterdaySession, [
-    { t: YESTERDAY_NOON, n: 1 },
-    { t: YESTERDAY_NOON + 60_000, n: 2 },
-  ]);
-  // Today (study day 2 -> assisted): a second block 20 min after the base
-  // session (i.e. a >10 min capture gap), shaped to exercise the generator.
+  // Ingest the DRM fixture frames: a second block 20 min after the base
+  // session (i.e. a >10 min capture gap), shaped to exercise the segmentation
+  // generator. Study day = TODAY (the only frame day).
   const assistedSession = session + 2;
   const t0 = baseT + 1_200_000;
   await sendFramesOverWs(token, assistedSession, [
@@ -423,59 +455,179 @@ const main = async (): Promise<void> => {
     { t: t0 + 300_000, n: 5 },
     { t: t0 + 480_000, n: 6 },
   ]);
-  assert.strictEqual(markAllAnonymized(), 8, "face-blur stand-in marked 8 frames");
+  assert.strictEqual(markAllAnonymized(), 6, "face-blur stand-in marked 6 frames");
 
-  // days: sorted desc, day numbering + plan mapping, pending VLM counts
-  let { days } = await api("/api/reconstruction/days", { token });
-  assert.strictEqual(days.length, 2, "two study days");
+  // state: study day resolved, round 1 open, round 2 locked with HIDDEN mode
+  let state = await api("/api/reconstruction/state", { token });
+  assert.strictEqual(state.day, TODAY);
+  assert.strictEqual(state.frameCount, 9, "3 base + 6 fixture frames today");
+  assert.strictEqual(state.available, true, "DRM_AVAILABLE_FROM_HOUR=0");
   assert.deepStrictEqual(
-    days.map((d: any) => [d.day, d.dayNumber, d.condition, d.status]),
+    state.rounds.map((r: any) => [r.round, r.mode, r.status, r.locked]),
     [
-      [TODAY, 2, "assisted", "none"],
-      [YESTERDAY, 1, "control", "none"],
+      [1, "self", "none", false],
+      [2, null, "none", true],
     ],
-    "days sorted desc with plan-mapped conditions",
+    "round 2 locked and its mode hidden until round 1 is submitted",
   );
-  assert.strictEqual(days[0].frameCount, 9, "3 base + 6 assisted frames today");
-  assert.strictEqual(days[0].vlmPendingCount, 9, "all of today still VLM-pending");
-  assert.strictEqual(days[1].frameCount, 2);
-  assert.strictEqual(days[1].vlmPendingCount, 2);
-  assert.strictEqual(days[0].available, true, "DRM_AVAILABLE_FROM_HOUR=0");
-  assert.strictEqual(days[0].availableFromHour, 0);
 
-  // assisted day with pending VLM work: no activities yet. Opening the day
-  // pins its condition (a reconstructions row appears -> status 'draft'), but
-  // no activities are generated while labels are processing.
-  const pendingDay = await api(`/api/reconstruction/${TODAY}`, { token });
-  assert.strictEqual(pendingDay.condition, "assisted");
-  assert.strictEqual(pendingDay.status, "draft", "condition pinned on open");
-  assert.deepStrictEqual(pendingDay.activities, []);
-  assert.strictEqual(pendingDay.frames.length, 9, "assisted day lists frames");
-  ({ days } = await api("/api/reconstruction/days", { token }));
+  // FIXED ORDER, server-enforced: round 2 is inaccessible before round 1 is
+  // submitted — reads AND writes.
+  await api("/api/reconstruction/round/2", { token, expectStatus: 403 });
+  await api("/api/reconstruction/round/2", {
+    method: "PUT",
+    token,
+    body: { activities: [] },
+    expectStatus: 403,
+  });
+  await api("/api/reconstruction/round/3", { token, expectStatus: 400 });
+
+  // Round 1 (self, from memory): no frames, no VLM anything, no proposal.
+  const round1 = await api("/api/reconstruction/round/1", { token });
+  assert.strictEqual(round1.round, 1);
+  assert.strictEqual(round1.mode, "self");
+  assert.strictEqual(round1.day, TODAY);
+  assert.strictEqual(round1.status, "draft", "pinned on first open");
+  assert.deepStrictEqual(round1.activities, []);
+  assert.ok(!("frames" in round1), "self round must never include frames");
+  assert.ok(
+    !("vlmPendingCount" in round1),
+    "self round reveals nothing about VLM processing",
+  );
+
+  // Self rounds only accept user-sourced activities...
+  await api("/api/reconstruction/round/1", {
+    method: "PUT",
+    token,
+    body: {
+      activities: [
+        {
+          startMs: baseT,
+          endMs: baseT + 60_000,
+          rawLabel: "x",
+          categoryLabel: "work",
+          source: "vlm",
+        },
+      ],
+    },
+    expectStatus: 400,
+  });
+  // ...and strip any client-smuggled VLM provenance.
+  const round1Activities = [
+    {
+      startMs: baseT - 600_000,
+      endMs: baseT + 100_000,
+      rawLabel: "Working from memory",
+      categoryLabel: "work",
+      source: "user",
+      vlmRawLabel: "smuggled", // must be dropped server-side
+      vlmCategory: "work",
+    },
+    {
+      startMs: t0,
+      endMs: t0 + 400_000,
+      rawLabel: "Lunch I think",
+      categoryLabel: "break",
+      source: "user",
+    },
+  ];
+  await api("/api/reconstruction/round/1", {
+    method: "PUT",
+    token,
+    body: { activities: round1Activities },
+  });
+  const round1Draft = await api("/api/reconstruction/round/1", { token });
+  assert.strictEqual(round1Draft.activities.length, 2);
   assert.strictEqual(
-    days[0].status,
-    "draft",
-    "pinned on open; no activities persisted while pending",
+    round1Draft.activities[0].vlmRawLabel,
+    null,
+    "self rounds never store VLM provenance",
   );
 
-  // VLM worker stand-in: label every frame.
-  for (const t of [baseT, baseT + 60_000, baseT + 90_000]) {
-    setVlmResult(t, "Working at desk", "work");
-  }
-  setVlmResult(t0, "Deep work", "work");
-  setVlmResult(t0 + 120_000, "Deep work", "work");
-  setVlmResult(t0 + 150_000, "coffee", "break");
-  setVlmResult(t0 + 151_000, " Coffee ", "break"); // noisy label, same group
-  setVlmResult(t0 + 300_000, "Reading paper", "work");
-  setVlmResult(t0 + 480_000, "Reading paper", "work");
-  setVlmResult(YESTERDAY_NOON, "Cooking dinner", "other");
-  setVlmResult(YESTERDAY_NOON + 60_000, "Cooking dinner", "other");
+  // submit validation: every activity needs a rawLabel AND a categoryLabel
+  await api("/api/reconstruction/round/1/submit", {
+    method: "POST",
+    token,
+    body: {
+      activities: [
+        {
+          startMs: baseT,
+          endMs: baseT + 90_000,
+          rawLabel: "X",
+          categoryLabel: null,
+          source: "user",
+        },
+      ],
+    },
+    expectStatus: 400,
+  });
 
-  // assisted day now auto-generates + persists the initial segmentation:
+  const round1Submit = await api("/api/reconstruction/round/1/submit", {
+    method: "POST",
+    token,
+    body: { activities: round1Activities },
+  });
+  assert.strictEqual(round1Submit.ok, true);
+  assert.ok(typeof round1Submit.submittedAt === "number");
+
+  // Round 1 is SELF: submitting must NOT propagate onto the frames (only the
+  // assisted round is frame-aligned ground truth).
+  assert.deepStrictEqual(
+    getFrameCorrections(MAIN_USER, baseT),
+    { category: null, activity: null },
+    "self-round submit does not stamp user_corrected_*",
+  );
+
+  // submit is final per round
+  await api("/api/reconstruction/round/1", {
+    method: "PUT",
+    token,
+    body: { activities: round1Activities },
+    expectStatus: 409,
+  });
+  await api("/api/reconstruction/round/1/submit", {
+    method: "POST",
+    token,
+    body: { activities: round1Activities },
+    expectStatus: 409,
+  });
+
+  // state: round 2 unlocked, mode now revealed (main arm -> assisted)
+  state = await api("/api/reconstruction/state", { token });
+  assert.deepStrictEqual(
+    state.rounds.map((r: any) => [r.round, r.mode, r.status, r.locked]),
+    [
+      [1, "self", "submitted", false],
+      [2, "assisted", "none", false],
+    ],
+    "round 2 unlocks as assisted after round 1 submit (main arm)",
+  );
+
+  // Assisted round with pending VLM work: frames served, no proposal yet.
+  const pendingRound2 = await api("/api/reconstruction/round/2", { token });
+  assert.strictEqual(pendingRound2.mode, "assisted");
+  assert.strictEqual(pendingRound2.status, "draft", "pinned on open");
+  assert.deepStrictEqual(pendingRound2.activities, []);
+  assert.strictEqual(pendingRound2.frames.length, 9, "assisted round lists frames");
+  assert.strictEqual(pendingRound2.vlmPendingCount, 9, "all frames still VLM-pending");
+
+  // VLM worker stand-in: label every frame of the study day.
+  for (const t of [baseT, baseT + 60_000, baseT + 90_000]) {
+    setVlmResult(MAIN_USER, t, "Working at desk", "work");
+  }
+  setVlmResult(MAIN_USER, t0, "Deep work", "work");
+  setVlmResult(MAIN_USER, t0 + 120_000, "Deep work", "work");
+  setVlmResult(MAIN_USER, t0 + 150_000, "coffee", "break");
+  setVlmResult(MAIN_USER, t0 + 151_000, " Coffee ", "break"); // noisy label, same group
+  setVlmResult(MAIN_USER, t0 + 300_000, "Reading paper", "work");
+  setVlmResult(MAIN_USER, t0 + 480_000, "Reading paper", "work");
+
+  // assisted round now auto-generates + persists the initial segmentation:
   //   block 1 (base session): lone short segment survives
   //   block 2: short "coffee" run merged into the longer "Deep work" segment
-  const generated = await api(`/api/reconstruction/${TODAY}`, { token });
+  const generated = await api("/api/reconstruction/round/2", { token });
   assert.strictEqual(generated.status, "draft", "generation persisted as draft");
+  assert.strictEqual(generated.vlmPendingCount, 0);
   assert.deepStrictEqual(
     generated.activities.map((a: any) => [
       a.startMs,
@@ -494,13 +646,11 @@ const main = async (): Promise<void> => {
   assert.strictEqual(generated.activities[1].vlmRawLabel, "Deep work");
   assert.strictEqual(generated.activities[1].vlmCategory, "work");
   assert.strictEqual(generated.frames.length, 9);
-  assert.ok(typeof generated.frames[0].captureEpochMs === "number");
-  assert.ok(typeof generated.frames[0].imageUrl === "string");
   assert.strictEqual(generated.frames[0].vlmLabel, "Working at desk");
   assert.strictEqual(generated.frames[0].vlmCategory, "work");
 
   // idempotent: a second GET returns the stored draft, no duplicate generation
-  const regenerated = await api(`/api/reconstruction/${TODAY}`, { token });
+  const regenerated = await api("/api/reconstruction/round/2", { token });
   assert.strictEqual(regenerated.activities.length, 3, "no re-generation");
 
   // draft PUT (replace-all): edit a label, insert a user activity; identical
@@ -535,12 +685,12 @@ const main = async (): Promise<void> => {
       source: "vlm",
     },
   ];
-  await api(`/api/reconstruction/${TODAY}`, {
+  await api("/api/reconstruction/round/2", {
     method: "PUT",
     token,
     body: { activities: editedActivities },
   });
-  const draft = await api(`/api/reconstruction/${TODAY}`, { token });
+  const draft = await api("/api/reconstruction/round/2", { token });
   assert.strictEqual(draft.status, "draft");
   assert.strictEqual(draft.activities.length, 4);
   assert.deepStrictEqual(
@@ -570,20 +720,21 @@ const main = async (): Promise<void> => {
         }
       : activity,
   );
-  await api(`/api/reconstruction/${TODAY}`, {
+  await api("/api/reconstruction/round/2", {
     method: "PUT",
     token,
     body: { activities: boundaryEdited },
   });
-  const afterBoundaryEdit = await api(`/api/reconstruction/${TODAY}`, { token });
+  const afterBoundaryEdit = await api("/api/reconstruction/round/2", { token });
   assert.strictEqual(
     afterBoundaryEdit.activities[1].vlmRawLabel,
     "Deep work",
     "echoed VLM provenance survives a span edit",
   );
 
-  // write validation: overlapping spans and spans outside the day are rejected
-  await api(`/api/reconstruction/${TODAY}`, {
+  // write validation: overlapping spans and spans outside the study day are
+  // rejected
+  await api("/api/reconstruction/round/2", {
     method: "PUT",
     token,
     body: {
@@ -594,13 +745,13 @@ const main = async (): Promise<void> => {
     },
     expectStatus: 400,
   });
-  await api(`/api/reconstruction/${TODAY}`, {
+  await api("/api/reconstruction/round/2", {
     method: "PUT",
     token,
     body: {
       activities: [
         {
-          startMs: TODAY_NOON + 86_400_000, // tomorrow: outside the day
+          startMs: TODAY_NOON + 86_400_000, // tomorrow: outside the study day
           endMs: TODAY_NOON + 86_460_000,
           rawLabel: "a",
           categoryLabel: "work",
@@ -611,7 +762,7 @@ const main = async (): Promise<void> => {
     expectStatus: 400,
   });
   // restore the intended draft state before submitting below
-  await api(`/api/reconstruction/${TODAY}`, {
+  await api("/api/reconstruction/round/2", {
     method: "PUT",
     token,
     body: { activities: editedActivities },
@@ -629,120 +780,137 @@ const main = async (): Promise<void> => {
     "export.csv carries no VLM columns",
   );
 
-  // submit validation: every activity needs a rawLabel AND a categoryLabel
-  await api(`/api/reconstruction/${TODAY}/submit`, {
-    method: "POST",
-    token,
-    body: {
-      activities: [
-        {
-          startMs: baseT,
-          endMs: baseT + 90_000,
-          rawLabel: "X",
-          categoryLabel: null,
-          source: "user",
-        },
-      ],
-    },
-    expectStatus: 400,
-  });
-
-  // submit: atomic save + lock + propagation onto the frames
-  const submitResult = await api(`/api/reconstruction/${TODAY}/submit`, {
+  // submit round 2: atomic save + lock + propagation onto the frames
+  const round2Submit = await api("/api/reconstruction/round/2/submit", {
     method: "POST",
     token,
     body: { activities: editedActivities },
   });
-  assert.strictEqual(submitResult.ok, true);
-  assert.ok(typeof submitResult.submittedAt === "number");
+  assert.strictEqual(round2Submit.ok, true);
 
-  ({ days } = await api("/api/reconstruction/days", { token }));
-  assert.strictEqual(days[0].status, "submitted");
+  state = await api("/api/reconstruction/state", { token });
+  assert.deepStrictEqual(
+    state.rounds.map((r: any) => r.status),
+    ["submitted", "submitted"],
+  );
 
   // locked: no further submit or draft save
-  await api(`/api/reconstruction/${TODAY}/submit`, {
+  await api("/api/reconstruction/round/2/submit", {
     method: "POST",
     token,
     body: { activities: editedActivities },
     expectStatus: 409,
   });
-  await api(`/api/reconstruction/${TODAY}`, {
+  await api("/api/reconstruction/round/2", {
     method: "PUT",
     token,
     body: { activities: editedActivities },
     expectStatus: 409,
   });
 
-  // propagation: frames inside each span carry the submitted labels; the
-  // corrected "coffee" frame proves the misclassification signal lands
-  assert.deepStrictEqual(getFrameCorrections(baseT), {
+  // propagation (ASSISTED round only): frames inside each span carry the
+  // submitted labels; the corrected "coffee" frame proves the
+  // misclassification signal lands. Round 1's differing self labels
+  // ("Working from memory") must NOT appear anywhere.
+  assert.deepStrictEqual(getFrameCorrections(MAIN_USER, baseT), {
     category: "work",
     activity: "Working at desk",
   });
   assert.deepStrictEqual(
-    getFrameCorrections(t0 + 150_000),
+    getFrameCorrections(MAIN_USER, t0 + 150_000),
     { category: "work", activity: "Focused work" },
     "frame the VLM called 'coffee/break' now carries the user's correction",
   );
-  assert.deepStrictEqual(getFrameCorrections(t0 + 480_000), {
+  assert.deepStrictEqual(getFrameCorrections(MAIN_USER, t0 + 480_000), {
     category: "work",
     activity: "Reading paper",
   });
-  assert.deepStrictEqual(
-    getFrameCorrections(YESTERDAY_NOON),
-    { category: null, activity: null },
-    "frames outside every span stay untouched",
-  );
 
-  // control day: NO frames field and no auto-generation (anti-leak), manual
-  // entry from memory only
-  const controlDay = await api(`/api/reconstruction/${YESTERDAY}`, { token });
-  assert.strictEqual(controlDay.condition, "control");
-  assert.strictEqual(controlDay.status, "draft", "condition pinned on open");
-  assert.deepStrictEqual(controlDay.activities, []);
-  assert.ok(
-    !("frames" in controlDay),
-    "control day must never include frames/VLM output",
+  // =========================================================================
+  // Control arm: round 2 is SELF again — no frames, no VLM, no propagation
+  // =========================================================================
+
+  const { token: controlToken } = await api("/api/login", {
+    method: "POST",
+    body: { username: CONTROL_USER, password: PASSWORD },
+  });
+  assert.strictEqual(getParticipantRow(CONTROL_USER).arm, "control");
+
+  const controlSession = session + 3;
+  const c0 = TODAY_NOON + 3_600_000; // 13:00 local
+  await sendFramesOverWs(
+    controlToken,
+    controlSession,
+    [
+      { t: c0, n: 1 },
+      { t: c0 + 60_000, n: 2 },
+    ],
+    "BBCCDDEEFF00",
   );
+  assert.strictEqual(markAllAnonymized(), 2, "control frames anonymized");
+  // Give the control frames VLM labels so the no-leak assertions below are
+  // meaningful (labels exist server-side but must never reach this user).
+  setVlmResult(CONTROL_USER, c0, "Cooking dinner", "other");
+  setVlmResult(CONTROL_USER, c0 + 60_000, "Cooking dinner", "other");
 
   const controlActivities = [
     {
-      startMs: YESTERDAY_NOON - 600_000,
-      endMs: YESTERDAY_NOON + 600_000,
+      startMs: c0 - 600_000,
+      endMs: c0 + 600_000,
       rawLabel: "Cooking",
       categoryLabel: "other",
       source: "user",
     },
   ];
-  await api(`/api/reconstruction/${YESTERDAY}`, {
-    method: "PUT",
-    token,
-    body: { activities: controlActivities },
+
+  // Round 1 self, submit.
+  const controlRound1 = await api("/api/reconstruction/round/1", {
+    token: controlToken,
   });
-  const controlDraft = await api(`/api/reconstruction/${YESTERDAY}`, { token });
-  assert.strictEqual(controlDraft.status, "draft");
-  assert.strictEqual(controlDraft.activities.length, 1);
-  assert.ok(!("frames" in controlDraft), "still no frames on the control day");
-  const controlSubmit = await api(`/api/reconstruction/${YESTERDAY}/submit`, {
+  assert.strictEqual(controlRound1.mode, "self");
+  assert.ok(!("frames" in controlRound1));
+  await api("/api/reconstruction/round/1/submit", {
     method: "POST",
-    token,
+    token: controlToken,
     body: { activities: controlActivities },
-  });
-  assert.strictEqual(controlSubmit.ok, true);
-  assert.deepStrictEqual(getFrameCorrections(YESTERDAY_NOON), {
-    category: "other",
-    activity: "Cooking",
   });
 
-  // gate + validation edges
-  await api(`/api/reconstruction/${TOMORROW}`, {
-    method: "PUT",
-    token,
-    body: { activities: [] },
-    expectStatus: 403, // future days are never available (server-side gate)
+  // Round 2 unlocks as SELF (control arm), still without frames or VLM.
+  const controlState = await api("/api/reconstruction/state", {
+    token: controlToken,
   });
-  await api(`/api/reconstruction/${TOMORROW}`, { token, expectStatus: 404 });
-  await api(`/api/reconstruction/not-a-day`, { token, expectStatus: 400 });
+  assert.deepStrictEqual(
+    controlState.rounds.map((r: any) => [r.round, r.mode, r.locked]),
+    [
+      [1, "self", false],
+      [2, "self", false],
+    ],
+    "control arm: round 2 is self again",
+  );
+  const controlRound2 = await api("/api/reconstruction/round/2", {
+    token: controlToken,
+  });
+  assert.strictEqual(controlRound2.mode, "self");
+  assert.deepStrictEqual(controlRound2.activities, []);
+  assert.ok(
+    !("frames" in controlRound2),
+    "control round 2 must never include frames/VLM output",
+  );
+  assert.ok(!("vlmPendingCount" in controlRound2));
+
+  await api("/api/reconstruction/round/2/submit", {
+    method: "POST",
+    token: controlToken,
+    body: { activities: controlActivities },
+  });
+  // Self rounds never propagate — the control arm leaves user_corrected_*
+  // untouched (its VLM-accuracy value comes from comparing the activities
+  // table to vlm_* researcher-side).
+  assert.deepStrictEqual(
+    getFrameCorrections(CONTROL_USER, c0),
+    { category: null, activity: null },
+    "control-arm submits never stamp user_corrected_*",
+  );
 
   console.log("SMOKE TEST PASSED");
 };

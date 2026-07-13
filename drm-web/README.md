@@ -1,9 +1,13 @@
 # drm-web — BLINKS Day Reconstruction web app
 
-Participant-facing evening web app for the DRM subproject: each evening the
-participant signs in, reconstructs their day as a list of activities
-(VLM-assisted on `assisted` days, from memory on `control` days), submits it,
-and is forwarded to the external daily questionnaire.
+Participant-facing evening web app for the DRM subproject (single-day,
+two-round design): in the evening of their one field day the participant signs
+in and reconstructs that day in **two sequential rounds, fixed order** — step 1
+is always Self DRM (from memory, no frames, no VLM output), step 2 unlocks only
+after step 1 is submitted and is VLM-assisted (frames + editable auto-segmented
+activity list) for the `main` arm or Self DRM again for the `control` arm. Then
+the external questionnaire link, then offboarding. The order and the
+frames/VLM anti-leak are enforced server-side; this app only renders them.
 
 Stack: Next.js (App Router, TypeScript strict, `src/` dir, Tailwind v4) +
 shadcn/ui + TanStack Query. The app is a pure client of the BLINKS server API
@@ -14,9 +18,9 @@ shadcn/ui + TanStack Query. The app is a pure client of the BLINKS server API
 | Route          | Purpose                                                                     |
 | -------------- | --------------------------------------------------------------------------- |
 | `/`            | Landing + participant login (same credentials as the phone app)             |
-| `/reconstruct` | Day switcher + DayReconstructionPage (assisted or control variant)          |
-| `/survey`      | Link to the external daily questionnaire (placeholder URL, new tab)         |
-| `/done`        | Offboarding: thank-you, close-tab hint, sign-out                            |
+| `/reconstruct` | The two-step flow: step progress header + the active round's editor         |
+| `/survey`      | Link to the external questionnaire (placeholder URL, new tab)               |
+| `/done`        | Offboarding: thank-you, device-return hint, sign-out                        |
 
 All pages except `/` are guarded client-side (redirect to `/` without a token);
 the API additionally enforces auth and the evening availability gate
@@ -30,6 +34,9 @@ server-side.
   because `<img>` tags cannot send headers — the server accepts the cookie for
   `GET /frames/*` (images) **only**. JSON APIs stay header-only (CSRF hygiene).
 - Any 401 clears the token and redirects to `/`.
+- Sign-out and sign-in both call `queryClient.clear()`: no cached rounds or
+  frame URLs may survive into another account's session on a shared browser
+  (anti-leak), and a submitted round is never mounted in the editable editor.
 
 ## Development
 
@@ -45,8 +52,9 @@ npm run dev   # http://localhost:3002 (BLINKS API expected on :3000)
   is same-origin in dev exactly like in production (where Apache does the
   routing). Point the proxy elsewhere with `API_PROXY_TARGET`, e.g.
   `API_PROXY_TARGET=http://127.0.0.1:3100 npm run dev`.
-- For clickable local test data (demo user, one control + one assisted day
-  with labeled frames), see `server/scripts/seed-demo-data.ts`.
+- For clickable local test data (`demo` = main arm, `democtl` = control arm,
+  each with one fully labeled field day), see
+  `server/scripts/seed-demo-data.ts`.
 
 Env vars:
 
@@ -142,7 +150,7 @@ Deploy update: `cd /root/BLINKS && git pull && cd drm-web && npm ci && npm run b
 - `src/lib/api-client.ts` — typed fetch wrapper, token/cookie handling,
   endpoint functions.
 - `src/lib/time.ts` — study-timezone helpers (day keys, HH:MM conversion).
-- `src/components/reconstruct/` — day switcher, assisted/control activity
-  rows, frame-picker dialog (boundary adjustment + insert), day editor with
-  debounced autosave, read-only view of submitted days.
+- `src/components/reconstruct/` — assisted/self activity rows, frame-picker
+  dialog (boundary adjustment + insert), round editor with debounced autosave,
+  read-only view of submitted rounds.
 - `src/components/ui/` — generated shadcn/ui components.

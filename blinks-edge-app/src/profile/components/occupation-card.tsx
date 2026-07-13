@@ -8,17 +8,25 @@ import { colors, spacing } from "@/application/theme/theme";
 import { useOccupationModel } from "@/profile/model/use-occupation-model";
 
 // Inline card on the Profile tab showing the participant's occupation + work
-// description (the AI assistant's classification context) with an edit flow.
+// description (the AI assistant's classification context) and their usual
+// wake/bed times (the bedtime drives the evening fallback reminder), with an
+// edit flow.
 export const OccupationCard = () => {
   const {
     occupation,
     workDescription,
+    wakeTime,
+    bedTime,
     isLoading,
     isEditing,
     occupationDraft,
     setOccupationDraft,
     workDescriptionDraft,
     setWorkDescriptionDraft,
+    wakeTimeDraft,
+    setWakeTimeDraft,
+    bedTimeDraft,
+    setBedTimeDraft,
     validationError,
     isSaving,
     startEditing,
@@ -26,9 +34,12 @@ export const OccupationCard = () => {
     saveEdits,
   } = useOccupationModel();
 
+  const displayValue = (value: string | null): string =>
+    value ?? (isLoading ? "Loading…" : "Not set yet");
+
   return (
     <AppCard style={styles.card}>
-      <AppText variant="subheading">About your work</AppText>
+      <AppText variant="subheading">About you</AppText>
 
       {isEditing ? (
         <>
@@ -46,8 +57,30 @@ export const OccupationCard = () => {
             placeholder="e.g. writing papers, analyzing data, meetings"
             autoCapitalize="sentences"
             multiline
-            errorMessage={validationError}
           />
+          <View style={styles.timeRow}>
+            <View style={styles.timeField}>
+              <AppTextInput
+                label="Usual wake-up time"
+                value={wakeTimeDraft}
+                onChangeText={setWakeTimeDraft}
+                placeholder="07:30"
+                keyboardType="numbers-and-punctuation"
+                maxLength={5}
+              />
+            </View>
+            <View style={styles.timeField}>
+              <AppTextInput
+                label="Usual bedtime"
+                value={bedTimeDraft}
+                onChangeText={setBedTimeDraft}
+                placeholder="23:00"
+                keyboardType="numbers-and-punctuation"
+                maxLength={5}
+                errorMessage={validationError}
+              />
+            </View>
+          </View>
           <View style={styles.buttonRow}>
             <AppButton
               label="Cancel"
@@ -69,7 +102,7 @@ export const OccupationCard = () => {
           <View style={styles.valueBlock}>
             <AppText variant="label">Occupation</AppText>
             <AppText variant="body" color={occupation ? undefined : colors.textMuted}>
-              {occupation ?? (isLoading ? "Loading…" : "Not set yet")}
+              {displayValue(occupation)}
             </AppText>
           </View>
           <View style={styles.valueBlock}>
@@ -78,8 +111,22 @@ export const OccupationCard = () => {
               variant="body"
               color={workDescription ? undefined : colors.textMuted}
             >
-              {workDescription ?? (isLoading ? "Loading…" : "Not set yet")}
+              {displayValue(workDescription)}
             </AppText>
+          </View>
+          <View style={styles.timeRow}>
+            <View style={[styles.valueBlock, styles.timeField]}>
+              <AppText variant="label">Usual wake-up time</AppText>
+              <AppText variant="body" color={wakeTime ? undefined : colors.textMuted}>
+                {displayValue(wakeTime)}
+              </AppText>
+            </View>
+            <View style={[styles.valueBlock, styles.timeField]}>
+              <AppText variant="label">Usual bedtime</AppText>
+              <AppText variant="body" color={bedTime ? undefined : colors.textMuted}>
+                {displayValue(bedTime)}
+              </AppText>
+            </View>
           </View>
           <AppButton label="Edit" onPress={startEditing} variant="secondary" />
         </>
@@ -93,4 +140,6 @@ const styles = StyleSheet.create({
   valueBlock: { gap: spacing.xs },
   buttonRow: { flexDirection: "row", gap: spacing.md },
   rowButton: { flex: 1 },
+  timeRow: { flexDirection: "row", gap: spacing.md },
+  timeField: { flex: 1 },
 });

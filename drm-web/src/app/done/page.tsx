@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2Icon } from "lucide-react";
 
 import { clearStoredToken } from "@/lib/api-client";
@@ -16,9 +17,12 @@ import {
 
 const DoneContent = () => {
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const handleSignOut = () => {
     clearStoredToken();
+    // Anti-leak on a shared browser: drop all cached participant data.
+    queryClient.clear();
     router.replace("/");
   };
 
@@ -30,10 +34,11 @@ const DoneContent = () => {
             className="mx-auto size-10 text-primary"
             aria-hidden
           />
-          <CardTitle>All done for today</CardTitle>
+          <CardTitle>All done</CardTitle>
           <CardDescription>
             Thank you for taking part in the study. You can close this tab now
-            — see you tomorrow evening.
+            — please bring the glasses and the study phone back to the lab as
+            arranged.
           </CardDescription>
         </CardHeader>
         <CardContent>

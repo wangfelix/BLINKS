@@ -6,9 +6,9 @@ import type {
 } from "@/lib/api-types";
 
 /**
- * Local editing model for one activity row. Control-condition rows start with
- * no times (the participant types them); assisted rows always carry the frame
- * times they were derived from.
+ * Local editing model for one activity row. Self-round rows start with no
+ * times (the participant types them from memory); assisted rows always carry
+ * the frame times they were derived from.
  */
 export interface EditableActivity {
   localId: string;
@@ -58,7 +58,7 @@ export const sortActivities = (
 
 /**
  * Serialize rows for PUT/POST. The server assigns `position` from array order,
- * so rows are sorted by start time first. Rows without complete times (control
+ * so rows are sorted by start time first. Rows without complete times (self
  * rows still being filled in) are excluded — they only exist locally.
  */
 export const toActivityInputs = (rows: EditableActivity[]): ActivityInput[] =>
@@ -91,7 +91,7 @@ export interface RowIssue {
 }
 
 /**
- * Validation shared by autosave display and submit. Control rows must have
+ * Validation shared by autosave display and submit. Self rows must have
  * complete, strictly ordered, non-overlapping times; assisted rows get their
  * times from frames so only label/category can be missing. Every row needs a
  * non-empty label and a category before submit (server enforces the same).

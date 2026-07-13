@@ -8,30 +8,38 @@ import { initDb, insertFrame } from "../src/db";
 
 // Seeds a fully clickable demo state for testing drm-web locally:
 //
-//   npx tsx scripts/seed-demo-data.ts [username] [password]   (default demo / demo12345)
+//   npx tsx scripts/seed-demo-data.ts
 //
-// Creates the auth user, a participants row with plan ["control","assisted"],
-// and two study days of frames (yesterday = control, today = assisted;
-// 09:00-16:15 local, one frame per 5 min) with face_status='done' and a
-// plausible VLM label timeline, so the assisted day auto-segments into ~8
-// activities and the control day offers manual entry.
+// Creates TWO demo participants, each with one fully labeled field day
+// (today, 09:00-16:15 local, one frame per 5 min, face_status='done', a
+// plausible VLM label timeline):
+//
+//   demo    / demo12345  -> MAIN arm    (round 2 = VLM-assisted)
+//   democtl / demo12345  -> CONTROL arm (round 2 = self again)
+//
+// so the whole two-round flow is clickable for both arms without a
+// camera/VLM run. Occupation + schedule are pre-filled (the app onboarding
+// gate and the bedtime reminder are satisfied).
 //
 // Respects RECORDINGS_DIR / DATA_DIR / AUTH_DB_PATH like the server — run it
 // with the SAME env values the server uses. JPEG bytes are copied from the
 // first real frame found under RECORDINGS_DIR (falls back to an embedded
 // 1x1 JPEG, which renders as a grey thumbnail).
 //
-// Cleanup: delete the user's directory under recordings/ and their rows in
-// frames/participants/reconstructions/activities (+ the auth user).
+// Re-runnable: wipes and re-seeds the demo users' frames, reconstructions
+// and activities. Run the server with DRM_AVAILABLE_FROM_HOUR=0 to test
+// before 19:00.
 
 const RECORDINGS_DIR =
   process.env.RECORDINGS_DIR ?? path.join(__dirname, "..", "recordings");
 const DATA_DIR = process.env.DATA_DIR ?? path.join(__dirname, "..", "data");
 const DRM_TZ = process.env.DRM_TZ ?? "Europe/Berlin";
 
-const USERNAME = process.argv[2] ?? "demo";
-const PASSWORD = process.argv[3] ?? "demo12345";
-const DEVICE = "DEMOCAM00001";
+const PASSWORD = process.argv[2] ?? "demo12345";
+const USERS: { username: string; arm: "main" | "control"; device: string }[] = [
+  { username: "demo", arm: "main", device: "DEMOCAM00001" },
+  { username: "democtl", arm: "control", device: "DEMOCAM00002" },
+];
 const FRAME_INTERVAL_MS = 5 * 60_000;
 
 // (label from ACTIVITY_VOCABULARY, category, duration in minutes)
@@ -93,16 +101,7 @@ const main = async (): Promise<void> => {
   initDb(path.join(RECORDINGS_DIR, "recordings.db"));
   initAuthDb(process.env.AUTH_DB_PATH ?? path.join(DATA_DIR, "auth.db"));
 
-  // auth user
   const passwordHash = await hashPassword(PASSWORD);
-  if (getUser(USERNAME)) {
-    updatePasswordHash(USERNAME, passwordHash);
-    console.log(`Auth user '${USERNAME}' already existed, password reset.`);
-  } else {
-    insertUser(USERNAME, passwordHash);
-    console.log(`Created auth user '${USERNAME}'.`);
-  }
-
   const jpegSource = findRealJpeg(RECORDINGS_DIR);
   const jpegBytes = jpegSource ? fs.readFileSync(jpegSource) : FALLBACK_JPEG;
   console.log(
@@ -113,30 +112,6 @@ const main = async (): Promise<void> => {
 
   const db = new Database(path.join(RECORDINGS_DIR, "recordings.db"));
   try {
-    // participants row: yesterday control, today assisted; occupation filled
-    // so the profile gate in the mobile app / VLM context is satisfied.
-    db.prepare(
-      `INSERT INTO participants
-         (username, occupation, work_description, condition_plan, created_at)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(username) DO UPDATE SET
-         occupation = excluded.occupation,
-         work_description = excluded.work_description,
-         condition_plan = excluded.condition_plan,
-         updated_at = excluded.created_at`,
-    ).run(
-      USERNAME,
-      "PhD student (demo)",
-      "Research, writing, and data analysis at a computer (demo account).",
-      JSON.stringify(["control", "assisted"]),
-      Date.now(),
-    );
-
-    // wipe any previous demo frames/reconstructions for repeatable runs
-    for (const table of ["frames", "reconstructions", "activities"]) {
-      db.prepare(`DELETE FROM ${table} WHERE participant = ?`).run(USERNAME);
-    }
-
     const markProcessed = db.prepare(
       `UPDATE frames SET
          face_status = 'done', face_count = 0, face_method = 'seed',
@@ -146,15 +121,52 @@ const main = async (): Promise<void> => {
     );
 
     const today = dayKeyOf(Date.now());
-    const yesterday = dayKeyOf(localNoonOf(today) - 86_400_000);
 
-    for (const day of [yesterday, today]) {
-      const dayStartMs = localNoonOf(day) - 3 * 3_600_000; // 09:00 local
+    for (const user of USERS) {
+      if (getUser(user.username)) {
+        updatePasswordHash(user.username, passwordHash);
+        console.log(`Auth user '${user.username}' already existed, password reset.`);
+      } else {
+        insertUser(user.username, passwordHash);
+        console.log(`Created auth user '${user.username}'.`);
+      }
+
+      // participants row: arm + occupation + schedule pre-filled so the app
+      // onboarding gate and the bedtime reminder are satisfied.
+      db.prepare(
+        `INSERT INTO participants
+           (username, occupation, work_description, wake_time, bed_time, arm, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(username) DO UPDATE SET
+           occupation = excluded.occupation,
+           work_description = excluded.work_description,
+           wake_time = excluded.wake_time,
+           bed_time = excluded.bed_time,
+           arm = excluded.arm,
+           updated_at = excluded.created_at`,
+      ).run(
+        user.username,
+        "PhD student (demo)",
+        "Research, writing, and data analysis at a computer (demo account).",
+        "07:30",
+        "23:00",
+        user.arm,
+        Date.now(),
+      );
+
+      // wipe any previous demo state for repeatable runs
+      for (const table of ["frames", "reconstructions", "activities"]) {
+        db.prepare(`DELETE FROM ${table} WHERE participant = ?`).run(
+          user.username,
+        );
+      }
+
+      const dayStartMs = localNoonOf(today) - 3 * 3_600_000; // 09:00 local
       const session = Math.floor(dayStartMs / 1000);
       const imagesDir = path.join(
         RECORDINGS_DIR,
-        USERNAME,
-        DEVICE,
+        user.username,
+        user.device,
         String(session),
         "images",
       );
@@ -170,8 +182,8 @@ const main = async (): Promise<void> => {
           const filePath = path.join(imagesDir, fileName);
           fs.writeFileSync(filePath, jpegBytes);
           insertFrame({
-            participant: USERNAME,
-            device: DEVICE,
+            participant: user.username,
+            device: user.device,
             session,
             frame_index: frameIndex,
             capture_epoch_ms: cursorMs,
@@ -186,20 +198,22 @@ const main = async (): Promise<void> => {
             label,
             category,
             Date.now(),
-            USERNAME,
-            DEVICE,
+            user.username,
+            user.device,
             session,
             frameIndex,
           );
         }
       }
-      console.log(`Seeded ${day}: ${frameIndex} frames (session ${session}).`);
+      console.log(
+        `Seeded ${user.username} (${user.arm} arm): ${frameIndex} frames on ${today}.`,
+      );
     }
 
     console.log(`
-Done. Log into drm-web as '${USERNAME}' / '${PASSWORD}':
-  ${yesterday} -> day 1, CONTROL  (manual entry, no frames shown)
-  ${today} -> day 2, ASSISTED (auto-segmented, editable, with frames)
+Done. Log into drm-web:
+  demo    / '${PASSWORD}'  -> MAIN arm    (step 1 self, step 2 VLM-assisted)
+  democtl / '${PASSWORD}'  -> CONTROL arm (step 1 self, step 2 self again)
 Run the server with DRM_AVAILABLE_FROM_HOUR=0 to test today before 19:00.`);
   } finally {
     db.close();

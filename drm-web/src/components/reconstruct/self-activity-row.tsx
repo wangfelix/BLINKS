@@ -11,10 +11,11 @@ import { CategorySelect } from "@/components/reconstruct/category-select";
 import type { EditableActivity } from "@/components/reconstruct/editor-types";
 
 /**
- * One control-condition activity row: the participant types the time span
- * (no frames, no VLM anything — anti-leak) plus label and category.
+ * One self-round activity row: the participant types the time span from
+ * memory (no frames, no VLM anything — anti-leak) plus label and category.
+ * Used by round 1 for everyone and by round 2 in the control arm.
  */
-export const ControlActivityRow = ({
+export const SelfActivityRow = ({
   activity,
   issue,
   showValidation,

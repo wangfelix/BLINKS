@@ -14,7 +14,9 @@ import { colors, spacing } from "@/application/theme/theme";
 import { useOnboardingModel } from "@/profile/model/use-onboarding-model";
 
 // Blocking onboarding step shown after sign-in until the participant has
-// provided an occupation + work description (see the guard in _layout.tsx).
+// provided an occupation + work description (VLM classification context) and
+// their usual wake/bed times (the bedtime drives the evening fallback push
+// reminder). See the guard in _layout.tsx.
 const OnboardingScreen = () => {
   const insets = useSafeAreaInsets();
   const {
@@ -22,6 +24,11 @@ const OnboardingScreen = () => {
     setOccupation,
     workDescription,
     setWorkDescription,
+    wakeTime,
+    setWakeTime,
+    bedTime,
+    setBedTime,
+    canSubmit,
     validationError,
     isSubmitting,
     submit,
@@ -41,10 +48,11 @@ const OnboardingScreen = () => {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <AppText variant="title">Tell us about your work</AppText>
+          <AppText variant="title">Tell us about yourself</AppText>
           <AppText variant="body" color={colors.textSecondary}>
-            The AI assistant uses this to distinguish work from other
-            activities in your day.
+            The AI assistant uses your work description to distinguish work
+            from other activities; your usual schedule times the evening
+            reminder.
           </AppText>
         </View>
 
@@ -64,13 +72,35 @@ const OnboardingScreen = () => {
             placeholder="e.g. writing papers, analyzing data, meetings"
             autoCapitalize="sentences"
             multiline
-            errorMessage={validationError}
           />
+          <View style={styles.timeRow}>
+            <View style={styles.timeField}>
+              <AppTextInput
+                label="Usual wake-up time"
+                value={wakeTime}
+                onChangeText={setWakeTime}
+                placeholder="07:30"
+                keyboardType="numbers-and-punctuation"
+                maxLength={5}
+              />
+            </View>
+            <View style={styles.timeField}>
+              <AppTextInput
+                label="Usual bedtime"
+                value={bedTime}
+                onChangeText={setBedTime}
+                placeholder="23:00"
+                keyboardType="numbers-and-punctuation"
+                maxLength={5}
+                errorMessage={validationError}
+              />
+            </View>
+          </View>
           <AppButton
             label="Continue"
             onPress={submit}
             loading={isSubmitting}
-            disabled={!occupation.trim() || !workDescription.trim()}
+            disabled={!canSubmit}
           />
         </View>
       </ScrollView>
@@ -88,6 +118,8 @@ const styles = StyleSheet.create({
   },
   header: { gap: spacing.md },
   form: { gap: spacing.lg },
+  timeRow: { flexDirection: "row", gap: spacing.md },
+  timeField: { flex: 1 },
 });
 
 export default OnboardingScreen;

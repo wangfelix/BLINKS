@@ -7,7 +7,6 @@ import { AppText } from "@/application/components/app-text";
 import { ScreenContainer } from "@/application/components/screen-container";
 import { formatDate } from "@/application/utils/format-time";
 import { colors, spacing } from "@/application/theme/theme";
-import { StudyProgressCard } from "@/dashboard/components/study-progress-card";
 import { useDashboardModel } from "@/dashboard/model/use-dashboard-model";
 import { useCustomTabBarHeight } from "@/navigation/components/custom-tab-bar/utils/custom-tab-bar-hooks";
 
@@ -15,9 +14,6 @@ const DashboardScreen = () => {
   const tabBarHeight = useCustomTabBarHeight();
   const {
     username,
-    studyDurationDays,
-    participatedDays,
-    remainingDays,
     hasSessionToday,
     isSessionActive,
     canOpenSession,
@@ -32,12 +28,6 @@ const DashboardScreen = () => {
         <AppText variant="caption">{formatDate(Date.now())}</AppText>
       </View>
 
-      <StudyProgressCard
-        studyDurationDays={studyDurationDays}
-        participatedDays={participatedDays}
-        remainingDays={remainingDays}
-      />
-
       <AppCard style={styles.todayCard}>
         <CalendarCheckIcon
           size={28}
@@ -45,13 +35,13 @@ const DashboardScreen = () => {
           weight={hasSessionToday ? "fill" : "regular"}
         />
         <View style={styles.todayText}>
-          <AppText variant="subheading">Today&apos;s session</AppText>
+          <AppText variant="subheading">Your recording day</AppText>
           <AppText variant="caption">
             {isSessionActive
-              ? "Recording in progress"
+              ? "Recording in progress — wear the glasses through your day"
               : hasSessionToday
-                ? "Completed — see History for the frames"
-                : "Not started yet"}
+                ? "Completed — reconstruct your day on the website this evening"
+                : "Not started yet — start the session when your day begins"}
           </AppText>
         </View>
       </AppCard>

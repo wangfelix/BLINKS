@@ -24,15 +24,36 @@ const hourFormatter = new Intl.DateTimeFormat("en-GB", {
   hourCycle: "h23",
 });
 
+const hourMinuteFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: DRM_TZ,
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
 // Local calendar date (YYYY-MM-DD) of an epoch-ms instant in the study TZ.
 export function dayKeyFromEpochMs(epochMs: number): string {
   return dayKeyFormatter.format(new Date(epochMs));
 }
 
-// Current hour of day (0-23) in the study TZ; drives the evening gate and the
-// push reminder schedule.
+// Current hour of day (0-23) in the study TZ; drives the evening gate.
 export function currentLocalHour(): number {
   return Number(hourFormatter.format(new Date()));
+}
+
+// Current minutes since local midnight (0-1439) in the study TZ; drives the
+// per-participant bedtime push reminder.
+export function currentLocalMinutes(): number {
+  const [hour, minute] = hourMinuteFormatter.format(new Date()).split(":");
+  return Number(hour) * 60 + Number(minute);
+}
+
+// "HH:MM" -> minutes since midnight, or undefined for anything malformed.
+// Participant-entered (app onboarding), so parse defensively.
+export function timeOfDayToMinutes(value: string | null | undefined): number | undefined {
+  if (!value || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) return undefined;
+  const [hour, minute] = value.split(":").map(Number);
+  return hour * 60 + minute;
 }
 
 // Today's day key in the study TZ.

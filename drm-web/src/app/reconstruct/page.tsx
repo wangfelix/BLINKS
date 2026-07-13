@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCwIcon } from "lucide-react";
+import { CheckCircle2Icon, LockIcon, RefreshCwIcon } from "lucide-react";
 
-import type { ReconstructionDay } from "@/lib/api-types";
+import type { RoundState, StudyStateResponse } from "@/lib/api-types";
 import {
   ApiError,
   clearStoredToken,
-  getReconstruction,
-  getReconstructionDays,
+  getRound,
+  getStudyState,
 } from "@/lib/api-client";
 import { formatHour } from "@/lib/time";
 import { useRequireAuth } from "@/lib/use-require-auth";
@@ -19,11 +18,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DayEditor } from "@/components/reconstruct/day-editor";
-import { DaySwitcher } from "@/components/reconstruct/day-switcher";
+import { RoundEditor } from "@/components/reconstruct/round-editor";
 import { ReadOnlyActivityList } from "@/components/reconstruct/read-only-activity-list";
+import { cn } from "@/lib/utils";
 
-const DaySkeleton = () => (
+const RoundSkeleton = () => (
   <div className="space-y-3">
     <Skeleton className="h-6 w-48" />
     <Skeleton className="h-28 w-full rounded-xl" />
@@ -32,36 +31,109 @@ const DaySkeleton = () => (
   </div>
 );
 
-/** Loads and renders one selected day (editor, read-only, or banner states). */
-const DayView = ({ dayInfo }: { dayInfo: ReconstructionDay }) => {
+/** Chip label for a step; round 2's mode stays hidden while it is locked. */
+const stepLabel = (state: RoundState): string => {
+  if (state.round === 1) return "Step 1 · From memory";
+  if (state.mode === "assisted") return "Step 2 · With photos";
+  if (state.mode === "self") return "Step 2 · From memory again";
+  return "Step 2";
+};
+
+/** "Step 1 of 2 / Step 2 of 2" progress header for the fixed two-step flow. */
+const StepProgress = ({
+  rounds,
+  activeRound,
+}: {
+  rounds: RoundState[];
+  activeRound: 1 | 2 | null;
+}) => (
+  <div className="flex flex-wrap gap-2">
+    {rounds.map((state) => {
+      const isActive = state.round === activeRound;
+      const isSubmitted = state.status === "submitted";
+      return (
+        <div
+          key={state.round}
+          className={cn(
+            "flex items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm",
+            isActive ? "border-primary ring-2 ring-primary/25" : "border-border",
+            state.locked && "opacity-60",
+          )}
+        >
+          {isSubmitted ? (
+            <CheckCircle2Icon className="size-4 text-primary" aria-hidden />
+          ) : state.locked ? (
+            <LockIcon className="size-4 text-muted-foreground" aria-hidden />
+          ) : null}
+          <span className={cn("font-medium", !isActive && "text-muted-foreground")}>
+            {stepLabel(state)}
+          </span>
+          {isSubmitted && <Badge variant="secondary">Submitted</Badge>}
+        </div>
+      );
+    })}
+  </div>
+);
+
+/** Read-only rendering of an already-submitted round (both-steps-done view). */
+const SubmittedRoundSection = ({ roundState }: { roundState: RoundState }) => {
+  const roundQuery = useQuery({
+    queryKey: ["round", roundState.round],
+    queryFn: () => getRound(roundState.round),
+  });
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <h2 className="text-base font-semibold">{stepLabel(roundState)}</h2>
+        <Badge variant="secondary">Submitted</Badge>
+      </div>
+      {roundQuery.isPending && <Skeleton className="h-28 w-full rounded-xl" />}
+      {roundQuery.data !== undefined && (
+        <ReadOnlyActivityList
+          activities={roundQuery.data.activities}
+          frames={roundQuery.data.frames ?? null}
+        />
+      )}
+    </section>
+  );
+};
+
+/** Loads and renders the currently editable round. */
+const ActiveRoundView = ({
+  round,
+  onSubmitted,
+}: {
+  round: 1 | 2;
+  onSubmitted: (round: 1 | 2) => void;
+}) => {
   const queryClient = useQueryClient();
-  const reconstructionQuery = useQuery({
-    queryKey: ["reconstruction", dayInfo.day],
-    queryFn: () => getReconstruction(dayInfo.day),
+  const roundQuery = useQuery({
+    queryKey: ["round", round],
+    queryFn: () => getRound(round),
     // Always refetch on mount so the editor initializes from the server's
-    // current draft (local edits of a previously viewed day were autosaved).
+    // current draft (autosaved edits from an earlier visit).
     refetchOnMount: "always",
   });
 
-  if (reconstructionQuery.isLoading || reconstructionQuery.isFetching) {
-    return <DaySkeleton />;
+  if (roundQuery.isLoading || roundQuery.isFetching) {
+    return <RoundSkeleton />;
   }
 
-  if (reconstructionQuery.isError || reconstructionQuery.data === undefined) {
+  if (roundQuery.isError || roundQuery.data === undefined) {
     const message =
-      reconstructionQuery.error instanceof ApiError
-        ? reconstructionQuery.error.message
-        : "Could not load this day.";
+      roundQuery.error instanceof ApiError
+        ? roundQuery.error.message
+        : "Could not load this step.";
     return (
       <Alert variant="destructive">
-        <AlertTitle>Could not load this day</AlertTitle>
+        <AlertTitle>Could not load this step</AlertTitle>
         <AlertDescription>
           <p>{message}</p>
           <Button
             variant="outline"
             size="sm"
             className="mt-2"
-            onClick={() => void reconstructionQuery.refetch()}
+            onClick={() => void roundQuery.refetch()}
           >
             Try again
           </Button>
@@ -70,20 +142,17 @@ const DayView = ({ dayInfo }: { dayInfo: ReconstructionDay }) => {
     );
   }
 
-  const reconstruction = reconstructionQuery.data;
+  const reconstruction = roundQuery.data;
 
+  // Defense in depth: never mount the editor on an already-submitted round
+  // (possible when the study-state answer is momentarily stale).
   if (reconstruction.status === "submitted") {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">
-            Reconstruction for this day
-          </h2>
+          <h2 className="text-lg font-semibold">This step is submitted</h2>
           <Badge variant="secondary">Submitted</Badge>
         </div>
-        <p className="text-sm text-muted-foreground">
-          This day has been submitted and can no longer be edited.
-        </p>
         <ReadOnlyActivityList
           activities={reconstruction.activities}
           frames={reconstruction.frames ?? null}
@@ -93,16 +162,16 @@ const DayView = ({ dayInfo }: { dayInfo: ReconstructionDay }) => {
   }
 
   if (
-    reconstruction.condition === "assisted" &&
+    reconstruction.mode === "assisted" &&
     reconstruction.activities.length === 0 &&
-    dayInfo.vlmPendingCount > 0
+    (reconstruction.vlmPendingCount ?? 0) > 0
   ) {
     return (
       <Alert>
         <AlertTitle>Your day is still being processed</AlertTitle>
         <AlertDescription>
           <p>
-            The recordings of this day are still being prepared — please check
+            The recordings of your day are still being prepared — please check
             back in a few minutes.
           </p>
           <Button
@@ -110,10 +179,8 @@ const DayView = ({ dayInfo }: { dayInfo: ReconstructionDay }) => {
             size="sm"
             className="mt-2"
             onClick={() => {
-              void queryClient.invalidateQueries({
-                queryKey: ["reconstruction-days"],
-              });
-              void reconstructionQuery.refetch();
+              void queryClient.invalidateQueries({ queryKey: ["study-state"] });
+              void roundQuery.refetch();
             }}
           >
             <RefreshCwIcon />
@@ -125,42 +192,54 @@ const DayView = ({ dayInfo }: { dayInfo: ReconstructionDay }) => {
   }
 
   return (
-    <DayEditor
+    <RoundEditor
+      round={round}
+      mode={reconstruction.mode}
       day={reconstruction.day}
-      condition={reconstruction.condition}
       initialActivities={reconstruction.activities}
       frames={reconstruction.frames ?? null}
+      onSubmitted={() => onSubmitted(round)}
     />
   );
 };
 
 const ReconstructContent = () => {
   const router = useRouter();
-  const daysQuery = useQuery({
-    queryKey: ["reconstruction-days"],
-    queryFn: getReconstructionDays,
+  const queryClient = useQueryClient();
+  const stateQuery = useQuery({
+    queryKey: ["study-state"],
+    queryFn: getStudyState,
+    refetchOnMount: "always",
   });
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
-  const days = daysQuery.data?.days;
-
-  // Preselect the most recent available, not-yet-submitted day (list is
-  // sorted day-descending by the server).
-  useEffect(() => {
-    if (days === undefined || selectedDay !== null) return;
-    const preferred =
-      days.find((day) => day.available && day.status !== "submitted") ??
-      days.find((day) => day.available) ??
-      null;
-    if (preferred !== null) setSelectedDay(preferred.day);
-  }, [days, selectedDay]);
-
-  const selectedDayInfo =
-    days?.find((day) => day.day === selectedDay) ?? null;
+  const state: StudyStateResponse | undefined = stateQuery.data;
+  const round1 = state?.rounds.find((entry) => entry.round === 1);
+  const round2 = state?.rounds.find((entry) => entry.round === 2);
+  const activeRound: 1 | 2 | null =
+    round1 === undefined || round2 === undefined
+      ? null
+      : round1.status !== "submitted"
+        ? 1
+        : round2.status !== "submitted"
+          ? 2
+          : null;
 
   const handleSignOut = () => {
     clearStoredToken();
+    // Anti-leak on a shared browser: no cached rounds/frames may survive
+    // into the next account's session.
+    queryClient.clear();
     router.replace("/");
+  };
+
+  const handleRoundSubmitted = (round: 1 | 2) => {
+    if (round === 2) {
+      router.push("/survey");
+      return;
+    }
+    // Step 1 -> step 2: the study-state invalidation (done by the editor)
+    // flips activeRound; just bring the participant back to the top.
+    window.scrollTo({ top: 0 });
   };
 
   return (
@@ -179,27 +258,37 @@ const ReconstructContent = () => {
         </Button>
       </header>
 
-      {daysQuery.isPending && (
-        <div className="flex gap-2">
-          <Skeleton className="h-14 w-40 rounded-xl" />
-          <Skeleton className="h-14 w-40 rounded-xl" />
+      {stateQuery.isPending && (
+        <div className="space-y-4">
+          <div className="flex gap-2">
+            <Skeleton className="h-10 w-44 rounded-xl" />
+            <Skeleton className="h-10 w-44 rounded-xl" />
+          </div>
+          <RoundSkeleton />
         </div>
       )}
 
-      {daysQuery.isError && (
+      {stateQuery.isError && (
         <Alert variant="destructive">
-          <AlertTitle>Could not load your study days</AlertTitle>
+          <AlertTitle>Could not load your study progress</AlertTitle>
           <AlertDescription>
             <p>
-              {daysQuery.error instanceof ApiError
-                ? daysQuery.error.message
-                : "Please check your connection (KIT VPN) and try again."}
+              {stateQuery.error instanceof ApiError
+                ? stateQuery.error.message
+                : "Please check your connection or "}
+                <a
+                    href="mailto:felix-wang@outlook.de"
+                    className="underline hover:text-foreground transition-colors"
+                >
+                    Contact
+                </a>
+                {" "}the study team
             </p>
             <Button
               variant="outline"
               size="sm"
               className="mt-2"
-              onClick={() => void daysQuery.refetch()}
+              onClick={() => void stateQuery.refetch()}
             >
               Try again
             </Button>
@@ -207,39 +296,66 @@ const ReconstructContent = () => {
         </Alert>
       )}
 
-      {days !== undefined && days.length === 0 && (
+      {state !== undefined && state.day === null && (
         <Alert>
-          <AlertTitle>No recorded days yet</AlertTitle>
+          <AlertTitle>No recorded day yet</AlertTitle>
           <AlertDescription>
-            Once the camera has recorded a day, it will appear here for
+            Once the camera has recorded your day, it will appear here for
             reconstruction in the evening.
           </AlertDescription>
         </Alert>
       )}
 
-      {days !== undefined && days.length > 0 && (
-        <>
-          <DaySwitcher
-            days={days}
-            selectedDay={selectedDay}
-            onSelect={setSelectedDay}
-          />
-          <Separator />
-          {selectedDayInfo === null ? (
-            <Alert>
-              <AlertTitle>No day is available yet</AlertTitle>
-              <AlertDescription>
-                Today&apos;s reconstruction opens in the evening
-                {days[0] !== undefined &&
-                  ` (from ${formatHour(days[0].availableFromHour)})`}
-                . Past days stay available at any time.
-              </AlertDescription>
-            </Alert>
-          ) : (
-            <DayView key={selectedDayInfo.day} dayInfo={selectedDayInfo} />
-          )}
-        </>
+      {state !== undefined && state.day !== null && !state.available && (
+        <Alert>
+          <AlertTitle>The survey opens in the evening</AlertTitle>
+          <AlertDescription>
+            Please start the survey in the evening, before you go to bed, but from {formatHour(state.availableFromHour)} at the earliest.
+          </AlertDescription>
+        </Alert>
       )}
+
+      {state !== undefined &&
+        state.day !== null &&
+        state.available &&
+        round1 !== undefined &&
+        round2 !== undefined && (
+          <>
+            <StepProgress
+              rounds={[round1, round2]}
+              activeRound={activeRound}
+            />
+            <Separator />
+            {activeRound !== null ? (
+              <ActiveRoundView
+                key={activeRound}
+                round={activeRound}
+                onSubmitted={handleRoundSubmitted}
+              />
+            ) : (
+              <div className="space-y-6">
+                <Alert>
+                  <AlertTitle>Both steps are submitted</AlertTitle>
+                  <AlertDescription>
+                    <p>
+                      Thank you! If you have not filled in the questionnaire
+                      yet, please do so now.
+                    </p>
+                    <Button
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => router.push("/survey")}
+                    >
+                      Go to the questionnaire
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+                <SubmittedRoundSection roundState={round1} />
+                <SubmittedRoundSection roundState={round2} />
+              </div>
+            )}
+          </>
+        )}
     </main>
   );
 };

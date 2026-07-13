@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { isValidTimeOfDay } from "@/profile/api/profile-api";
 import { useUpdateProfileMutation } from "@/profile/model/use-update-profile-mutation";
 import { profileQueryOptions } from "@/profile/query-options/profile-queries";
 
-// Backs the "About your work" card on the Profile tab: shows the stored
-// occupation + work description with an inline edit flow (same PUT mutation
-// as onboarding).
+// Backs the "About you" card on the Profile tab: shows the stored occupation,
+// work description and daily schedule with an inline edit flow (same PUT
+// mutation as onboarding — the server requires all four fields together).
 export const useOccupationModel = () => {
   // ---- STATE ----
 
@@ -16,6 +17,8 @@ export const useOccupationModel = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [occupationDraft, setOccupationDraft] = useState("");
   const [workDescriptionDraft, setWorkDescriptionDraft] = useState("");
+  const [wakeTimeDraft, setWakeTimeDraft] = useState("");
+  const [bedTimeDraft, setBedTimeDraft] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
 
   // ---- ACTIONS ----
@@ -23,6 +26,8 @@ export const useOccupationModel = () => {
   const startEditing = () => {
     setOccupationDraft(profileQuery.data?.occupation ?? "");
     setWorkDescriptionDraft(profileQuery.data?.workDescription ?? "");
+    setWakeTimeDraft(profileQuery.data?.wakeTime ?? "");
+    setBedTimeDraft(profileQuery.data?.bedTime ?? "");
     setValidationError(null);
     setIsEditing(true);
   };
@@ -35,8 +40,19 @@ export const useOccupationModel = () => {
   const saveEdits = () => {
     const trimmedOccupation = occupationDraft.trim();
     const trimmedWorkDescription = workDescriptionDraft.trim();
-    if (!trimmedOccupation || !trimmedWorkDescription) {
-      setValidationError("Fill in both fields.");
+    const trimmedWakeTime = wakeTimeDraft.trim();
+    const trimmedBedTime = bedTimeDraft.trim();
+    if (
+      !trimmedOccupation ||
+      !trimmedWorkDescription ||
+      !trimmedWakeTime ||
+      !trimmedBedTime
+    ) {
+      setValidationError("Fill in all fields.");
+      return;
+    }
+    if (!isValidTimeOfDay(trimmedWakeTime) || !isValidTimeOfDay(trimmedBedTime)) {
+      setValidationError("Times must be HH:MM (24-hour), e.g. 07:30 or 23:00.");
       return;
     }
     setValidationError(null);
@@ -44,6 +60,8 @@ export const useOccupationModel = () => {
       {
         occupation: trimmedOccupation,
         workDescription: trimmedWorkDescription,
+        wakeTime: trimmedWakeTime,
+        bedTime: trimmedBedTime,
       },
       {
         onSuccess: () => setIsEditing(false),
@@ -60,12 +78,18 @@ export const useOccupationModel = () => {
   return {
     occupation: profileQuery.data?.occupation ?? null,
     workDescription: profileQuery.data?.workDescription ?? null,
+    wakeTime: profileQuery.data?.wakeTime ?? null,
+    bedTime: profileQuery.data?.bedTime ?? null,
     isLoading: profileQuery.isLoading,
     isEditing,
     occupationDraft,
     setOccupationDraft,
     workDescriptionDraft,
     setWorkDescriptionDraft,
+    wakeTimeDraft,
+    setWakeTimeDraft,
+    bedTimeDraft,
+    setBedTimeDraft,
     validationError,
     isSaving: updateProfileMutation.isPending,
     startEditing,

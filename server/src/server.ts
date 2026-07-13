@@ -19,7 +19,7 @@ import { getUser, initAuthDb, updatePasswordHash } from "./auth-db";
 import {
   ActivityRow,
   ActivityWriteInput,
-  aggregateFrameDays,
+  countFramesOnDay,
   deleteFrameRow,
   exportFramesCsv,
   getFrameFilePath,
@@ -27,21 +27,27 @@ import {
   getParticipant,
   getReconstruction,
   initDb,
-  pinReconstructionCondition,
   insertFrame,
+  latestFrameDay,
   listActivities,
   listFrames,
   listFramesOnDay,
   listSessions,
   maxFrameIndex,
-  parseConditionPlan,
+  parseArm,
+  pinReconstructionRound,
   replaceActivities,
   setPushToken,
   upsertParticipantProfile,
 } from "./db";
 import { segmentDay } from "./segmentation";
 import { startPushScheduler } from "./push";
-import { currentLocalHour, dayKeyFromEpochMs, todayKey } from "./time";
+import {
+  currentLocalHour,
+  dayKeyFromEpochMs,
+  timeOfDayToMinutes,
+  todayKey,
+} from "./time";
 
 // ===========================================================================
 // BLINKS ingestion + API server (BLE phone-relay architecture).
@@ -318,33 +324,54 @@ app.get("/api/export.csv", requireAuth, (req: AuthenticatedRequest, res) => {
 
 app.get("/api/profile", requireAuth, (req: AuthenticatedRequest, res) => {
   const participant = getParticipant(req.participant!);
-  const plan = parseConditionPlan(participant?.condition_plan);
+  // Deliberately no arm here: the participant must never learn (or be able to
+  // infer before round 2 unlocks) which study arm they are in.
   res.json({
     username: req.participant!,
     occupation: participant?.occupation ?? null,
     workDescription: participant?.work_description ?? null,
-    studyDurationDays: plan.length,
+    wakeTime: participant?.wake_time ?? null,
+    bedTime: participant?.bed_time ?? null,
     drmWebUrl: WEB_URL,
   });
 });
 
 app.put("/api/profile", requireAuth, (req: AuthenticatedRequest, res) => {
-  const { occupation, workDescription } = req.body as {
+  const { occupation, workDescription, wakeTime, bedTime } = req.body as {
     occupation?: unknown;
     workDescription?: unknown;
+    wakeTime?: unknown;
+    bedTime?: unknown;
   };
-  if (typeof occupation !== "string" || typeof workDescription !== "string") {
-    res
-      .status(400)
-      .json({ error: "occupation and workDescription are required" });
+  if (
+    typeof occupation !== "string" ||
+    typeof workDescription !== "string" ||
+    typeof wakeTime !== "string" ||
+    typeof bedTime !== "string"
+  ) {
+    res.status(400).json({
+      error: "occupation, workDescription, wakeTime and bedTime are required",
+    });
     return;
   }
-  // Upserts only the profile fields; condition_plan is provisioning state and
-  // is never clobbered here.
+  // The bedtime drives the fallback push reminder, so it must parse.
+  if (
+    timeOfDayToMinutes(wakeTime.trim()) === undefined ||
+    timeOfDayToMinutes(bedTime.trim()) === undefined
+  ) {
+    res
+      .status(400)
+      .json({ error: "wakeTime and bedTime must be HH:MM (24-hour)" });
+    return;
+  }
+  // Upserts only the profile fields; arm is provisioning state and is never
+  // clobbered here.
   upsertParticipantProfile(
     req.participant!,
     occupation.trim(),
     workDescription.trim(),
+    wakeTime.trim(),
+    bedTime.trim(),
   );
   res.json({ ok: true });
 });
@@ -359,16 +386,18 @@ app.post("/api/register-push", requireAuth, (req: AuthenticatedRequest, res) => 
   res.json({ ok: true });
 });
 
-// --- DRM: day reconstruction API ---------------------------------------------
+// --- DRM: two-round reconstruction API ----------------------------------------
 //
-// A "study day" is a local calendar date (YYYY-MM-DD, study TZ) with >=1
-// frame; day number i is its 1-based position among the participant's days
-// and maps to a condition via the per-participant plan:
-// plan[min(i-1, plan.length-1)]. Reconstructing TODAY only opens at
-// AVAILABLE_FROM_HOUR local time (past days are always available) — enforced
-// here, not just in the web UI.
+// Single-day, two-round design: each participant reconstructs ONE field day
+// (the "study day" = their latest local date with >=1 frame, pinned on first
+// open) in two sequential rounds the same evening. Round 1 is always SELF
+// (from memory — no frames, no VLM output). Round 2 unlocks only after round
+// 1 is SUBMITTED (server-enforced, so the VLM proposals can never contaminate
+// the from-memory recall) and its mode depends on the provisioning-time arm:
+// main -> assisted (frames + VLM segmentation), control -> self again (pure
+// second-attempt baseline). Reconstructing TODAY only opens at
+// AVAILABLE_FROM_HOUR local time (a past study day is always available).
 
-const DAY_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const CATEGORY_LABELS = new Set(["work", "break", "other"]);
 
 const isDayAvailable = (day: string): boolean => {
@@ -378,23 +407,19 @@ const isDayAvailable = (day: string): boolean => {
   return currentLocalHour() >= AVAILABLE_FROM_HOUR;
 };
 
-// A day's condition: a stored reconstruction pins it (stable even if the plan
-// is later adjusted); otherwise it derives from the day's position in the
-// participant's recorded days. Undefined = the participant has no frames on
-// that day and never started a reconstruction for it.
-const resolveDayCondition = (
-  participant: string,
-  day: string,
-): string | undefined => {
-  const reconstruction = getReconstruction(participant, day);
-  if (reconstruction) return reconstruction.condition;
-  const dayIndex = aggregateFrameDays(participant).findIndex(
-    (aggregate) => aggregate.day === day,
-  );
-  if (dayIndex === -1) return undefined;
-  const plan = parseConditionPlan(getParticipant(participant)?.condition_plan);
-  return plan[Math.min(dayIndex, plan.length - 1)];
-};
+// The study day: pinned by round 1's reconstruction row once that round was
+// first opened; before that, the latest frame day. Undefined = no frames yet.
+const resolveStudyDay = (participant: string): string | undefined =>
+  getReconstruction(participant, 1)?.day ?? latestFrameDay(participant);
+
+// Round 1 is always self; round 2's mode derives from the provisioning-time
+// arm (pinned onto the reconstruction row when round 2 is first opened).
+const modeForRound = (participant: string, round: number): string =>
+  round === 1
+    ? "self"
+    : parseArm(getParticipant(participant)?.arm) === "main"
+      ? "assisted"
+      : "self";
 
 const toActivityJson = (row: ActivityRow) => ({
   id: row.id,
@@ -410,23 +435,26 @@ const toActivityJson = (row: ActivityRow) => ({
 
 // Hard ceiling well above any real day (a 16 h day at 30 s frames segments
 // into far fewer activities); protects the propagation loop from abuse.
-const MAX_ACTIVITIES_PER_DAY = 300;
+const MAX_ACTIVITIES_PER_ROUND = 300;
 
 // Validates the replace-all activities body shared by draft PUT and submit.
 // requireLabels (submit) additionally demands a non-empty rawLabel AND a
-// categoryLabel on every activity. Every span must lie within the submitted
-// local day and spans must not overlap — the submit propagation stamps
-// user_corrected_* onto frames by time range, so an out-of-day span could
-// otherwise rewrite another (even already-submitted) day's ground truth.
+// categoryLabel on every activity. Every span must lie within the pinned
+// study day and spans must not overlap — the assisted submit propagation
+// stamps user_corrected_* onto frames by time range, so an out-of-day span
+// could otherwise rewrite frames outside the study day. On SELF rounds every
+// activity must be user-sourced and carries no VLM provenance (there is no
+// VLM proposal the participant could have seen).
 const parseActivityInputs = (
   body: unknown,
   day: string,
   requireLabels: boolean,
+  mode: string,
 ): { activities?: ActivityWriteInput[]; error?: string } => {
   const list = (body as { activities?: unknown } | undefined)?.activities;
   if (!Array.isArray(list)) return { error: "activities array is required" };
-  if (list.length > MAX_ACTIVITIES_PER_DAY) {
-    return { error: `too many activities (max ${MAX_ACTIVITIES_PER_DAY})` };
+  if (list.length > MAX_ACTIVITIES_PER_ROUND) {
+    return { error: `too many activities (max ${MAX_ACTIVITIES_PER_ROUND})` };
   }
 
   const activities: ActivityWriteInput[] = [];
@@ -475,6 +503,9 @@ const parseActivityInputs = (
     if (source !== "vlm" && source !== "user") {
       return { error: `activity ${index}: source must be 'vlm' or 'user'` };
     }
+    if (mode !== "assisted" && source !== "user") {
+      return { error: `activity ${index}: source must be 'user' on a self round` };
+    }
     if (requireLabels && trimmedLabel === null) {
       return { error: `activity ${index}: rawLabel is required to submit` };
     }
@@ -485,13 +516,17 @@ const parseActivityInputs = (
     // edits (the DB-side exact-span fallback only covers unchanged spans).
     // Client-supplied, but it can only distort the participant's own
     // label-quality bookkeeping; the frame-level vlm_* columns stay VLM-owned.
+    // Self rounds never carry provenance (no proposal was ever shown).
     const vlmRawLabel =
-      typeof entry.vlmRawLabel === "string" && entry.vlmRawLabel.length > 0
+      mode === "assisted" &&
+      typeof entry.vlmRawLabel === "string" &&
+      entry.vlmRawLabel.length > 0
         ? entry.vlmRawLabel
         : null;
-    const vlmCategory = CATEGORY_LABELS.has(entry.vlmCategory as string)
-      ? (entry.vlmCategory as string)
-      : null;
+    const vlmCategory =
+      mode === "assisted" && CATEGORY_LABELS.has(entry.vlmCategory as string)
+        ? (entry.vlmCategory as string)
+        : null;
     activities.push({
       start_ms: startMs,
       end_ms: endMs,
@@ -514,137 +549,179 @@ const parseActivityInputs = (
   return { activities };
 };
 
-// One entry per study day, newest first, with condition + availability so the
-// website can render the day picker without any client-side study logic.
+// The whole evening at a glance: the pinned/derived study day and both
+// rounds' status, so the website can render the linear two-step flow without
+// any client-side study logic. Round 2's mode is revealed ONLY once round 1
+// is submitted — before that a control participant could infer their arm.
 app.get(
-  "/api/reconstruction/days",
+  "/api/reconstruction/state",
   requireAuth,
   (req: AuthenticatedRequest, res) => {
     const participant = req.participant!;
-    const plan = parseConditionPlan(getParticipant(participant)?.condition_plan);
-    const days = aggregateFrameDays(participant)
-      .map((aggregate, index) => {
-        const reconstruction = getReconstruction(participant, aggregate.day);
-        return {
-          day: aggregate.day,
-          dayNumber: index + 1,
-          condition:
-            reconstruction?.condition ?? plan[Math.min(index, plan.length - 1)],
-          frameCount: aggregate.frameCount,
-          vlmPendingCount: aggregate.vlmPendingCount,
-          status: reconstruction?.status ?? "none",
-          available: isDayAvailable(aggregate.day),
-          availableFromHour: AVAILABLE_FROM_HOUR,
-        };
-      })
-      .reverse();
-    res.json({ days });
+    const round1 = getReconstruction(participant, 1);
+    const round2 = getReconstruction(participant, 2);
+    const day = resolveStudyDay(participant) ?? null;
+    const round1Submitted = round1?.status === "submitted";
+    res.json({
+      day,
+      frameCount: day === null ? 0 : countFramesOnDay(participant, day),
+      available: day !== null && isDayAvailable(day),
+      availableFromHour: AVAILABLE_FROM_HOUR,
+      rounds: [
+        {
+          round: 1,
+          mode: "self",
+          status: round1?.status ?? "none",
+          locked: false,
+        },
+        {
+          round: 2,
+          mode: round1Submitted
+            ? (round2?.mode ?? modeForRound(participant, 2))
+            : null,
+          status: round2?.status ?? "none",
+          locked: !round1Submitted,
+        },
+      ],
+    });
   },
 );
 
+// Shared guard for round reads and writes. Responds and returns undefined
+// when the round is malformed, there is no study day yet, the evening gate is
+// closed, round 2 is still locked behind round 1 (the fixed-order invariant,
+// enforced here and not just in the UI), or — writes only — the round is
+// already submitted.
+const guardRound = (
+  req: AuthenticatedRequest,
+  res: express.Response,
+  forWrite: boolean,
+): { round: number; day: string; mode: string } | undefined => {
+  const round = Number(req.params.round);
+  if (round !== 1 && round !== 2) {
+    res.status(400).json({ error: "round must be 1 or 2" });
+    return undefined;
+  }
+  const participant = req.participant!;
+  const existing = getReconstruction(participant, round);
+  const day = existing?.day ?? resolveStudyDay(participant);
+  if (day === undefined) {
+    res.status(404).json({ error: "no frames recorded yet" });
+    return undefined;
+  }
+  // The evening gate applies to reads too: before AVAILABLE_FROM_HOUR a
+  // premature GET would not only show a partial day, it would also pin the
+  // study day (and later bootstrap the segmentation) on a half-finished day.
+  if (!isDayAvailable(day)) {
+    res.status(403).json({
+      error: `the reconstruction opens at ${AVAILABLE_FROM_HOUR}:00`,
+    });
+    return undefined;
+  }
+  if (round === 2 && getReconstruction(participant, 1)?.status !== "submitted") {
+    res.status(403).json({ error: "step 1 must be submitted first" });
+    return undefined;
+  }
+  const mode = existing?.mode ?? modeForRound(participant, round);
+  if (forWrite && existing?.status === "submitted") {
+    res.status(409).json({ error: "this step is already submitted" });
+    return undefined;
+  }
+  return { round, day, mode };
+};
+
 app.get(
-  "/api/reconstruction/:day",
+  "/api/reconstruction/round/:round",
   requireAuth,
   (req: AuthenticatedRequest, res) => {
+    const guard = guardRound(req, res, false);
+    if (!guard) return;
     const participant = req.participant!;
-    const day = req.params.day;
-    if (!DAY_KEY_PATTERN.test(day)) {
-      res.status(400).json({ error: "day must be YYYY-MM-DD" });
-      return;
-    }
-    const condition = resolveDayCondition(participant, day);
-    if (condition === undefined) {
-      res.status(404).json({ error: "no frames recorded on that day" });
-      return;
-    }
-    // The evening gate applies to reads too (404-for-unknown-day first, then
-    // 403-for-gated): before AVAILABLE_FROM_HOUR a premature GET would not
-    // only show today's assisted frames + VLM labels early, it would also
-    // bootstrap (and freeze) the segmentation on a partial day.
-    if (!isDayAvailable(day)) {
-      res.status(403).json({
-        error: `reconstruction for ${day} opens at ${AVAILABLE_FROM_HOUR}:00`,
-      });
-      return;
-    }
-    // Pin the condition on first open (INSERT OR IGNORE) so it can never flip
-    // afterwards: the unpinned derivation depends on the day's position among
-    // the participant's frame days, which frame deletion could renumber.
-    pinReconstructionCondition(participant, day, condition);
+    const { round, day, mode } = guard;
 
-    let reconstruction = getReconstruction(participant, day);
-    let activities = listActivities(participant, day);
-    const dayFrames = listFramesOnDay(participant, day);
-    const servedFrames = dayFrames.filter((f) => f.face_status === "done");
-    // face_status='failed' frames can never become VLM-done — do not let them
-    // hold the day in "still processing" forever (mirrors aggregateFrameDays).
-    const vlmPendingCount = dayFrames.filter(
-      (f) =>
-        (f.vlm_status === "pending" || f.vlm_status === "processing") &&
-        f.face_status !== "failed",
-    ).length;
+    // Pin mode + study day on first open (INSERT OR IGNORE) so neither can
+    // shift afterwards (new frames the next morning, frame deletion, or an
+    // arm change mid-evening).
+    pinReconstructionRound(participant, round, mode, day);
 
-    // Assisted days bootstrap themselves: once the VLM pass is complete and
-    // no activities are stored, the initial segmentation is generated,
-    // persisted as a draft, and returned. While labels are still processing
-    // the day stays empty (the website shows "labels still processing").
-    // Keyed on empty activities + not submitted (NOT on the reconstructions
-    // row, which pin-on-open creates eagerly); side effect: an assisted draft
-    // deliberately emptied by the participant re-proposes on reload, which is
-    // the self-healing behavior we want pre-submit.
-    if (
-      condition === "assisted" &&
-      reconstruction?.status !== "submitted" &&
-      activities.length === 0 &&
-      vlmPendingCount === 0 &&
-      servedFrames.length > 0
-    ) {
-      const segments = segmentDay(
-        servedFrames.map((frame) => ({
-          captureEpochMs: frame.capture_epoch_ms,
-          vlmLabel: frame.vlm_status === "done" ? frame.vlm_label : null,
-          vlmCategory:
-            frame.vlm_status === "done" &&
-            frame.vlm_category !== null &&
-            CATEGORY_LABELS.has(frame.vlm_category)
-              ? frame.vlm_category
-              : null,
-        })),
-      );
-      replaceActivities({
-        participant,
-        day,
-        condition,
-        submit: false,
-        activities: segments.map((segment) => ({
-          start_ms: segment.startMs,
-          end_ms: segment.endMs,
-          raw_label: segment.rawLabel,
-          category_label: segment.categoryLabel,
-          source: "vlm",
-          // The generated proposal IS the VLM's proposal: record it for the
-          // label-quality analysis (user edits later diverge from these).
-          vlm_raw_label: segment.rawLabel,
-          vlm_category: segment.categoryLabel,
-        })),
-      });
-      reconstruction = getReconstruction(participant, day);
-      activities = listActivities(participant, day);
-      console.log(
-        `Generated initial segmentation: ${participant}/${day} (${activities.length} activities)`,
-      );
-    }
+    let reconstruction = getReconstruction(participant, round);
+    let activities = listActivities(participant, round);
 
     const payload: Record<string, unknown> = {
+      round,
+      mode,
       day,
-      condition,
       status: reconstruction?.status ?? "none",
-      activities: activities.map(toActivityJson),
     };
-    // Frames (and thus VLM output) go ONLY to assisted days — on control days
+
+    // Frames and VLM output go ONLY to the assisted round — on self rounds
     // the participant reconstructs from memory alone, so leaking them here
-    // would contaminate the condition (enforced server-side, not just in UI).
-    if (condition === "assisted") {
+    // would contaminate the design (round 1 recall AND the control arm's
+    // second attempt). Enforced server-side, not just in UI.
+    if (mode === "assisted") {
+      const dayFrames = listFramesOnDay(participant, day);
+      const servedFrames = dayFrames.filter((f) => f.face_status === "done");
+      // face_status='failed' frames can never become VLM-done — do not let
+      // them hold the round in "still processing" forever.
+      const vlmPendingCount = dayFrames.filter(
+        (f) =>
+          (f.vlm_status === "pending" || f.vlm_status === "processing") &&
+          f.face_status !== "failed",
+      ).length;
+
+      // The assisted round bootstraps itself: once the VLM pass is complete
+      // and no activities are stored, the initial segmentation is generated,
+      // persisted as a draft, and returned. While labels are still processing
+      // the round stays empty (the website shows "still processing"). Keyed
+      // on empty activities + not submitted (NOT on the reconstructions row,
+      // which pin-on-open creates eagerly); side effect: an assisted draft
+      // deliberately emptied by the participant re-proposes on reload, which
+      // is the self-healing behavior we want pre-submit.
+      if (
+        reconstruction?.status !== "submitted" &&
+        activities.length === 0 &&
+        vlmPendingCount === 0 &&
+        servedFrames.length > 0
+      ) {
+        const segments = segmentDay(
+          servedFrames.map((frame) => ({
+            captureEpochMs: frame.capture_epoch_ms,
+            vlmLabel: frame.vlm_status === "done" ? frame.vlm_label : null,
+            vlmCategory:
+              frame.vlm_status === "done" &&
+              frame.vlm_category !== null &&
+              CATEGORY_LABELS.has(frame.vlm_category)
+                ? frame.vlm_category
+                : null,
+          })),
+        );
+        replaceActivities({
+          participant,
+          round,
+          mode,
+          day,
+          submit: false,
+          activities: segments.map((segment) => ({
+            start_ms: segment.startMs,
+            end_ms: segment.endMs,
+            raw_label: segment.rawLabel,
+            category_label: segment.categoryLabel,
+            source: "vlm",
+            // The generated proposal IS the VLM's proposal: record it for the
+            // label-quality analysis (user edits later diverge from these).
+            vlm_raw_label: segment.rawLabel,
+            vlm_category: segment.categoryLabel,
+          })),
+        });
+        reconstruction = getReconstruction(participant, round);
+        activities = listActivities(participant, round);
+        console.log(
+          `Generated initial segmentation: ${participant}/round ${round} (${activities.length} activities)`,
+        );
+      }
+
+      payload.status = reconstruction?.status ?? "none";
+      payload.vlmPendingCount = vlmPendingCount;
       payload.frames = servedFrames.map((frame) => ({
         captureEpochMs: frame.capture_epoch_ms,
         imageUrl: `/frames/${frame.file_path}`,
@@ -652,55 +729,34 @@ app.get(
         vlmCategory: frame.vlm_category,
       }));
     }
+
+    payload.activities = activities.map(toActivityJson);
     res.json(payload);
   },
 );
 
-// Shared guard for draft saves and submissions; responds and returns
-// undefined when the day is malformed, gated, unknown, or already locked.
-const guardReconstructionWrite = (
-  req: AuthenticatedRequest,
-  res: express.Response,
-): { day: string; condition: string } | undefined => {
-  const day = req.params.day;
-  if (!DAY_KEY_PATTERN.test(day)) {
-    res.status(400).json({ error: "day must be YYYY-MM-DD" });
-    return undefined;
-  }
-  if (!isDayAvailable(day)) {
-    res.status(403).json({
-      error: `reconstruction for ${day} opens at ${AVAILABLE_FROM_HOUR}:00`,
-    });
-    return undefined;
-  }
-  const condition = resolveDayCondition(req.participant!, day);
-  if (condition === undefined) {
-    res.status(404).json({ error: "no frames recorded on that day" });
-    return undefined;
-  }
-  if (getReconstruction(req.participant!, day)?.status === "submitted") {
-    res.status(409).json({ error: "this day is already submitted" });
-    return undefined;
-  }
-  return { day, condition };
-};
-
 // Replace-all draft save.
 app.put(
-  "/api/reconstruction/:day",
+  "/api/reconstruction/round/:round",
   requireAuth,
   (req: AuthenticatedRequest, res) => {
-    const guard = guardReconstructionWrite(req, res);
+    const guard = guardRound(req, res, true);
     if (!guard) return;
-    const { activities, error } = parseActivityInputs(req.body, guard.day, false);
+    const { activities, error } = parseActivityInputs(
+      req.body,
+      guard.day,
+      false,
+      guard.mode,
+    );
     if (!activities) {
       res.status(400).json({ error: error! });
       return;
     }
     replaceActivities({
       participant: req.participant!,
+      round: guard.round,
+      mode: guard.mode,
       day: guard.day,
-      condition: guard.condition,
       activities,
       submit: false,
     });
@@ -708,28 +764,35 @@ app.put(
   },
 );
 
-// Atomic save + lock + propagation of the labels onto the frames in each
-// activity's span (the per-frame label-quality ground truth).
+// Atomic save + lock; the ASSISTED round additionally propagates the labels
+// onto the frames in each activity's span (the per-frame label-quality
+// ground truth). Submitting round 1 unlocks round 2.
 app.post(
-  "/api/reconstruction/:day/submit",
+  "/api/reconstruction/round/:round/submit",
   requireAuth,
   (req: AuthenticatedRequest, res) => {
-    const guard = guardReconstructionWrite(req, res);
+    const guard = guardRound(req, res, true);
     if (!guard) return;
-    const { activities, error } = parseActivityInputs(req.body, guard.day, true);
+    const { activities, error } = parseActivityInputs(
+      req.body,
+      guard.day,
+      true,
+      guard.mode,
+    );
     if (!activities) {
       res.status(400).json({ error: error! });
       return;
     }
     const { submittedAt } = replaceActivities({
       participant: req.participant!,
+      round: guard.round,
+      mode: guard.mode,
       day: guard.day,
-      condition: guard.condition,
       activities,
       submit: true,
     });
     console.log(
-      `Reconstruction submitted: ${req.participant}/${guard.day} (${activities.length} activities)`,
+      `Reconstruction round ${guard.round} (${guard.mode}) submitted: ${req.participant}/${guard.day} (${activities.length} activities)`,
     );
     res.json({ ok: true, submittedAt });
   },

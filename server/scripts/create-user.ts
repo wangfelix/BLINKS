@@ -4,65 +4,58 @@ import fs from "fs";
 import { hashPassword } from "../src/auth";
 import { getUser, initAuthDb, insertUser, updatePasswordHash } from "../src/auth-db";
 import {
-  DEFAULT_CONDITION_PLAN,
+  StudyArm,
   ensureParticipant,
   initDb,
-  setConditionPlan,
+  setArm,
 } from "../src/db";
 
 // Creates a study participant account (or resets a password with --reset) and
-// provisions the matching participants row in recordings.db (occupation is
-// entered by the participant in the app; the per-day DRM condition plan is
-// set here, at provisioning, to counterbalance across participants).
-// Participants are provisioned in the lab before phone handout; there is no
-// self-signup. Run on the VM:
+// provisions the matching participants row in recordings.db (occupation and
+// the daily schedule are entered by the participant in the app; the study ARM
+// is set here, at provisioning: main = round 2 is VLM-assisted, control =
+// round 2 is self again). Participants are provisioned in the lab before
+// phone handout; there is no self-signup. Run on the VM:
 //
-//   npm run create-user -- participant1 <password>
-//   npm run create-user -- participant1 <password> --plan control,assisted,assisted,control
+//   npm run create-user -- participant1 <password>                # main arm
+//   npm run create-user -- participant7 <password> --arm control  # control arm
 //   npm run create-user -- participant1 <new-password> --reset
 //
-// Default plan: control,control,assisted,assisted. --reset keeps the existing
-// occupation and plan unless --plan is given explicitly.
+// --reset keeps the existing arm unless --arm is given explicitly. The arm
+// can be changed until the participant first opens round 2 (its mode is
+// pinned then); after that, fix it directly in the DB if ever needed.
 
 const usage = (): never => {
   console.error(
-    "Usage: npm run create-user -- <username> <password> [--reset] [--plan control,control,assisted,assisted]",
+    "Usage: npm run create-user -- <username> <password> [--reset] [--arm main|control]",
   );
   process.exit(1);
 };
 
-const parsePlan = (planCsv: string): string[] => {
-  const tokens = planCsv
-    .split(",")
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
-  if (
-    tokens.length === 0 ||
-    !tokens.every((token) => token === "control" || token === "assisted")
-  ) {
-    console.error(
-      "--plan must be a comma-separated list of 'control'/'assisted', e.g. --plan control,control,assisted,assisted",
-    );
+const parseArmFlag = (value: string): StudyArm => {
+  if (value !== "main" && value !== "control") {
+    console.error("--arm must be 'main' or 'control'");
     process.exit(1);
   }
-  return tokens;
+  return value;
 };
 
 const main = async (): Promise<void> => {
   const positional: string[] = [];
   let reset = false;
-  let planCsv: string | undefined;
+  let arm: StudyArm | undefined;
 
   const args = process.argv.slice(2);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--reset") {
       reset = true;
-    } else if (arg === "--plan") {
-      planCsv = args[++i];
-      if (planCsv === undefined) usage();
-    } else if (arg.startsWith("--plan=")) {
-      planCsv = arg.slice("--plan=".length);
+    } else if (arg === "--arm") {
+      const value = args[++i];
+      if (value === undefined) usage();
+      arm = parseArmFlag(value);
+    } else if (arg.startsWith("--arm=")) {
+      arm = parseArmFlag(arg.slice("--arm=".length));
     } else {
       positional.push(arg);
     }
@@ -80,13 +73,12 @@ const main = async (): Promise<void> => {
     console.error("Password needs at least 8 characters.");
     process.exit(1);
   }
-  const plan = planCsv !== undefined ? parsePlan(planCsv) : undefined;
 
   const dataDir = process.env.DATA_DIR ?? path.join(__dirname, "..", "data");
   fs.mkdirSync(dataDir, { recursive: true });
   initAuthDb(process.env.AUTH_DB_PATH ?? path.join(dataDir, "auth.db"));
 
-  // The participants row (condition plan, occupation, push token) lives in
+  // The participants row (arm, occupation, schedule, push token) lives in
   // recordings.db next to the frames, not in the auth DB.
   const recordingsDir =
     process.env.RECORDINGS_DIR ?? path.join(__dirname, "..", "recordings");
@@ -98,12 +90,12 @@ const main = async (): Promise<void> => {
 
   if (existing && reset) {
     updatePasswordHash(username, passwordHash);
-    // Never wipe occupation or the plan on a password reset; --plan updates
-    // the plan explicitly.
+    // Never wipe occupation/schedule or the arm on a password reset; --arm
+    // updates the arm explicitly.
     ensureParticipant(username);
-    if (plan) setConditionPlan(username, JSON.stringify(plan));
+    if (arm) setArm(username, arm);
     console.log(
-      `Password reset for '${username}'.${plan ? ` Condition plan set to [${plan.join(", ")}].` : ""}`,
+      `Password reset for '${username}'.${arm ? ` Arm set to '${arm}'.` : ""}`,
     );
     return;
   }
@@ -115,10 +107,8 @@ const main = async (): Promise<void> => {
   }
   insertUser(username, passwordHash);
   ensureParticipant(username);
-  if (plan) setConditionPlan(username, JSON.stringify(plan));
-  console.log(
-    `Created user '${username}' with condition plan [${(plan ?? DEFAULT_CONDITION_PLAN).join(", ")}].`,
-  );
+  if (arm) setArm(username, arm);
+  console.log(`Created user '${username}' in the '${arm ?? "main"}' arm.`);
 };
 
 void main();

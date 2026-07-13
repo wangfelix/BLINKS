@@ -8,7 +8,4 @@ const serverUrl =
 export const appConfig = {
   serverUrl,
   webSocketUrl: serverUrl.replace(/^http/, "ws"),
-  // Fallback while GET /api/profile loads; the authoritative value is
-  // profile.studyDurationDays (= the participant's DRM condition plan length).
-  studyDurationDays: 4,
 } as const;

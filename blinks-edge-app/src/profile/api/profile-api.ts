@@ -1,21 +1,29 @@
 import { apiClient } from "@/application/api/api-client";
 
 // Shape returned by GET /api/profile (server/src/server.ts). Keep in sync
-// with the server when the API changes. studyDurationDays is derived from the
-// participant's DRM condition plan length; drmWebUrl points at the evening
+// with the server when the API changes. wakeTime/bedTime are the participant's
+// usual schedule ("HH:MM", 24-hour) from onboarding — the bedtime drives the
+// server's fallback push reminder; drmWebUrl points at the evening
 // reconstruction website.
 export interface ParticipantProfile {
   username: string;
   occupation: string | null;
   workDescription: string | null;
-  studyDurationDays: number;
+  wakeTime: string | null;
+  bedTime: string | null;
   drmWebUrl: string;
 }
 
 export interface ProfileUpdateInput {
   occupation: string;
   workDescription: string;
+  wakeTime: string;
+  bedTime: string;
 }
+
+// Mirrors the server's HH:MM validation (24-hour clock).
+export const isValidTimeOfDay = (value: string): boolean =>
+  /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 
 export const fetchProfile = () =>
   apiClient.get<ParticipantProfile>("/api/profile");

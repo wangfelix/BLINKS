@@ -13,8 +13,8 @@ import type {
   ActivityInput,
   LoginResponse,
   OkResponse,
-  ReconstructionDaysResponse,
-  ReconstructionResponse,
+  RoundResponse,
+  StudyStateResponse,
   SubmitResponse,
 } from "@/lib/api-types";
 
@@ -106,28 +106,20 @@ export const login = (username: string, password: string) =>
     skipAuthRedirect: true,
   });
 
-export const getReconstructionDays = () =>
-  apiFetch<ReconstructionDaysResponse>("/api/reconstruction/days");
+export const getStudyState = () =>
+  apiFetch<StudyStateResponse>("/api/reconstruction/state");
 
-export const getReconstruction = (day: string) =>
-  apiFetch<ReconstructionResponse>(
-    `/api/reconstruction/${encodeURIComponent(day)}`,
-  );
+export const getRound = (round: 1 | 2) =>
+  apiFetch<RoundResponse>(`/api/reconstruction/round/${round}`);
 
-export const saveReconstructionDraft = (
-  day: string,
-  activities: ActivityInput[],
-) =>
-  apiFetch<OkResponse>(`/api/reconstruction/${encodeURIComponent(day)}`, {
+export const saveRoundDraft = (round: 1 | 2, activities: ActivityInput[]) =>
+  apiFetch<OkResponse>(`/api/reconstruction/round/${round}`, {
     method: "PUT",
     body: { activities },
   });
 
-export const submitReconstruction = (
-  day: string,
-  activities: ActivityInput[],
-) =>
-  apiFetch<SubmitResponse>(
-    `/api/reconstruction/${encodeURIComponent(day)}/submit`,
-    { method: "POST", body: { activities } },
-  );
+export const submitRound = (round: 1 | 2, activities: ActivityInput[]) =>
+  apiFetch<SubmitResponse>(`/api/reconstruction/round/${round}/submit`, {
+    method: "POST",
+    body: { activities },
+  });
