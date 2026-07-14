@@ -36,8 +36,8 @@ const DoneContent = () => {
           />
           <CardTitle>All done</CardTitle>
           <CardDescription>
-            Thank you for taking part in the study. You can close this tab now
-            — please bring the glasses and the study phone back to the lab as
+            Thank you for taking part in the study. You can close this tab now —
+            please bring the glasses and the study phone back to the lab as
             arranged.
           </CardDescription>
         </CardHeader>

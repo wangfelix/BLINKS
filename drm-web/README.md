@@ -15,12 +15,12 @@ shadcn/ui + TanStack Query. The app is a pure client of the BLINKS server API
 
 ## Pages (a linear pipeline)
 
-| Route          | Purpose                                                                     |
-| -------------- | --------------------------------------------------------------------------- |
-| `/`            | Landing + participant login (same credentials as the phone app)             |
-| `/reconstruct` | The two-step flow: step progress header + the active round's editor         |
-| `/survey`      | Link to the external questionnaire (placeholder URL, new tab)               |
-| `/done`        | Offboarding: thank-you, device-return hint, sign-out                        |
+| Route          | Purpose                                                             |
+| -------------- | ------------------------------------------------------------------- |
+| `/`            | Landing + participant login (same credentials as the phone app)     |
+| `/reconstruct` | The two-step flow: step progress header + the active round's editor |
+| `/survey`      | Link to the external questionnaire (placeholder URL, new tab)       |
+| `/done`        | Offboarding: thank-you, device-return hint, sign-out                |
 
 All pages except `/` are guarded client-side (redirect to `/` without a token);
 the API additionally enforces auth and the evening availability gate
@@ -58,11 +58,11 @@ npm run dev   # http://localhost:3002 (BLINKS API expected on :3000)
 
 Env vars:
 
-| Variable              | Default                  | Meaning                                              |
-| --------------------- | ------------------------ | ---------------------------------------------------- |
-| `API_PROXY_TARGET`    | `http://127.0.0.1:3000`  | Dev-proxy target for `/api`, `/frames`, `/health`    |
-| `NEXT_PUBLIC_API_URL` | `""` (same origin)       | API base override; normally never needed             |
-| `NEXT_PUBLIC_DRM_TZ`  | `Europe/Berlin`          | Study timezone; keep in sync with the server's `DRM_TZ` |
+| Variable              | Default                 | Meaning                                                 |
+| --------------------- | ----------------------- | ------------------------------------------------------- |
+| `API_PROXY_TARGET`    | `http://127.0.0.1:3000` | Dev-proxy target for `/api`, `/frames`, `/health`       |
+| `NEXT_PUBLIC_API_URL` | `""` (same origin)      | API base override; normally never needed                |
+| `NEXT_PUBLIC_DRM_TZ`  | `Europe/Berlin`         | Study timezone; keep in sync with the server's `DRM_TZ` |
 
 ## Build + run (production)
 

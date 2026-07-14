@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { Frame } from "@/lib/api-types";
 import { frameImageSrc } from "@/lib/api-client";
@@ -14,7 +14,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { Text } from "@/components/layout/text";
+import { mergeClassNames } from "@/lib/utils";
 
 /**
  * Frame-strip picker used for boundary adjustment and for inserting a new
@@ -44,19 +45,17 @@ export const FramePickerDialog = ({
   confirmLabel: string;
   onConfirm: (startMs: number, endMs: number) => void;
 }) => {
-  const [startMs, setStartMs] = useState<number | null>(null);
-  const [endMs, setEndMs] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      setStartMs(initialStartMs ?? null);
-      setEndMs(initialEndMs ?? null);
-    }
-  }, [open, initialStartMs, initialEndMs]);
+  // The selection initializes once, at mount. The round editor mounts this
+  // dialog freshly for every adjust/insert interaction (it renders it only
+  // while one is active), so each opening starts from the initial values.
+  const [startMs, setStartMs] = useState<number | null>(initialStartMs ?? null);
+  const [endMs, setEndMs] = useState<number | null>(initialEndMs ?? null);
 
   const handleFrameClick = (frameMs: number) => {
     const selectionComplete = startMs !== null && endMs !== null;
-    if (startMs === null || frameMs < startMs || selectionComplete) {
+    const startsFreshSelection =
+      startMs === null || frameMs < startMs || selectionComplete;
+    if (startsFreshSelection) {
       setStartMs(frameMs);
       setEndMs(null);
     } else {
@@ -64,6 +63,8 @@ export const FramePickerDialog = ({
     }
   };
 
+  const hasFrames = frames.length > 0;
+  const hasSelection = startMs !== null || endMs !== null;
   const canConfirm = startMs !== null && endMs !== null && startMs <= endMs;
 
   return (
@@ -74,13 +75,13 @@ export const FramePickerDialog = ({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        {frames.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
+        {!hasFrames ? (
+          <Text variant="secondary" className="py-6 text-center">
             There are no unassigned frames in this gap.
-          </p>
+          </Text>
         ) : (
           <>
-            <p className="text-xs text-muted-foreground">
+            <Text variant="nudge">
               Click the first frame of the activity, then its last frame.
               {startMs !== null && (
                 <span className="ml-1 font-medium text-foreground">
@@ -88,12 +89,13 @@ export const FramePickerDialog = ({
                   {endMs !== null && ` — End ${formatTimeOfDay(endMs)}`}
                 </span>
               )}
-            </p>
+            </Text>
             <div className="grid max-h-[55vh] grid-cols-3 gap-2 overflow-y-auto pr-1 sm:grid-cols-5">
               {frames.map((frame) => {
                 const isStart = frame.captureEpochMs === startMs;
                 const isEnd = frame.captureEpochMs === endMs;
-                const inRange =
+                const isSelectionBoundary = isStart || isEnd;
+                const isInSelectedRange =
                   startMs !== null &&
                   endMs !== null &&
                   frame.captureEpochMs >= startMs &&
@@ -103,10 +105,10 @@ export const FramePickerDialog = ({
                     key={frame.captureEpochMs}
                     type="button"
                     onClick={() => handleFrameClick(frame.captureEpochMs)}
-                    className={cn(
+                    className={mergeClassNames(
                       "relative overflow-hidden rounded-md border text-left transition-shadow focus-visible:ring-2 focus-visible:ring-ring",
-                      inRange && "ring-2 ring-primary/50",
-                      (isStart || isEnd) && "ring-2 ring-primary",
+                      isInSelectedRange && "ring-2 ring-primary/50",
+                      isSelectionBoundary && "ring-2 ring-primary",
                     )}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element -- authenticated cross-origin image; the Next image proxy cannot forward the auth cookie */}
@@ -119,7 +121,7 @@ export const FramePickerDialog = ({
                     <span className="block bg-background/90 px-1 py-0.5 text-center text-[10px] tabular-nums">
                       {formatTimeOfDay(frame.captureEpochMs)}
                     </span>
-                    {(isStart || isEnd) && (
+                    {isSelectionBoundary && (
                       <span className="absolute top-1 left-1 rounded bg-primary px-1 text-[10px] font-medium text-primary-foreground">
                         {isStart && isEnd
                           ? "Start + End"
@@ -142,7 +144,7 @@ export const FramePickerDialog = ({
               setStartMs(null);
               setEndMs(null);
             }}
-            disabled={startMs === null && endMs === null}
+            disabled={!hasSelection}
           >
             Clear selection
           </Button>

@@ -13,7 +13,6 @@ import type {
 } from "@/lib/api-types";
 import { ApiError, saveRoundDraft, submitRound } from "@/lib/api-client";
 import { dayTimeToEpochMs, formatDayLabel } from "@/lib/time";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,6 +22,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Column, Row } from "@/components/layout/flex";
+import { Text } from "@/components/layout/text";
 import { AssistedActivityRow } from "@/components/reconstruct/assisted-activity-row";
 import { SelfActivityRow } from "@/components/reconstruct/self-activity-row";
 import {
@@ -43,15 +44,37 @@ type BoundaryDialogState =
   | { mode: "adjust"; localId: string }
   | { mode: "insert"; afterLocalId: string | null }; // null = before the first activity
 
-const SAVE_INDICATOR_TEXT: Record<SaveState, string> = {
-  idle: "Changes save automatically",
+/** Everything the FramePickerDialog needs for one adjust/insert interaction. */
+interface FramePickerConfig {
+  title: string;
+  description: string;
+  frames: Frame[];
+  initialStartMs?: number;
+  initialEndMs?: number;
+  confirmLabel: string;
+  onConfirm: (startMs: number, endMs: number) => void;
+}
+
+// No idle text: the indicator only appears once a save is actually happening.
+const SAVE_INDICATOR_TEXT: Record<Exclude<SaveState, "idle">, string> = {
   saving: "Saving…",
   saved: "Draft saved",
   error: "Saving failed — your next change will retry",
 };
 
+/**
+ * A row the participant has started filling in. Only these rows show their
+ * validation issues — a freshly added, still-empty row stays quiet, but any
+ * partially complete row explains why Submit is disabled.
+ */
+const hasStartedFillingIn = (row: EditableActivity): boolean =>
+  row.startMs !== null ||
+  row.endMs !== null ||
+  row.rawLabel.trim() !== "" ||
+  row.categoryLabel !== null;
+
 const InsertBetweenButton = ({ onClick }: { onClick: () => void }) => (
-  <div className="flex justify-center">
+  <Row justify="center">
     <Button
       variant="ghost"
       size="xs"
@@ -61,7 +84,7 @@ const InsertBetweenButton = ({ onClick }: { onClick: () => void }) => (
       <PlusIcon />
       Insert activity
     </Button>
-  </div>
+  </Row>
 );
 
 /**
@@ -93,17 +116,18 @@ export const RoundEditor = ({
   );
   const [editVersion, setEditVersion] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [showValidation, setShowValidation] = useState(false);
   const [boundaryDialog, setBoundaryDialog] =
     useState<BoundaryDialogState | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
+  // Latest rows for the debounced/unmount saves, without retriggering their
+  // effects on every keystroke.
   const rowsRef = useRef(rows);
-  rowsRef.current = rows;
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
   const pendingSaveRef = useRef(false);
-  const autosaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const autosaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const markEdited = () => setEditVersion((version) => version + 1);
 
@@ -240,7 +264,11 @@ export const RoundEditor = ({
       const updated = [...previous];
       const index = updated.findIndex((row) => row.localId === localId);
       if (index === -1) return previous;
-      updated[index] = { ...updated[index], startMs: newStartMs, endMs: newEndMs };
+      updated[index] = {
+        ...updated[index],
+        startMs: newStartMs,
+        endMs: newEndMs,
+      };
 
       const removals = new Set<string>();
       const previousRow = index > 0 ? updated[index - 1] : null;
@@ -250,7 +278,10 @@ export const RoundEditor = ({
         previousRow.endMs >= newStartMs
       ) {
         const clampedEndMs = newStartMs - 1;
-        if (previousRow.startMs !== null && clampedEndMs < previousRow.startMs) {
+        if (
+          previousRow.startMs !== null &&
+          clampedEndMs < previousRow.startMs
+        ) {
           removals.add(previousRow.localId);
         } else {
           updated[index - 1] = { ...previousRow, endMs: clampedEndMs };
@@ -287,16 +318,15 @@ export const RoundEditor = ({
 
   // --- Validation + submit ---------------------------------------------------
 
+  const isAssistedRound = mode === "assisted";
   const issues = computeRowIssues(rows, mode === "self");
   const issueByLocalId = new Map(
     issues.map((issue) => [issue.localId, issue.message]),
   );
-
-  const handleSubmitClick = () => {
-    setShowValidation(true);
-    if (rows.length === 0 || issues.length > 0) return;
-    setConfirmOpen(true);
-  };
+  const hasNoActivities = rows.length === 0;
+  // Drives the Submit button's disabled state: at least one activity, and
+  // every activity complete (time span, label, category) without overlaps.
+  const isReadyToSubmit = !hasNoActivities && issues.length === 0;
 
   const handleConfirmSubmit = () => {
     cancelPendingAutosave();
@@ -305,137 +335,128 @@ export const RoundEditor = ({
 
   // --- Frame picker dialog (assisted only) -----------------------------------
 
-  let framePicker: {
-    title: string;
-    description: string;
-    frames: Frame[];
-    initialStartMs?: number;
-    initialEndMs?: number;
-    confirmLabel: string;
-    onConfirm: (startMs: number, endMs: number) => void;
-  } | null = null;
+  /**
+   * Picker for "Adjust times" on an existing activity. The selectable window
+   * is limited to [previous activity's start, next activity's end], so only
+   * the immediate neighbors can be affected by the neighbor rule.
+   */
+  const buildAdjustTimesPicker = (
+    localId: string,
+    dayFrames: Frame[],
+  ): FramePickerConfig | null => {
+    const index = rows.findIndex((row) => row.localId === localId);
+    if (index === -1) return null;
+    const row = rows[index];
+    const firstFrameMs = dayFrames[0].captureEpochMs;
+    const lastFrameMs = dayFrames[dayFrames.length - 1].captureEpochMs;
+    const windowStartMs =
+      index > 0 ? (rows[index - 1].startMs ?? firstFrameMs) : firstFrameMs;
+    const windowEndMs =
+      index < rows.length - 1
+        ? (rows[index + 1].endMs ?? lastFrameMs)
+        : lastFrameMs;
+    return {
+      title: "Adjust the activity's time span",
+      description:
+        "Pick the first and the last frame of this activity. Neighboring activities shrink to make room — a neighbor that ends up with no time left is removed.",
+      frames: dayFrames.filter(
+        (frame) =>
+          frame.captureEpochMs >= windowStartMs &&
+          frame.captureEpochMs <= windowEndMs,
+      ),
+      initialStartMs: row.startMs ?? undefined,
+      initialEndMs: row.endMs ?? undefined,
+      confirmLabel: "Apply time span",
+      onConfirm: (startMs, endMs) => {
+        applyBoundaryChange(row.localId, startMs, endMs);
+        setBoundaryDialog(null);
+      },
+    };
+  };
 
-  if (boundaryDialog !== null && frames !== null && frames.length > 0) {
-    if (boundaryDialog.mode === "adjust") {
-      const index = rows.findIndex(
-        (row) => row.localId === boundaryDialog.localId,
-      );
-      if (index !== -1) {
-        const row = rows[index];
-        const windowStartMs =
-          index > 0
-            ? (rows[index - 1].startMs ?? frames[0].captureEpochMs)
-            : frames[0].captureEpochMs;
-        const windowEndMs =
-          index < rows.length - 1
-            ? (rows[index + 1].endMs ??
-              frames[frames.length - 1].captureEpochMs)
-            : frames[frames.length - 1].captureEpochMs;
-        framePicker = {
-          title: "Adjust the activity's time span",
-          description:
-            "Pick the first and the last frame of this activity. Neighboring activities shrink to make room — a neighbor that ends up with no time left is removed.",
-          frames: frames.filter(
-            (frame) =>
-              frame.captureEpochMs >= windowStartMs &&
-              frame.captureEpochMs <= windowEndMs,
-          ),
-          initialStartMs: row.startMs ?? undefined,
-          initialEndMs: row.endMs ?? undefined,
-          confirmLabel: "Apply time span",
-          onConfirm: (startMs, endMs) => {
-            applyBoundaryChange(row.localId, startMs, endMs);
-            setBoundaryDialog(null);
-          },
-        };
-      }
-    } else {
-      const anchorIndex =
-        boundaryDialog.afterLocalId === null
-          ? -1
-          : rows.findIndex(
-              (row) => row.localId === boundaryDialog.afterLocalId,
-            );
-      const gapStartMs =
-        anchorIndex === -1
-          ? Number.NEGATIVE_INFINITY
-          : (rows[anchorIndex].endMs ?? Number.NEGATIVE_INFINITY);
-      const nextRow: EditableActivity | undefined = rows[anchorIndex + 1];
-      const gapEndMs = nextRow?.startMs ?? Number.POSITIVE_INFINITY;
-      framePicker = {
-        title: "Insert an activity",
-        description:
-          "Pick the first and the last frame of the new activity from the frames not yet assigned to any activity, then describe it in the new row.",
-        frames: frames.filter(
-          (frame) =>
-            frame.captureEpochMs > gapStartMs &&
-            frame.captureEpochMs < gapEndMs,
-        ),
-        confirmLabel: "Insert activity",
-        onConfirm: (startMs, endMs) => {
-          insertActivity(startMs, endMs);
-          setBoundaryDialog(null);
-        },
-      };
-    }
-  }
+  /**
+   * Picker for "Insert activity" between two existing activities (or before
+   * the first / after the last one). Only frames in the unassigned gap are
+   * offered.
+   */
+  const buildInsertActivityPicker = (
+    afterLocalId: string | null,
+    dayFrames: Frame[],
+  ): FramePickerConfig => {
+    const anchorIndex =
+      afterLocalId === null
+        ? -1
+        : rows.findIndex((row) => row.localId === afterLocalId);
+    const gapStartMs =
+      anchorIndex === -1
+        ? Number.NEGATIVE_INFINITY
+        : (rows[anchorIndex].endMs ?? Number.NEGATIVE_INFINITY);
+    const nextRow: EditableActivity | undefined = rows[anchorIndex + 1];
+    const gapEndMs = nextRow?.startMs ?? Number.POSITIVE_INFINITY;
+    return {
+      title: "Insert an activity",
+      description:
+        "Pick the first and the last frame of the new activity from the frames not yet assigned to any activity, then describe it in the new row.",
+      frames: dayFrames.filter(
+        (frame) =>
+          frame.captureEpochMs > gapStartMs && frame.captureEpochMs < gapEndMs,
+      ),
+      confirmLabel: "Insert activity",
+      onConfirm: (startMs, endMs) => {
+        insertActivity(startMs, endMs);
+        setBoundaryDialog(null);
+      },
+    };
+  };
+
+  const framePicker: FramePickerConfig | null =
+    boundaryDialog === null || frames === null || frames.length === 0
+      ? null
+      : boundaryDialog.mode === "adjust"
+        ? buildAdjustTimesPicker(boundaryDialog.localId, frames)
+        : buildInsertActivityPicker(boundaryDialog.afterLocalId, frames);
 
   // --- Render ------------------------------------------------------------------
 
-  const editorHint =
-    mode === "assisted"
-      ? "Review the proposed activities, correct the labels and time spans until they match your day."
-      : round === 2
-        ? "Go through your day once more from memory — add every activity you can remember now."
-        : "Reconstruct your day from memory, one activity at a time.";
+  const editorHint = isAssistedRound
+    ? "Review the proposed activities, correct the labels and time spans until they match your day."
+    : round === 2
+      ? "Go through your day once more from memory — add every activity you can remember now."
+      : "Reconstruct your day from memory, one activity at a time.";
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
+    <Column gap="lg">
+      <Row gap="sm" align="center" justify="between" wrap>
+        <Column>
           <h2 className="text-lg font-semibold">{formatDayLabel(day)}</h2>
-          <p className="text-sm text-muted-foreground">{editorHint}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-muted-foreground" aria-live="polite">
-            {SAVE_INDICATOR_TEXT[saveState]}
-          </span>
-          <Button onClick={handleSubmitClick}>Submit step {round}</Button>
-        </div>
-      </div>
+          <Text variant="secondary">{editorHint}</Text>
+        </Column>
+        <Row gap="md" align="center">
+          {saveState !== "idle" && (
+            <span className="text-xs text-muted-foreground" aria-live="polite">
+              {SAVE_INDICATOR_TEXT[saveState]}
+            </span>
+          )}
+          <Button
+            disabled={!isReadyToSubmit}
+            onClick={() => setConfirmOpen(true)}
+          >
+            Submit step {round}
+          </Button>
+        </Row>
+      </Row>
 
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        <span className="font-medium text-foreground">Work</span> = your own
-        occupational work.{" "}
-        <span className="font-medium text-foreground">Break</span> = an
-        intentional, restorative pause (coffee, resting, a deliberate walk,
-        socializing to recover).{" "}
-        <span className="font-medium text-foreground">Other</span> = neither
-        work nor restorative (chores, errands, answering the door).
-      </p>
-
-      {showValidation && (rows.length === 0 || issues.length > 0) && (
-        <Alert variant="destructive">
-          <AlertTitle>Not ready to submit</AlertTitle>
-          <AlertDescription>
-            {rows.length === 0
-              ? "Add at least one activity before submitting."
-              : "Please complete the highlighted fields: every activity needs a time span, a description and a category."}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {mode === "assisted" ? (
-        <div className="space-y-1">
+      {isAssistedRound ? (
+        <Column gap="xs">
           <InsertBetweenButton
             onClick={() =>
               setBoundaryDialog({ mode: "insert", afterLocalId: null })
             }
           />
-          {rows.length === 0 && (
-            <p className="py-4 text-center text-sm text-muted-foreground">
+          {hasNoActivities && (
+            <Text variant="secondary" className="py-4 text-center">
               No activities yet — use “Insert activity” to add the first one.
-            </p>
+            </Text>
           )}
           {rows.map((row) => (
             <Fragment key={row.localId}>
@@ -443,7 +464,7 @@ export const RoundEditor = ({
                 activity={row}
                 dayFrames={frames ?? []}
                 issue={issueByLocalId.get(row.localId) ?? null}
-                showValidation={showValidation}
+                highlightIssues={hasStartedFillingIn(row)}
                 onChangeLabel={(rawLabel) =>
                   updateRow(row.localId, { rawLabel })
                 }
@@ -465,21 +486,21 @@ export const RoundEditor = ({
               />
             </Fragment>
           ))}
-        </div>
+        </Column>
       ) : (
-        <div className="space-y-3">
-          {rows.length === 0 && (
-            <p className="py-4 text-center text-sm text-muted-foreground">
+        <Column gap="md">
+          {hasNoActivities && (
+            <Text variant="secondary" className="py-4 text-center">
               Start with your first activity of the day — what did you do, and
               roughly from when to when?
-            </p>
+            </Text>
           )}
           {rows.map((row) => (
             <SelfActivityRow
               key={row.localId}
               activity={row}
               issue={issueByLocalId.get(row.localId) ?? null}
-              showValidation={showValidation}
+              highlightIssues={hasStartedFillingIn(row)}
               onChangeStartTime={(timeOfDay) =>
                 handleSelfTimeChange(row.localId, "startMs", timeOfDay)
               }
@@ -493,13 +514,13 @@ export const RoundEditor = ({
               onDelete={() => deleteRow(row.localId)}
             />
           ))}
-          <div className="flex justify-center">
+          <Row justify="center">
             <Button variant="outline" onClick={addSelfRow}>
               <PlusIcon />
               Add activity
             </Button>
-          </div>
-        </div>
+          </Row>
+        </Column>
       )}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -513,11 +534,11 @@ export const RoundEditor = ({
             </DialogDescription>
           </DialogHeader>
           {submitMutation.isError && (
-            <p className="text-sm text-destructive">
+            <Text variant="destructive">
               {submitMutation.error instanceof ApiError
                 ? submitMutation.error.message
                 : "Submitting failed. Please try again."}
-            </p>
+            </Text>
           )}
           <DialogFooter>
             <Button
@@ -531,7 +552,9 @@ export const RoundEditor = ({
               onClick={handleConfirmSubmit}
               disabled={submitMutation.isPending}
             >
-              {submitMutation.isPending ? "Submitting…" : `Submit step ${round}`}
+              {submitMutation.isPending
+                ? "Submitting…"
+                : `Submit step ${round}`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -552,6 +575,6 @@ export const RoundEditor = ({
           onConfirm={framePicker.onConfirm}
         />
       )}
-    </div>
+    </Column>
   );
 };

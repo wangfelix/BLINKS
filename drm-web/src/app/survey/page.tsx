@@ -12,7 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+import { mergeClassNames } from "@/lib/utils";
 
 // PLACEHOLDER: replace with the real oTree/LimeSurvey URL before the study
 // starts. The questionnaire itself is external to this repo.
@@ -28,8 +28,8 @@ const SurveyContent = () => {
           <CardTitle>Final questionnaire</CardTitle>
           <CardDescription>
             Thank you — both steps of your reconstruction are submitted. To
-            finish the evening, please complete the questionnaire. It opens
-            in a new tab; come back here afterwards.
+            finish the evening, please complete the questionnaire. It opens in a
+            new tab; come back here afterwards.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -37,7 +37,10 @@ const SurveyContent = () => {
             href={PLACEHOLDER_SURVEY_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className={cn(buttonVariants({ variant: "default" }), "w-full")}
+            className={mergeClassNames(
+              buttonVariants({ variant: "default" }),
+              "w-full",
+            )}
           >
             Open the questionnaire
             <ExternalLinkIcon />

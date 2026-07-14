@@ -16,6 +16,9 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Column } from "@/components/layout/flex";
+import { Text } from "@/components/layout/text";
+import { StudyTeamContactLink } from "@/components/study-team-contact-link";
 
 const LandingPage = () => {
   const router = useRouter();
@@ -42,30 +45,33 @@ const LandingPage = () => {
     },
   });
 
+  const hasCompleteCredentials = username.trim() !== "" && password !== "";
+  const isSignInDisabled = loginMutation.isPending || !hasCompleteCredentials;
+
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (username.trim() === "" || password === "") return;
+    if (!hasCompleteCredentials) return;
     loginMutation.mutate();
   };
 
   return (
     <main className="flex flex-1 items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md space-y-6">
-        <div className="space-y-2 text-center">
-          <p className="text-xs font-medium tracking-widest text-muted-foreground uppercase">
+      <Column gap="xl" className="w-full max-w-md">
+        <Column gap="sm" className="text-center">
+          <Text variant="eyebrow" className="uppercase">
             Karlsruhe Institute of Technology
-          </p>
+          </Text>
           <h1 className="text-2xl tracking-tight">
             BLINKS — Day Reconstruction Study
           </h1>
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            In the evening of your recording day, please reconstruct your day
-            as a sequence of activities — in two steps, one after the other.
-            It takes about 20 minutes. Sign in with the participant
-            credentials you received from the study team, then follow the
-            steps on the next pages.
-          </p>
-        </div>
+          <Text variant="secondary" className="leading-relaxed">
+            In the evening of your recording day, please reconstruct your day as
+            a sequence of activities — in two steps, one after the other. It
+            takes about 20 minutes. Sign in with the participant credentials you
+            received from the study team, then follow the steps on the next
+            pages.
+          </Text>
+        </Column>
 
         <Card>
           <CardHeader>
@@ -76,7 +82,7 @@ const LandingPage = () => {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
+              <Column gap="sm">
                 <Label htmlFor="username">Participant ID</Label>
                 <Input
                   id="username"
@@ -86,8 +92,8 @@ const LandingPage = () => {
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
                 />
-              </div>
-              <div className="space-y-2">
+              </Column>
+              <Column gap="sm">
                 <Label htmlFor="password">Password</Label>
                 <Input
                   id="password"
@@ -97,7 +103,7 @@ const LandingPage = () => {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                 />
-              </div>
+              </Column>
 
               {loginMutation.isError && (
                 <Alert variant="destructive">
@@ -113,11 +119,7 @@ const LandingPage = () => {
               <Button
                 type="submit"
                 className="w-full"
-                disabled={
-                  loginMutation.isPending ||
-                  username.trim() === "" ||
-                  password === ""
-                }
+                disabled={isSignInDisabled}
               >
                 {loginMutation.isPending ? "Signing in…" : "Sign in"}
               </Button>
@@ -125,17 +127,11 @@ const LandingPage = () => {
           </CardContent>
         </Card>
 
-        <p className="text-center text-xs text-muted-foreground">
-          Questions or trouble signing in?{" "}
-          <a
-            href="mailto:felix-wang@outlook.de"
-            className="underline hover:text-foreground transition-colors"
-          >
-            Contact
-          </a>
-          {" "}the study team.
-        </p>
-      </div>
+        <Text variant="nudge" className="text-center">
+          Questions or trouble signing in? <StudyTeamContactLink /> the study
+          team.
+        </Text>
+      </Column>
     </main>
   );
 };

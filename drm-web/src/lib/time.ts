@@ -4,8 +4,7 @@
 // (Europe/Berlin unless overridden). The server derives day keys with the same
 // rule (DRM_TZ env); keep NEXT_PUBLIC_DRM_TZ in sync with the server's DRM_TZ.
 
-export const STUDY_TIMEZONE =
-  process.env.NEXT_PUBLIC_DRM_TZ ?? "Europe/Berlin";
+export const STUDY_TIMEZONE = process.env.NEXT_PUBLIC_DRM_TZ ?? "Europe/Berlin";
 
 const timeOfDayFormatter = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit",

@@ -1,7 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import { CheckCircle2Icon, LockIcon, RefreshCwIcon } from "lucide-react";
 
 import type { RoundState, StudyStateResponse } from "@/lib/api-types";
@@ -18,26 +22,97 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Column, Row } from "@/components/layout/flex";
+import { Text } from "@/components/layout/text";
+import { StudyTeamContactLink } from "@/components/study-team-contact-link";
 import { RoundEditor } from "@/components/reconstruct/round-editor";
 import { ReadOnlyActivityList } from "@/components/reconstruct/read-only-activity-list";
-import { cn } from "@/lib/utils";
+import { CategoryLegendCard } from "@/components/reconstruct/category-legend-card";
+import { mergeClassNames } from "@/lib/utils";
+
+/** The round the participant works on next; null once both are submitted. */
+const firstUnsubmittedRound = (
+  round1: RoundState,
+  round2: RoundState,
+): 1 | 2 | null => {
+  if (round1.status !== "submitted") return 1;
+  if (round2.status !== "submitted") return 2;
+  return null;
+};
+
+/** Chip label for a step; round 2's mode stays hidden while it is locked. */
+const stepLabel = (roundState: RoundState): string => {
+  if (roundState.round === 1) return "Step 1 · From memory";
+  if (roundState.mode === "assisted") return "Step 2 · With photos";
+  if (roundState.mode === "self") return "Step 2 · From memory again";
+  return "Step 2";
+};
 
 const RoundSkeleton = () => (
-  <div className="space-y-3">
+  <Column gap="md">
     <Skeleton className="h-6 w-48" />
     <Skeleton className="h-28 w-full rounded-xl" />
     <Skeleton className="h-28 w-full rounded-xl" />
     <Skeleton className="h-28 w-full rounded-xl" />
-  </div>
+  </Column>
 );
 
-/** Chip label for a step; round 2's mode stays hidden while it is locked. */
-const stepLabel = (state: RoundState): string => {
-  if (state.round === 1) return "Step 1 · From memory";
-  if (state.mode === "assisted") return "Step 2 · With photos";
-  if (state.mode === "self") return "Step 2 · From memory again";
-  return "Step 2";
-};
+const StudyStateSkeleton = () => (
+  <Column gap="lg">
+    <Row gap="sm">
+      <Skeleton className="h-10 w-44 rounded-xl" />
+      <Skeleton className="h-10 w-44 rounded-xl" />
+    </Row>
+    <RoundSkeleton />
+  </Column>
+);
+
+const StudyStateErrorAlert = ({
+  error,
+  onRetry,
+}: {
+  error: unknown;
+  onRetry: () => void;
+}) => (
+  <Alert variant="destructive">
+    <AlertTitle>Could not load your study progress</AlertTitle>
+    <AlertDescription>
+      <Text variant="inherit">
+        {error instanceof ApiError
+          ? error.message
+          : "Please check your connection or "}
+        <StudyTeamContactLink /> the study team
+      </Text>
+      <Button variant="outline" size="sm" className="mt-2" onClick={onRetry}>
+        Try again
+      </Button>
+    </AlertDescription>
+  </Alert>
+);
+
+const NoRecordedDayNotice = () => (
+  <Alert>
+    <AlertTitle>No recorded day yet</AlertTitle>
+    <AlertDescription>
+      Once the camera has recorded your day, it will appear here for
+      reconstruction in the evening.
+    </AlertDescription>
+  </Alert>
+);
+
+const OpensInTheEveningNotice = ({
+  availableFromHour,
+}: {
+  availableFromHour: number;
+}) => (
+  <Alert>
+    <AlertTitle>The survey opens in the evening</AlertTitle>
+    <AlertDescription>
+      Please start the survey in the evening, before you go to bed, but from{" "}
+      {formatHour(availableFromHour)} at the earliest.
+    </AlertDescription>
+  </Alert>
+);
 
 /** "Step 1 of 2 / Step 2 of 2" progress header for the fixed two-step flow. */
 const StepProgress = ({
@@ -47,32 +122,41 @@ const StepProgress = ({
   rounds: RoundState[];
   activeRound: 1 | 2 | null;
 }) => (
-  <div className="flex flex-wrap gap-2">
-    {rounds.map((state) => {
-      const isActive = state.round === activeRound;
-      const isSubmitted = state.status === "submitted";
+  <Row gap="sm" wrap>
+    {rounds.map((roundState) => {
+      const isActive = roundState.round === activeRound;
+      const isSubmitted = roundState.status === "submitted";
       return (
-        <div
-          key={state.round}
-          className={cn(
-            "flex items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm",
-            isActive ? "border-primary ring-2 ring-primary/25" : "border-border",
-            state.locked && "opacity-60",
+        <Row
+          key={roundState.round}
+          gap="sm"
+          align="center"
+          className={mergeClassNames(
+            "rounded-xl border bg-card px-3 py-2 text-sm",
+            isActive
+              ? "border-primary ring-2 ring-primary/25"
+              : "border-border",
+            roundState.locked && "opacity-60",
           )}
         >
           {isSubmitted ? (
             <CheckCircle2Icon className="size-4 text-primary" aria-hidden />
-          ) : state.locked ? (
+          ) : roundState.locked ? (
             <LockIcon className="size-4 text-muted-foreground" aria-hidden />
           ) : null}
-          <span className={cn("font-medium", !isActive && "text-muted-foreground")}>
-            {stepLabel(state)}
+          <span
+            className={mergeClassNames(
+              "font-medium",
+              !isActive && "text-muted-foreground",
+            )}
+          >
+            {stepLabel(roundState)}
           </span>
           {isSubmitted && <Badge variant="secondary">Submitted</Badge>}
-        </div>
+        </Row>
       );
     })}
-  </div>
+  </Row>
 );
 
 /** Read-only rendering of an already-submitted round (both-steps-done view). */
@@ -83,10 +167,10 @@ const SubmittedRoundSection = ({ roundState }: { roundState: RoundState }) => {
   });
   return (
     <section className="space-y-3">
-      <div className="flex items-center gap-2">
+      <Row gap="sm" align="center">
         <h2 className="text-base font-semibold">{stepLabel(roundState)}</h2>
         <Badge variant="secondary">Submitted</Badge>
-      </div>
+      </Row>
       {roundQuery.isPending && <Skeleton className="h-28 w-full rounded-xl" />}
       {roundQuery.data !== undefined && (
         <ReadOnlyActivityList
@@ -97,6 +181,33 @@ const SubmittedRoundSection = ({ roundState }: { roundState: RoundState }) => {
     </section>
   );
 };
+
+const BothStepsSubmittedView = ({
+  round1,
+  round2,
+  onGoToSurvey,
+}: {
+  round1: RoundState;
+  round2: RoundState;
+  onGoToSurvey: () => void;
+}) => (
+  <Column gap="xl">
+    <Alert>
+      <AlertTitle>Both steps are submitted</AlertTitle>
+      <AlertDescription>
+        <Text variant="inherit">
+          Thank you! If you have not filled in the questionnaire yet, please do
+          so now.
+        </Text>
+        <Button size="sm" className="mt-2" onClick={onGoToSurvey}>
+          Go to the questionnaire
+        </Button>
+      </AlertDescription>
+    </Alert>
+    <SubmittedRoundSection roundState={round1} />
+    <SubmittedRoundSection roundState={round2} />
+  </Column>
+);
 
 /** Loads and renders the currently editable round. */
 const ActiveRoundView = ({
@@ -128,7 +239,7 @@ const ActiveRoundView = ({
       <Alert variant="destructive">
         <AlertTitle>Could not load this step</AlertTitle>
         <AlertDescription>
-          <p>{message}</p>
+          <Text variant="inherit">{message}</Text>
           <Button
             variant="outline"
             size="sm"
@@ -146,34 +257,35 @@ const ActiveRoundView = ({
 
   // Defense in depth: never mount the editor on an already-submitted round
   // (possible when the study-state answer is momentarily stale).
-  if (reconstruction.status === "submitted") {
+  const isAlreadySubmitted = reconstruction.status === "submitted";
+  if (isAlreadySubmitted) {
     return (
-      <div className="space-y-4">
-        <div className="flex items-center gap-2">
+      <Column gap="lg">
+        <Row gap="sm" align="center">
           <h2 className="text-lg font-semibold">This step is submitted</h2>
           <Badge variant="secondary">Submitted</Badge>
-        </div>
+        </Row>
         <ReadOnlyActivityList
           activities={reconstruction.activities}
           frames={reconstruction.frames ?? null}
         />
-      </div>
+      </Column>
     );
   }
 
-  if (
+  const isStillWaitingForVlmLabels =
     reconstruction.mode === "assisted" &&
     reconstruction.activities.length === 0 &&
-    (reconstruction.vlmPendingCount ?? 0) > 0
-  ) {
+    (reconstruction.vlmPendingCount ?? 0) > 0;
+  if (isStillWaitingForVlmLabels) {
     return (
       <Alert>
         <AlertTitle>Your day is still being processed</AlertTitle>
         <AlertDescription>
-          <p>
+          <Text variant="inherit">
             The recordings of your day are still being prepared — please check
             back in a few minutes.
-          </p>
+          </Text>
           <Button
             variant="outline"
             size="sm"
@@ -203,6 +315,78 @@ const ActiveRoundView = ({
   );
 };
 
+/** Everything below the page header; each study state gets its own view. */
+const StudyStateView = ({
+  stateQuery,
+  onRoundSubmitted,
+  onGoToSurvey,
+}: {
+  stateQuery: UseQueryResult<StudyStateResponse, Error>;
+  onRoundSubmitted: (round: 1 | 2) => void;
+  onGoToSurvey: () => void;
+}) => {
+  if (stateQuery.isPending) {
+    return <StudyStateSkeleton />;
+  }
+  if (stateQuery.isError) {
+    return (
+      <StudyStateErrorAlert
+        error={stateQuery.error}
+        onRetry={() => void stateQuery.refetch()}
+      />
+    );
+  }
+
+  const state = stateQuery.data;
+  const hasRecordedDay = state.day !== null;
+  const isOpenForReconstruction = state.available;
+  const round1 = state.rounds.find((entry) => entry.round === 1);
+  const round2 = state.rounds.find((entry) => entry.round === 2);
+
+  if (!hasRecordedDay) {
+    return <NoRecordedDayNotice />;
+  }
+  if (!isOpenForReconstruction) {
+    return (
+      <OpensInTheEveningNotice availableFromHour={state.availableFromHour} />
+    );
+  }
+  if (round1 === undefined || round2 === undefined) {
+    // The server always sends both rounds; nothing sensible to render if not.
+    return null;
+  }
+
+  const activeRound = firstUnsubmittedRound(round1, round2);
+
+  return (
+    <Row gap="xl" align="start">
+      <Column gap="xl" className="min-w-0 flex-1">
+        <StepProgress rounds={[round1, round2]} activeRound={activeRound} />
+        <Separator />
+        {activeRound === null ? (
+          <BothStepsSubmittedView
+            round1={round1}
+            round2={round2}
+            onGoToSurvey={onGoToSurvey}
+          />
+        ) : (
+          <ActiveRoundView
+            key={activeRound}
+            round={activeRound}
+            onSubmitted={onRoundSubmitted}
+          />
+        )}
+        {/* Small screens: no room for a side panel, so the legend stacks
+            below the editor instead. */}
+        <CategoryLegendCard className="lg:hidden" />
+      </Column>
+      <aside className="sticky top-8 hidden w-64 shrink-0 lg:block">
+        <CategoryLegendCard />
+      </aside>
+    </Row>
+  );
+};
+
 const ReconstructContent = () => {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -211,18 +395,6 @@ const ReconstructContent = () => {
     queryFn: getStudyState,
     refetchOnMount: "always",
   });
-
-  const state: StudyStateResponse | undefined = stateQuery.data;
-  const round1 = state?.rounds.find((entry) => entry.round === 1);
-  const round2 = state?.rounds.find((entry) => entry.round === 2);
-  const activeRound: 1 | 2 | null =
-    round1 === undefined || round2 === undefined
-      ? null
-      : round1.status !== "submitted"
-        ? 1
-        : round2.status !== "submitted"
-          ? 2
-          : null;
 
   const handleSignOut = () => {
     clearStoredToken();
@@ -243,119 +415,24 @@ const ReconstructContent = () => {
   };
 
   return (
-    <main className="mx-auto w-full max-w-4xl flex-1 space-y-6 px-4 py-8">
+    <main className="mx-auto w-full max-w-4xl flex-1 space-y-6 px-4 py-8 lg:max-w-6xl">
       <header className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-xs font-medium tracking-widest text-muted-foreground">
-            BLINKS — Day Reconstruction Study
-          </p>
+        <Column>
+          <Text variant="eyebrow">BLINKS — Day Reconstruction Study</Text>
           <h1 className="text-xl font-semibold tracking-tight">
             Reconstruct your day
           </h1>
-        </div>
+        </Column>
         <Button variant="ghost" size="sm" onClick={handleSignOut}>
           Sign out
         </Button>
       </header>
 
-      {stateQuery.isPending && (
-        <div className="space-y-4">
-          <div className="flex gap-2">
-            <Skeleton className="h-10 w-44 rounded-xl" />
-            <Skeleton className="h-10 w-44 rounded-xl" />
-          </div>
-          <RoundSkeleton />
-        </div>
-      )}
-
-      {stateQuery.isError && (
-        <Alert variant="destructive">
-          <AlertTitle>Could not load your study progress</AlertTitle>
-          <AlertDescription>
-            <p>
-              {stateQuery.error instanceof ApiError
-                ? stateQuery.error.message
-                : "Please check your connection or "}
-                <a
-                    href="mailto:felix-wang@outlook.de"
-                    className="underline hover:text-foreground transition-colors"
-                >
-                    Contact
-                </a>
-                {" "}the study team
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2"
-              onClick={() => void stateQuery.refetch()}
-            >
-              Try again
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {state !== undefined && state.day === null && (
-        <Alert>
-          <AlertTitle>No recorded day yet</AlertTitle>
-          <AlertDescription>
-            Once the camera has recorded your day, it will appear here for
-            reconstruction in the evening.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {state !== undefined && state.day !== null && !state.available && (
-        <Alert>
-          <AlertTitle>The survey opens in the evening</AlertTitle>
-          <AlertDescription>
-            Please start the survey in the evening, before you go to bed, but from {formatHour(state.availableFromHour)} at the earliest.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {state !== undefined &&
-        state.day !== null &&
-        state.available &&
-        round1 !== undefined &&
-        round2 !== undefined && (
-          <>
-            <StepProgress
-              rounds={[round1, round2]}
-              activeRound={activeRound}
-            />
-            <Separator />
-            {activeRound !== null ? (
-              <ActiveRoundView
-                key={activeRound}
-                round={activeRound}
-                onSubmitted={handleRoundSubmitted}
-              />
-            ) : (
-              <div className="space-y-6">
-                <Alert>
-                  <AlertTitle>Both steps are submitted</AlertTitle>
-                  <AlertDescription>
-                    <p>
-                      Thank you! If you have not filled in the questionnaire
-                      yet, please do so now.
-                    </p>
-                    <Button
-                      size="sm"
-                      className="mt-2"
-                      onClick={() => router.push("/survey")}
-                    >
-                      Go to the questionnaire
-                    </Button>
-                  </AlertDescription>
-                </Alert>
-                <SubmittedRoundSection roundState={round1} />
-                <SubmittedRoundSection roundState={round2} />
-              </div>
-            )}
-          </>
-        )}
+      <StudyStateView
+        stateQuery={stateQuery}
+        onRoundSubmitted={handleRoundSubmitted}
+        onGoToSurvey={() => router.push("/survey")}
+      />
     </main>
   );
 };

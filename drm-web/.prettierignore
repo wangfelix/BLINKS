@@ -1,0 +1,7 @@
+.next/
+out/
+build/
+public/
+package-lock.json
+tsconfig.tsbuildinfo
+next-env.d.ts

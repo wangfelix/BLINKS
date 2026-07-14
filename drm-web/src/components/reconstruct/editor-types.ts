@@ -46,9 +46,7 @@ export const fromServerActivity = (activity: Activity): EditableActivity => ({
 });
 
 /** Sorted by start time; rows without a start time sink to the end. */
-export const sortActivities = (
-  rows: EditableActivity[],
-): EditableActivity[] =>
+export const sortActivities = (rows: EditableActivity[]): EditableActivity[] =>
   [...rows].sort((first, second) => {
     if (first.startMs === null && second.startMs === null) return 0;
     if (first.startMs === null) return 1;
@@ -75,7 +73,7 @@ export const toActivityInputs = (rows: EditableActivity[]): ActivityInput[] =>
     }));
 
 /** Pick up to maxCount items spread evenly across the list (endpoints kept). */
-export const sampleEvenly = <T,>(items: T[], maxCount: number): T[] => {
+export const sampleEvenly = <T>(items: T[], maxCount: number): T[] => {
   if (items.length <= maxCount) return items;
   const sampled: T[] = [];
   for (let slot = 0; slot < maxCount; slot += 1) {

@@ -13,6 +13,21 @@
         "dev"
       ],
       "port": 3002
+    },
+    {
+      "name": "server",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PATH=/Users/felixwang/.nvm/versions/node/v20.18.0/bin:/usr/bin:/bin",
+        "DISABLE_PUSH=1",
+        "DRM_AVAILABLE_FROM_HOUR=0",
+        "npm",
+        "--prefix",
+        "server",
+        "run",
+        "dev"
+      ],
+      "port": 3000
     }
   ]
 }

@@ -7,6 +7,8 @@ import { formatTimeOfDay } from "@/lib/time";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Column, Row } from "@/components/layout/flex";
+import { Text } from "@/components/layout/text";
 import { CategorySelect } from "@/components/reconstruct/category-select";
 import type { EditableActivity } from "@/components/reconstruct/editor-types";
 
@@ -18,7 +20,7 @@ import type { EditableActivity } from "@/components/reconstruct/editor-types";
 export const SelfActivityRow = ({
   activity,
   issue,
-  showValidation,
+  highlightIssues,
   onChangeStartTime,
   onChangeEndTime,
   onChangeLabel,
@@ -27,7 +29,7 @@ export const SelfActivityRow = ({
 }: {
   activity: EditableActivity;
   issue: string | null;
-  showValidation: boolean;
+  highlightIssues: boolean;
   onChangeStartTime: (timeOfDay: string) => void;
   onChangeEndTime: (timeOfDay: string) => void;
   onChangeLabel: (rawLabel: string) => void;
@@ -38,54 +40,55 @@ export const SelfActivityRow = ({
     activity.startMs === null ? "" : formatTimeOfDay(activity.startMs);
   const endValue =
     activity.endMs === null ? "" : formatTimeOfDay(activity.endMs);
-  const labelMissing = showValidation && activity.rawLabel.trim() === "";
-  const categoryMissing = showValidation && activity.categoryLabel === null;
-  const timesInvalid =
-    showValidation && (activity.startMs === null || activity.endMs === null);
+  const isLabelMissing = highlightIssues && activity.rawLabel.trim() === "";
+  const isCategoryMissing = highlightIssues && activity.categoryLabel === null;
+  const isTimeSpanIncomplete =
+    highlightIssues && (activity.startMs === null || activity.endMs === null);
+  const showIssueMessage = highlightIssues && issue !== null;
 
   return (
-    <div className="space-y-3 rounded-xl border bg-card p-4 shadow-xs">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1">
+    <Column gap="md" className="rounded-xl border bg-card p-4 shadow-xs">
+      <Row gap="md" align="end" wrap>
+        <Column gap="xs">
           <Label htmlFor={`${activity.localId}-start`}>From</Label>
           <Input
             id={`${activity.localId}-start`}
             type="time"
             value={startValue}
-            aria-invalid={timesInvalid || undefined}
+            aria-invalid={isTimeSpanIncomplete || undefined}
             onChange={(event) => onChangeStartTime(event.target.value)}
             className="w-28"
           />
-        </div>
-        <div className="space-y-1">
+        </Column>
+        <Column gap="xs">
           <Label htmlFor={`${activity.localId}-end`}>To</Label>
           <Input
             id={`${activity.localId}-end`}
             type="time"
             value={endValue}
-            aria-invalid={timesInvalid || undefined}
+            aria-invalid={isTimeSpanIncomplete || undefined}
             onChange={(event) => onChangeEndTime(event.target.value)}
             className="w-28"
           />
-        </div>
-        <div className="min-w-48 flex-1 space-y-1">
+        </Column>
+        <Column gap="xs" className="min-w-48 flex-1">
           <Label htmlFor={`${activity.localId}-label`}>Activity</Label>
           <Input
             id={`${activity.localId}-label`}
             value={activity.rawLabel}
             placeholder="What were you doing?"
-            aria-invalid={labelMissing || undefined}
+            aria-invalid={isLabelMissing || undefined}
             onChange={(event) => onChangeLabel(event.target.value)}
           />
-        </div>
-        <div className="space-y-1">
+        </Column>
+        <Column gap="xs">
           <Label>Category</Label>
           <CategorySelect
             value={activity.categoryLabel}
             onChange={onChangeCategory}
-            invalid={categoryMissing}
+            invalid={isCategoryMissing}
           />
-        </div>
+        </Column>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -94,11 +97,9 @@ export const SelfActivityRow = ({
         >
           <Trash2Icon />
         </Button>
-      </div>
+      </Row>
 
-      {showValidation && issue !== null && (
-        <p className="text-sm text-destructive">{issue}</p>
-      )}
-    </div>
+      {showIssueMessage && <Text variant="destructive">{issue}</Text>}
+    </Column>
   );
 };
