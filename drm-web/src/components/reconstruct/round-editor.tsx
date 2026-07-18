@@ -30,6 +30,7 @@ import {
   computeRowIssues,
   fromServerActivity,
   makeLocalId,
+  resolveSpanOverlaps,
   sortActivities,
   toActivityInputs,
   type EditableActivity,
@@ -248,62 +249,15 @@ export const RoundEditor = ({
     markEdited();
   };
 
-  /**
-   * Boundary adjustment with the neighbor rule: the previous activity's end
-   * clamps to just before the new start, the next activity's start clamps to
-   * just after the new end; a neighbor whose span becomes empty is removed.
-   * The picker window is limited to [previous.start, next.end], so only the
-   * immediate neighbors can be affected.
-   */
+  /** Set a new time span on one activity; see resolveSpanOverlaps. */
   const applyBoundaryChange = (
     localId: string,
     newStartMs: number,
     newEndMs: number,
   ) => {
-    setRows((previous) => {
-      const updated = [...previous];
-      const index = updated.findIndex((row) => row.localId === localId);
-      if (index === -1) return previous;
-      updated[index] = {
-        ...updated[index],
-        startMs: newStartMs,
-        endMs: newEndMs,
-      };
-
-      const removals = new Set<string>();
-      const previousRow = index > 0 ? updated[index - 1] : null;
-      if (
-        previousRow !== null &&
-        previousRow.endMs !== null &&
-        previousRow.endMs >= newStartMs
-      ) {
-        const clampedEndMs = newStartMs - 1;
-        if (
-          previousRow.startMs !== null &&
-          clampedEndMs < previousRow.startMs
-        ) {
-          removals.add(previousRow.localId);
-        } else {
-          updated[index - 1] = { ...previousRow, endMs: clampedEndMs };
-        }
-      }
-      const nextRow = index < updated.length - 1 ? updated[index + 1] : null;
-      if (
-        nextRow !== null &&
-        nextRow.startMs !== null &&
-        nextRow.startMs <= newEndMs
-      ) {
-        const clampedStartMs = newEndMs + 1;
-        if (nextRow.endMs !== null && nextRow.endMs < clampedStartMs) {
-          removals.add(nextRow.localId);
-        } else {
-          updated[index + 1] = { ...nextRow, startMs: clampedStartMs };
-        }
-      }
-      return sortActivities(
-        updated.filter((row) => !removals.has(row.localId)),
-      );
-    });
+    setRows((previous) =>
+      resolveSpanOverlaps(previous, localId, newStartMs, newEndMs),
+    );
     markEdited();
   };
 
@@ -336,34 +290,21 @@ export const RoundEditor = ({
   // --- Frame picker dialog (assisted only) -----------------------------------
 
   /**
-   * Picker for "Adjust times" on an existing activity. The selectable window
-   * is limited to [previous activity's start, next activity's end], so only
-   * the immediate neighbors can be affected by the neighbor rule.
+   * Picker for "Adjust times" on an existing activity. It offers the whole
+   * day, so the span can be extended across any number of other activities;
+   * applyBoundaryChange resolves the overlaps.
    */
   const buildAdjustTimesPicker = (
     localId: string,
     dayFrames: Frame[],
   ): FramePickerConfig | null => {
-    const index = rows.findIndex((row) => row.localId === localId);
-    if (index === -1) return null;
-    const row = rows[index];
-    const firstFrameMs = dayFrames[0].captureEpochMs;
-    const lastFrameMs = dayFrames[dayFrames.length - 1].captureEpochMs;
-    const windowStartMs =
-      index > 0 ? (rows[index - 1].startMs ?? firstFrameMs) : firstFrameMs;
-    const windowEndMs =
-      index < rows.length - 1
-        ? (rows[index + 1].endMs ?? lastFrameMs)
-        : lastFrameMs;
+    const row = rows.find((candidate) => candidate.localId === localId);
+    if (row === undefined) return null;
     return {
       title: "Adjust the activity's time span",
       description:
-        "Pick the first and the last frame of this activity. Neighboring activities shrink to make room — a neighbor that ends up with no time left is removed.",
-      frames: dayFrames.filter(
-        (frame) =>
-          frame.captureEpochMs >= windowStartMs &&
-          frame.captureEpochMs <= windowEndMs,
-      ),
+        "Pick the first and the last frame of this activity. You can extend it across other activities — they shrink to make room, and an activity left with no time is removed.",
+      frames: dayFrames,
       initialStartMs: row.startMs ?? undefined,
       initialEndMs: row.endMs ?? undefined,
       confirmLabel: "Apply time span",

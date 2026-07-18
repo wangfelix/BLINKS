@@ -72,6 +72,50 @@ export const toActivityInputs = (rows: EditableActivity[]): ActivityInput[] =>
       vlmCategory: row.vlmCategory,
     }));
 
+/**
+ * Apply a new time span to the row `localId` and resolve every overlap it
+ * creates. The frame picker offers the whole day, so the new span may reach
+ * far beyond the immediate neighbors: rows fully inside it are removed; a row
+ * overlapped from the left keeps its head (its end clamps to just before the
+ * new start); one overlapped from the right keeps its tail (its start clamps
+ * to just after the new end). A row that surrounds the whole new span keeps
+ * its head. Rows without complete times are kept as-is.
+ */
+export const resolveSpanOverlaps = (
+  rows: EditableActivity[],
+  localId: string,
+  newStartMs: number,
+  newEndMs: number,
+): EditableActivity[] => {
+  if (!rows.some((row) => row.localId === localId)) return rows;
+  const resolved: EditableActivity[] = [];
+  for (const row of rows) {
+    if (row.localId === localId) {
+      resolved.push({ ...row, startMs: newStartMs, endMs: newEndMs });
+      continue;
+    }
+    if (row.startMs === null || row.endMs === null) {
+      resolved.push(row);
+      continue;
+    }
+    const isFullyCovered = row.startMs >= newStartMs && row.endMs <= newEndMs;
+    if (isFullyCovered) continue;
+    const overlapsNewStart =
+      row.startMs < newStartMs && row.endMs >= newStartMs;
+    if (overlapsNewStart) {
+      resolved.push({ ...row, endMs: newStartMs - 1 });
+      continue;
+    }
+    const overlapsNewEnd = row.endMs > newEndMs && row.startMs <= newEndMs;
+    if (overlapsNewEnd) {
+      resolved.push({ ...row, startMs: newEndMs + 1 });
+      continue;
+    }
+    resolved.push(row);
+  }
+  return sortActivities(resolved);
+};
+
 /** Pick up to maxCount items spread evenly across the list (endpoints kept). */
 export const sampleEvenly = <T>(items: T[], maxCount: number): T[] => {
   if (items.length <= maxCount) return items;

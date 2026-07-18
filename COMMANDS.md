@@ -203,20 +203,47 @@ EXPO_PUBLIC_SERVER_URL=https://<name>.ngrok-free.dev        # ngrok-tunneled ser
 
 ## Quick "everything up for a full local test"
 
-Four terminals:
+From the repo root, start the server, its `ngrok http 3000` tunnel, both Python
+workers, DRM web app, and Metro tunnel together:
+
+```bash
+./dev-all.sh
+```
+
+The output uses a different color/name prefix for each background service.
+Metro remains attached directly to the terminal, so its QR code and keyboard
+shortcuts still work. `Ctrl+C` stops the whole stack. The launcher defaults to
+`DRM_AVAILABLE_FROM_HOUR=0` and `DISABLE_PUSH=1`; either can still be overridden:
+
+```bash
+DRM_AVAILABLE_FROM_HOUR=19 DISABLE_PUSH=0 ./dev-all.sh
+./dev-all.sh --check       # verify Node, dependencies, venvs, ngrok, and ports
+```
+
+It uses the repo's documented Node 20 path for the server and Node 22 path for
+the web/mobile apps. Override these when needed with `SERVER_NODE_BIN` and
+`APP_NODE_BIN` (each points to a directory containing `node` and `npm`).
+
+Manual fallback (six terminals):
 
 ```bash
 # 1) server (gate open, push off)
 cd server && DRM_AVAILABLE_FROM_HOUR=0 DISABLE_PUSH=1 npm run dev
 
-# 2) face-blur worker
+# 2) public backend tunnel
+ngrok http 3000
+
+# 3) face-blur worker
 cd server/face-blur && .venv/bin/python blur_worker.py
 
-# 3) VLM worker (KIT VPN + KIT_API_KEY in .env)
+# 4) VLM worker (KIT VPN + KIT_API_KEY in .env)
 cd server/vlm && .venv/bin/python vlm_worker.py
 
-# 4) web app
+# 5) web app
 cd drm-web && npm run dev        # http://localhost:3002
+
+# 6) Metro + tunnel (keeps the QR code visible)
+cd blinks-edge-app && npm run start-tunnel
 ```
 
 Then `npm run create-user -- <user> <pw> [--arm control]`, record from the
