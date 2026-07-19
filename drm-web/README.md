@@ -61,8 +61,16 @@ Env vars:
 | Variable              | Default                 | Meaning                                                 |
 | --------------------- | ----------------------- | ------------------------------------------------------- |
 | `API_PROXY_TARGET`    | `http://127.0.0.1:3000` | Dev-proxy target for `/api`, `/frames`, `/health`       |
+| `DRM_DEV_MODE`        | (off)                   | `1` shows direct dev navigation; set on API server too  |
 | `NEXT_PUBLIC_API_URL` | `""` (same origin)      | API base override; normally never needed                |
 | `NEXT_PUBLIC_DRM_TZ`  | `Europe/Berlin`         | Study timezone; keep in sync with the server's `DRM_TZ` |
+
+With `DRM_DEV_MODE=1` on both the web app and API server, a floating menu
+links directly to Self DRM, VLM-assisted DRM, the survey page, and offboarding.
+The reconstruction pages use the signed-in development account's real round
+data and keep autosave/submission enabled. The API bypasses only the evening
+and round-order gates; auth, participant isolation, and submitted-round
+finality remain enforced. Never enable this flag during the study.
 
 ## Build + run (production)
 

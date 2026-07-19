@@ -37,6 +37,7 @@ Env knobs (all optional; prepend to the command, e.g. `DISABLE_PUSH=1 npm run de
 | `DRM_TZ` | `Europe/Berlin` | study timezone for day keys + the gate |
 | `DRM_AVAILABLE_FROM_HOUR` | `19` | hour today's reconstruction opens; **set `0` for testing** |
 | `DRM_DEFAULT_BEDTIME` | `22:00` | fallback-push bedtime for participants without a stored one |
+| `DRM_DEV_MODE` | (off) | `1` enables direct DRM dev pages and bypasses the evening + round-order gates; never enable for the study |
 | `DISABLE_PUSH` | (off) | `1` turns the push scheduler off (use in dev/tests) |
 
 The push is a single **bedtime fallback**: at the participant's reported
@@ -149,6 +150,11 @@ npm run dev                 # http://localhost:3002 (Node 22)
 npm run build && npm start   # production build on port 3001
 ```
 
+To show the floating dev navigator and open either reconstruction round
+directly, start both the server and web app with `DRM_DEV_MODE=1`. The pages
+use the signed-in account's real data and keep normal autosave/submission
+behavior. Authentication and submitted-round finality still apply.
+
 - Dev proxies `/api`, `/frames`, `/health` to the server, so **no CORS setup**.
   Default target is `http://127.0.0.1:3000`; override with
   `API_PROXY_TARGET=http://127.0.0.1:3100 npm run dev`.
@@ -208,6 +214,7 @@ workers, DRM web app, and Metro tunnel together:
 
 ```bash
 ./dev-all.sh
+DRM_DEV_MODE=1 ./dev-all.sh   # floating DRM dev navigator + direct round access
 ```
 
 The output uses a different color/name prefix for each background service.

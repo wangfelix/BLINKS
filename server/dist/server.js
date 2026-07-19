@@ -44,6 +44,7 @@ const PAUSED_PATH = path_1.default.join(RECORDINGS_DIR, "paused.json");
 // always available; the gate is enforced server-side).
 const WEB_URL = process.env.WEB_URL ?? "http://blinks.win.kit.edu";
 const AVAILABLE_FROM_HOUR = Number(process.env.DRM_AVAILABLE_FROM_HOUR ?? 19);
+const DRM_DEV_MODE = process.env.DRM_DEV_MODE === "1";
 function ensureDir(dir) {
     if (!fs_1.default.existsSync(dir)) {
         fs_1.default.mkdirSync(dir, { recursive: true });
@@ -63,6 +64,9 @@ function looksLikeJpeg(buffer) {
 }
 ensureDir(RECORDINGS_DIR);
 ensureDir(DATA_DIR);
+if (DRM_DEV_MODE) {
+    console.warn("DRM DEV MODE ENABLED: evening availability and round-order gates are bypassed");
+}
 // Frame metadata lives next to the JPEGs (rsynced together for analysis);
 // credentials live in their own DB outside the recordings tree (see auth-db).
 (0, db_1.initDb)(path_1.default.join(RECORDINGS_DIR, "recordings.db"));
@@ -456,10 +460,11 @@ app.get("/api/reconstruction/state", auth_1.requireAuth, (req, res) => {
     const round2 = (0, db_1.getReconstruction)(participant, 2);
     const day = resolveStudyDay(participant) ?? null;
     const round1Submitted = round1?.status === "submitted";
+    const round2Unlocked = DRM_DEV_MODE || round1Submitted;
     res.json({
         day,
         frameCount: day === null ? 0 : (0, db_1.countFramesOnDay)(participant, day),
-        available: day !== null && isDayAvailable(day),
+        available: day !== null && (DRM_DEV_MODE || isDayAvailable(day)),
         availableFromHour: AVAILABLE_FROM_HOUR,
         rounds: [
             {
@@ -470,11 +475,11 @@ app.get("/api/reconstruction/state", auth_1.requireAuth, (req, res) => {
             },
             {
                 round: 2,
-                mode: round1Submitted
+                mode: round2Unlocked
                     ? (round2?.mode ?? modeForRound(participant, 2))
                     : null,
                 status: round2?.status ?? "none",
-                locked: !round1Submitted,
+                locked: !round2Unlocked,
             },
         ],
     });
@@ -500,13 +505,15 @@ const guardRound = (req, res, forWrite) => {
     // The evening gate applies to reads too: before AVAILABLE_FROM_HOUR a
     // premature GET would not only show a partial day, it would also pin the
     // study day (and later bootstrap the segmentation) on a half-finished day.
-    if (!isDayAvailable(day)) {
+    if (!DRM_DEV_MODE && !isDayAvailable(day)) {
         res.status(403).json({
             error: `the reconstruction opens at ${AVAILABLE_FROM_HOUR}:00`,
         });
         return undefined;
     }
-    if (round === 2 && (0, db_1.getReconstruction)(participant, 1)?.status !== "submitted") {
+    if (!DRM_DEV_MODE &&
+        round === 2 &&
+        (0, db_1.getReconstruction)(participant, 1)?.status !== "submitted") {
         res.status(403).json({ error: "step 1 must be submitted first" });
         return undefined;
     }

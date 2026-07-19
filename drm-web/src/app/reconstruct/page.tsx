@@ -152,7 +152,7 @@ const BothStepsSubmittedView = ({
 );
 
 /** Loads and renders the currently editable round. */
-const ActiveRoundView = ({
+export const ActiveRoundView = ({
   round,
   onSubmitted,
 }: {
