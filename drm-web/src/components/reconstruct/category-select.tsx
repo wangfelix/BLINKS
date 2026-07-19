@@ -8,11 +8,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  BriefcaseIcon,
+  EllipsisIcon,
+  PauseIcon,
+  type LucideIcon,
+} from "lucide-react";
 
-const CATEGORY_ITEMS: { label: string; value: CategoryLabel }[] = [
-  { label: "Work", value: "work" },
-  { label: "Break", value: "break" },
-  { label: "Other", value: "other" },
+const CATEGORY_ITEMS: {
+  icon: LucideIcon;
+  label: string;
+  value: CategoryLabel;
+}[] = [
+  { icon: BriefcaseIcon, label: "Work", value: "work" },
+  { icon: PauseIcon, label: "Break", value: "break" },
+  { icon: EllipsisIcon, label: "Other", value: "other" },
 ];
 
 /**
@@ -23,34 +33,59 @@ const CATEGORY_ITEMS: { label: string; value: CategoryLabel }[] = [
  * other = neither work nor restorative (chores, errands, answering the door)
  */
 export const CategorySelect = ({
+  id,
   value,
   onChange,
   invalid = false,
 }: {
+  /** Trigger element id, so a visible <Label htmlFor> can point at it. */
+  id?: string;
   value: CategoryLabel | null;
   onChange: (value: CategoryLabel) => void;
   invalid?: boolean;
-}) => (
-  <Select
-    items={CATEGORY_ITEMS}
-    value={value}
-    onValueChange={(newValue) => {
-      if (newValue !== null) onChange(newValue as CategoryLabel);
-    }}
-  >
-    <SelectTrigger
-      className="w-full sm:w-32"
-      aria-label="Category"
-      aria-invalid={invalid || undefined}
+}) => {
+  const SelectedIcon = CATEGORY_ITEMS.find(
+    (item) => item.value === value,
+  )?.icon;
+
+  return (
+    <Select
+      items={CATEGORY_ITEMS}
+      value={value}
+      onValueChange={(newValue) => {
+        if (newValue !== null) onChange(newValue as CategoryLabel);
+      }}
     >
-      <SelectValue placeholder="Category…" />
-    </SelectTrigger>
-    <SelectContent>
-      {CATEGORY_ITEMS.map((item) => (
-        <SelectItem key={item.value} value={item.value}>
-          {item.label}
-        </SelectItem>
-      ))}
-    </SelectContent>
-  </Select>
-);
+      <SelectTrigger
+        id={id}
+        className="w-full sm:w-32"
+        aria-label="Activity type"
+        aria-invalid={invalid || undefined}
+      >
+        {SelectedIcon && <SelectedIcon aria-hidden="true" />}
+        <SelectValue placeholder="Category…" />
+      </SelectTrigger>
+      <SelectContent
+        align="start"
+        alignItemWithTrigger={false}
+        sideOffset={6}
+        className="p-1"
+      >
+        {CATEGORY_ITEMS.map((item) => {
+          const Icon = item.icon;
+
+          return (
+            <SelectItem
+              key={item.value}
+              value={item.value}
+              className="py-1.5 pr-8 pl-2"
+            >
+              <Icon aria-hidden="true" />
+              {item.label}
+            </SelectItem>
+          );
+        })}
+      </SelectContent>
+    </Select>
+  );
+};

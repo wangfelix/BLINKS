@@ -3,6 +3,7 @@ import type {
   ActivityInput,
   ActivitySource,
   CategoryLabel,
+  ExperienceRating,
 } from "@/lib/api-types";
 
 /**
@@ -21,6 +22,11 @@ export interface EditableActivity {
   // edit and echoed back on save so provenance survives span changes.
   vlmRawLabel: string | null;
   vlmCategory: CategoryLabel | null;
+  // Experience ratings (7-point Likert). Both are kept independently so an
+  // answer survives the participant flipping the category back and forth;
+  // only the one matching the final category is required to submit.
+  workloadRating: ExperienceRating | null;
+  recoveryRating: ExperienceRating | null;
 }
 
 let localIdCounter = 0;
@@ -43,6 +49,8 @@ export const fromServerActivity = (activity: Activity): EditableActivity => ({
     activity.vlmCategory === "other"
       ? activity.vlmCategory
       : null,
+  workloadRating: activity.workloadRating,
+  recoveryRating: activity.recoveryRating,
 });
 
 /** Sorted by start time; rows without a start time sink to the end. */
@@ -70,6 +78,8 @@ export const toActivityInputs = (rows: EditableActivity[]): ActivityInput[] =>
       source: row.source,
       vlmRawLabel: row.vlmRawLabel,
       vlmCategory: row.vlmCategory,
+      workloadRating: row.workloadRating,
+      recoveryRating: row.recoveryRating,
     }));
 
 /**
@@ -133,10 +143,25 @@ export interface RowIssue {
 }
 
 /**
+ * True once every work/break activity has its experience rating. A missing
+ * rating blocks submit like any other issue, but gets no row message — the
+ * rating scale itself turns red, which is signal enough.
+ */
+export const hasAllExperienceRatings = (rows: EditableActivity[]): boolean =>
+  rows.every((row) => {
+    if (row.categoryLabel === "work") return row.workloadRating !== null;
+    if (row.categoryLabel === "break") return row.recoveryRating !== null;
+    return true;
+  });
+
+/**
  * Validation shared by autosave display and submit. Self rows must have
  * complete, strictly ordered, non-overlapping times; assisted rows get their
  * times from frames so only label/category can be missing. Every row needs a
- * non-empty label and a category before submit (server enforces the same).
+ * non-empty label and a category before submit; missing experience ratings
+ * are checked separately (hasAllExperienceRatings) because they highlight
+ * in place instead of adding a message here. The server enforces all of it
+ * again on submit.
  */
 export const computeRowIssues = (
   rows: EditableActivity[],

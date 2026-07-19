@@ -8,6 +8,7 @@ import type {
   Activity,
   ActivityInput,
   CategoryLabel,
+  ExperienceRating,
   Frame,
   RoundMode,
 } from "@/lib/api-types";
@@ -29,6 +30,7 @@ import { SelfActivityRow } from "@/components/reconstruct/self-activity-row";
 import {
   computeRowIssues,
   fromServerActivity,
+  hasAllExperienceRatings,
   makeLocalId,
   resolveSpanOverlaps,
   sortActivities,
@@ -36,6 +38,7 @@ import {
   type EditableActivity,
 } from "@/components/reconstruct/editor-types";
 import { FramePickerDialog } from "@/components/reconstruct/frame-picker-dialog";
+import type { RatedCategory } from "@/components/reconstruct/experience-rating-scale";
 
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 
@@ -225,6 +228,8 @@ export const RoundEditor = ({
         source: "user",
         vlmRawLabel: null,
         vlmCategory: null,
+        workloadRating: null,
+        recoveryRating: null,
       },
     ]);
     markEdited();
@@ -243,10 +248,26 @@ export const RoundEditor = ({
           source: "user",
           vlmRawLabel: null,
           vlmCategory: null,
+          workloadRating: null,
+          recoveryRating: null,
         },
       ]),
     );
     markEdited();
+  };
+
+  /** Store a Likert answer under the field matching the rated category. */
+  const setExperienceRating = (
+    localId: string,
+    category: RatedCategory,
+    rating: ExperienceRating,
+  ) => {
+    updateRow(
+      localId,
+      category === "work"
+        ? { workloadRating: rating }
+        : { recoveryRating: rating },
+    );
   };
 
   /** Set a new time span on one activity; see resolveSpanOverlaps. */
@@ -278,9 +299,12 @@ export const RoundEditor = ({
     issues.map((issue) => [issue.localId, issue.message]),
   );
   const hasNoActivities = rows.length === 0;
-  // Drives the Submit button's disabled state: at least one activity, and
-  // every activity complete (time span, label, category) without overlaps.
-  const isReadyToSubmit = !hasNoActivities && issues.length === 0;
+  // Drives the Submit button's disabled state: at least one activity, every
+  // activity complete (time span, label, category) without overlaps, and
+  // every work/break activity rated (the scale highlights itself, so a
+  // missing rating disables submit without adding a row message).
+  const isReadyToSubmit =
+    !hasNoActivities && issues.length === 0 && hasAllExperienceRatings(rows);
 
   const handleConfirmSubmit = () => {
     cancelPendingAutosave();
@@ -412,6 +436,9 @@ export const RoundEditor = ({
                 onChangeCategory={(categoryLabel: CategoryLabel) =>
                   updateRow(row.localId, { categoryLabel })
                 }
+                onChangeExperienceRating={(category, rating) =>
+                  setExperienceRating(row.localId, category, rating)
+                }
                 onDelete={() => deleteRow(row.localId)}
                 onAdjustBoundaries={() =>
                   setBoundaryDialog({ mode: "adjust", localId: row.localId })
@@ -451,6 +478,9 @@ export const RoundEditor = ({
               onChangeLabel={(rawLabel) => updateRow(row.localId, { rawLabel })}
               onChangeCategory={(categoryLabel: CategoryLabel) =>
                 updateRow(row.localId, { categoryLabel })
+              }
+              onChangeExperienceRating={(category, rating) =>
+                setExperienceRating(row.localId, category, rating)
               }
               onDelete={() => deleteRow(row.localId)}
             />

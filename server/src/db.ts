@@ -100,6 +100,10 @@ export interface ActivityRow {
   source: string; // 'vlm'|'user'
   vlm_raw_label: string | null;
   vlm_category: string | null;
+  // Experience ratings (7-point Likert, 1-7; NULL = not answered). Work
+  // activities rate mental demand, breaks rate mental recovery.
+  workload_rating: number | null;
+  recovery_rating: number | null;
 }
 
 // Replace-all write shape; the DB layer assigns position from array order and
@@ -113,6 +117,8 @@ export interface ActivityWriteInput {
   source: "vlm" | "user";
   vlm_raw_label?: string | null;
   vlm_category?: string | null;
+  workload_rating?: number | null;
+  recovery_rating?: number | null;
 }
 
 // Per-day frame aggregate for /api/reconstruction/days.
@@ -326,12 +332,25 @@ export function initDb(dbPath: string): void {
       source         TEXT NOT NULL,
       vlm_raw_label  TEXT,
       vlm_category   TEXT,
+      -- 7-point Likert experience ratings (1-7, NULL = not answered):
+      -- mental demand for work activities, mental recovery for breaks.
+      workload_rating INTEGER,
+      recovery_rating INTEGER,
       created_at     INTEGER NOT NULL,
       updated_at     INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_activities_round
       ON activities (participant, round, position);
   `);
+
+  // Additive migration for activities tables created before the experience
+  // ratings existed (same pattern as the frames face_*/DRM columns).
+  if (!tableHasColumn("activities", "workload_rating")) {
+    db.exec(`ALTER TABLE activities ADD COLUMN workload_rating INTEGER`);
+  }
+  if (!tableHasColumn("activities", "recovery_rating")) {
+    db.exec(`ALTER TABLE activities ADD COLUMN recovery_rating INTEGER`);
+  }
 
   insertStmt = db.prepare(`
     INSERT INTO frames (
@@ -463,7 +482,7 @@ export function initDb(dbPath: string): void {
 
   listActivitiesStmt = db.prepare(`
     SELECT id, position, start_ms, end_ms, raw_label, category_label, source,
-           vlm_raw_label, vlm_category
+           vlm_raw_label, vlm_category, workload_rating, recovery_rating
     FROM activities
     WHERE participant = ? AND round = ?
     ORDER BY position
@@ -483,10 +502,12 @@ export function initDb(dbPath: string): void {
     INSERT INTO activities (
       participant, round, position, start_ms, end_ms,
       raw_label, category_label, source, vlm_raw_label, vlm_category,
+      workload_rating, recovery_rating,
       created_at, updated_at
     ) VALUES (
       @participant, @round, @position, @start_ms, @end_ms,
       @raw_label, @category_label, @source, @vlm_raw_label, @vlm_category,
+      @workload_rating, @recovery_rating,
       @created_at, @updated_at
     )
   `);
@@ -541,6 +562,8 @@ export function initDb(dbPath: string): void {
           source: activity.source,
           vlm_raw_label: activity.vlm_raw_label ?? matched?.vlm_raw_label ?? null,
           vlm_category: activity.vlm_category ?? matched?.vlm_category ?? null,
+          workload_rating: activity.workload_rating ?? null,
+          recovery_rating: activity.recovery_rating ?? null,
           created_at: now,
           updated_at: now,
         });

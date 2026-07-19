@@ -16,6 +16,17 @@ const CATEGORY_DISPLAY: Record<string, string> = {
   other: "Other",
 };
 
+/** "Mental demand 4/7" / "Recovery 2/7" for the submitted view. */
+const experienceRatingSummary = (activity: Activity): string | null => {
+  if (activity.categoryLabel === "work" && activity.workloadRating !== null) {
+    return `Mental demand ${activity.workloadRating}/7`;
+  }
+  if (activity.categoryLabel === "break" && activity.recoveryRating !== null) {
+    return `Recovery ${activity.recoveryRating}/7`;
+  }
+  return null;
+};
+
 /** Frames within the activity's time span, thinned to a preview strip. */
 const thumbnailsForActivity = (
   activity: Activity,
@@ -38,6 +49,7 @@ const ReadOnlyActivityCard = ({
   frames: Frame[] | null;
 }) => {
   const thumbnails = thumbnailsForActivity(activity, frames);
+  const ratingSummary = experienceRatingSummary(activity);
   return (
     <Column gap="md" className="rounded-xl border bg-card p-4">
       <Row gap="md" align="center" wrap>
@@ -45,6 +57,11 @@ const ReadOnlyActivityCard = ({
           {formatTimeSpan(activity.startMs, activity.endMs)}
         </span>
         <span className="flex-1 text-sm">{activity.rawLabel ?? "—"}</span>
+        {ratingSummary !== null && (
+          <Text variant="nudge" className="tabular-nums">
+            {ratingSummary}
+          </Text>
+        )}
         {activity.categoryLabel !== null && (
           <Badge variant="secondary">
             {CATEGORY_DISPLAY[activity.categoryLabel] ?? activity.categoryLabel}

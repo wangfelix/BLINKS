@@ -320,18 +320,22 @@ const toActivityJson = (row) => ({
     source: row.source,
     vlmRawLabel: row.vlm_raw_label,
     vlmCategory: row.vlm_category,
+    workloadRating: row.workload_rating,
+    recoveryRating: row.recovery_rating,
 });
 // Hard ceiling well above any real day (a 16 h day at 30 s frames segments
 // into far fewer activities); protects the propagation loop from abuse.
 const MAX_ACTIVITIES_PER_ROUND = 300;
 // Validates the replace-all activities body shared by draft PUT and submit.
 // requireLabels (submit) additionally demands a non-empty rawLabel AND a
-// categoryLabel on every activity. Every span must lie within the pinned
-// study day and spans must not overlap — the assisted submit propagation
-// stamps user_corrected_* onto frames by time range, so an out-of-day span
-// could otherwise rewrite frames outside the study day. On SELF rounds every
-// activity must be user-sourced and carries no VLM provenance (there is no
-// VLM proposal the participant could have seen).
+// categoryLabel on every activity, plus the category's experience rating
+// (work -> workloadRating, break -> recoveryRating; both 7-point Likert).
+// Every span must lie within the pinned study day and spans must not
+// overlap — the assisted submit propagation stamps user_corrected_* onto
+// frames by time range, so an out-of-day span could otherwise rewrite frames
+// outside the study day. On SELF rounds every activity must be user-sourced
+// and carries no VLM provenance (there is no VLM proposal the participant
+// could have seen).
 const parseActivityInputs = (body, day, requireLabels, mode) => {
     const list = body?.activities;
     if (!Array.isArray(list))
@@ -379,6 +383,34 @@ const parseActivityInputs = (body, day, requireLabels, mode) => {
         if (requireLabels && (categoryLabel === null || categoryLabel === undefined)) {
             return { error: `activity ${index}: categoryLabel is required to submit` };
         }
+        // Experience ratings: 7-point Likert, integer 1-7 or null. Both fields are
+        // stored as sent (a draft keeps an earlier answer when the participant
+        // flips the category back and forth); submit requires the rating that
+        // matches the final category.
+        const parseRating = (value, field) => {
+            if (value === null || value === undefined)
+                return { rating: null };
+            if (!Number.isInteger(value) || value < 1 || value > 7) {
+                return { error: `activity ${index}: ${field} must be an integer 1-7 or null` };
+            }
+            return { rating: value };
+        };
+        const workload = parseRating(entry.workloadRating, "workloadRating");
+        if (workload.error)
+            return { error: workload.error };
+        const recovery = parseRating(entry.recoveryRating, "recoveryRating");
+        if (recovery.error)
+            return { error: recovery.error };
+        if (requireLabels && categoryLabel === "work" && workload.rating === null) {
+            return {
+                error: `activity ${index}: workloadRating (1-7) is required to submit a work activity`,
+            };
+        }
+        if (requireLabels && categoryLabel === "break" && recovery.rating === null) {
+            return {
+                error: `activity ${index}: recoveryRating (1-7) is required to submit a break activity`,
+            };
+        }
         // VLM-proposal provenance, echoed by the web client so it survives span
         // edits (the DB-side exact-span fallback only covers unchanged spans).
         // Client-supplied, but it can only distort the participant's own
@@ -400,6 +432,8 @@ const parseActivityInputs = (body, day, requireLabels, mode) => {
             source,
             vlm_raw_label: vlmRawLabel,
             vlm_category: vlmCategory,
+            workload_rating: workload.rating ?? null,
+            recovery_rating: recovery.rating ?? null,
         });
     }
     // Overlap check: sharing a boundary instant is allowed (adjacent activities

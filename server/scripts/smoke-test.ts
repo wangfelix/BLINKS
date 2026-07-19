@@ -522,6 +522,7 @@ const main = async (): Promise<void> => {
       source: "user",
       vlmRawLabel: "smuggled", // must be dropped server-side
       vlmCategory: "work",
+      workloadRating: 7, // top of the 7-point scale, must round-trip
     },
     {
       startMs: t0,
@@ -529,6 +530,7 @@ const main = async (): Promise<void> => {
       rawLabel: "Lunch I think",
       categoryLabel: "break",
       source: "user",
+      recoveryRating: 2,
     },
   ];
   await api("/api/reconstruction/round/1", {
@@ -562,6 +564,43 @@ const main = async (): Promise<void> => {
     expectStatus: 400,
   });
 
+  // ...plus the category's experience rating: a work activity without its
+  // workloadRating (or a break without recoveryRating) cannot be submitted,
+  // and out-of-range ratings are rejected outright.
+  await api("/api/reconstruction/round/1/submit", {
+    method: "POST",
+    token,
+    body: {
+      activities: [
+        {
+          startMs: baseT,
+          endMs: baseT + 90_000,
+          rawLabel: "X",
+          categoryLabel: "work",
+          source: "user",
+        },
+      ],
+    },
+    expectStatus: 400,
+  });
+  await api("/api/reconstruction/round/1", {
+    method: "PUT",
+    token,
+    body: {
+      activities: [
+        {
+          startMs: baseT,
+          endMs: baseT + 90_000,
+          rawLabel: "X",
+          categoryLabel: "work",
+          source: "user",
+          workloadRating: 8, // 7-point Likert: 1-7 only
+        },
+      ],
+    },
+    expectStatus: 400,
+  });
+
   const round1Submit = await api("/api/reconstruction/round/1/submit", {
     method: "POST",
     token,
@@ -569,6 +608,20 @@ const main = async (): Promise<void> => {
   });
   assert.strictEqual(round1Submit.ok, true);
   assert.ok(typeof round1Submit.submittedAt === "number");
+
+  // Experience ratings round-trip: stored and returned per activity.
+  const submittedRound1 = await api("/api/reconstruction/round/1", { token });
+  assert.deepStrictEqual(
+    submittedRound1.activities.map((a: any) => [
+      a.workloadRating,
+      a.recoveryRating,
+    ]),
+    [
+      [7, null],
+      [null, 2],
+    ],
+    "Likert ratings persist through submit",
+  );
 
   // Round 1 is SELF: submitting must NOT propagate onto the frames (only the
   // assisted round is frame-aligned ground truth).
@@ -662,6 +715,7 @@ const main = async (): Promise<void> => {
       rawLabel: "Working at desk",
       categoryLabel: "work",
       source: "vlm",
+      workloadRating: 3,
     },
     {
       startMs: t0,
@@ -669,6 +723,7 @@ const main = async (): Promise<void> => {
       rawLabel: "Focused work", // participant corrected the label
       categoryLabel: "work",
       source: "vlm",
+      workloadRating: 5,
     },
     {
       startMs: t0 + 152_000,
@@ -676,6 +731,7 @@ const main = async (): Promise<void> => {
       rawLabel: "Stretch break",
       categoryLabel: "break",
       source: "user", // participant inserted this one from memory
+      recoveryRating: 4,
     },
     {
       startMs: t0 + 300_000,
@@ -683,6 +739,7 @@ const main = async (): Promise<void> => {
       rawLabel: "Reading paper",
       categoryLabel: "work",
       source: "vlm",
+      workloadRating: 2,
     },
   ];
   await api("/api/reconstruction/round/2", {

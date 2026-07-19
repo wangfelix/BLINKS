@@ -19,6 +19,8 @@ const makeRow = (
   source: "vlm",
   vlmRawLabel: null,
   vlmCategory: null,
+  workloadRating: null,
+  recoveryRating: null,
 });
 
 const span = (row: EditableActivity) => `${row.startMs}-${row.endMs}`;

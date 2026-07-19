@@ -2,14 +2,19 @@
 
 import { Trash2Icon } from "lucide-react";
 
-import type { CategoryLabel, Frame } from "@/lib/api-types";
+import type { CategoryLabel, ExperienceRating, Frame } from "@/lib/api-types";
 import { frameImageSrc } from "@/lib/api-client";
 import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
 import { CategorySelect } from "@/components/reconstruct/category-select";
+import {
+  ExperienceRatingScale,
+  type RatedCategory,
+} from "@/components/reconstruct/experience-rating-scale";
 import {
   sampleEvenly,
   type EditableActivity,
@@ -25,6 +30,7 @@ export const AssistedActivityRow = ({
   highlightIssues,
   onChangeLabel,
   onChangeCategory,
+  onChangeExperienceRating,
   onDelete,
   onAdjustBoundaries,
 }: {
@@ -34,6 +40,10 @@ export const AssistedActivityRow = ({
   highlightIssues: boolean;
   onChangeLabel: (rawLabel: string) => void;
   onChangeCategory: (category: CategoryLabel) => void;
+  onChangeExperienceRating: (
+    category: RatedCategory,
+    rating: ExperienceRating,
+  ) => void;
   onDelete: () => void;
   onAdjustBoundaries: () => void;
 }) => {
@@ -46,6 +56,14 @@ export const AssistedActivityRow = ({
   const isLabelMissing = highlightIssues && activity.rawLabel.trim() === "";
   const isCategoryMissing = highlightIssues && activity.categoryLabel === null;
   const showIssueMessage = highlightIssues && issue !== null;
+  const ratedCategory: RatedCategory | null =
+    activity.categoryLabel === "work" || activity.categoryLabel === "break"
+      ? activity.categoryLabel
+      : null;
+  const experienceRating =
+    ratedCategory === "work"
+      ? activity.workloadRating
+      : activity.recoveryRating;
 
   return (
     <Column gap="md" className="rounded-xl border bg-card p-4 shadow-xs">
@@ -55,7 +73,7 @@ export const AssistedActivityRow = ({
         </span>
 
         <Row gap="xs" align="center">
-          <Button variant="ghost" size="sm" onClick={onAdjustBoundaries}>
+          <Button variant="secondary" size="sm" onClick={onAdjustBoundaries}>
             Adjust times
           </Button>
           <Button
@@ -89,20 +107,37 @@ export const AssistedActivityRow = ({
       )}
 
       <Column gap="sm" className="sm:flex-row">
-        <Input
-          value={activity.rawLabel}
-          placeholder="What were you doing?"
-          aria-label="Activity description"
-          aria-invalid={isLabelMissing || undefined}
-          onChange={(event) => onChangeLabel(event.target.value)}
-          className="flex-1"
-        />
-        <CategorySelect
-          value={activity.categoryLabel}
-          onChange={onChangeCategory}
-          invalid={isCategoryMissing}
-        />
+        <Column gap="xs" className="min-w-0 flex-1">
+          <Label htmlFor={`${activity.localId}-label`} className="pl-1">
+            Activity Description
+          </Label>
+          <Input
+            id={`${activity.localId}-label`}
+            value={activity.rawLabel}
+            placeholder="What were you doing?"
+            aria-invalid={isLabelMissing || undefined}
+            onChange={(event) => onChangeLabel(event.target.value)}
+          />
+        </Column>
+        <Column gap="xs">
+          <Label htmlFor={`${activity.localId}-category`} className="pl-1">Activity Type</Label>
+          <CategorySelect
+            id={`${activity.localId}-category`}
+            value={activity.categoryLabel}
+            onChange={onChangeCategory}
+            invalid={isCategoryMissing}
+          />
+        </Column>
       </Column>
+
+      {ratedCategory !== null && (
+        <ExperienceRatingScale
+          category={ratedCategory}
+          value={experienceRating}
+          onChange={(rating) => onChangeExperienceRating(ratedCategory, rating)}
+          invalid={highlightIssues && experienceRating === null}
+        />
+      )}
 
       {showIssueMessage && <Text variant="destructive">{issue}</Text>}
     </Column>

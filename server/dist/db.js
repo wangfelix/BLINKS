@@ -189,12 +189,24 @@ function initDb(dbPath) {
       source         TEXT NOT NULL,
       vlm_raw_label  TEXT,
       vlm_category   TEXT,
+      -- 7-point Likert experience ratings (1-7, NULL = not answered):
+      -- mental demand for work activities, mental recovery for breaks.
+      workload_rating INTEGER,
+      recovery_rating INTEGER,
       created_at     INTEGER NOT NULL,
       updated_at     INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_activities_round
       ON activities (participant, round, position);
   `);
+    // Additive migration for activities tables created before the experience
+    // ratings existed (same pattern as the frames face_*/DRM columns).
+    if (!tableHasColumn("activities", "workload_rating")) {
+        db.exec(`ALTER TABLE activities ADD COLUMN workload_rating INTEGER`);
+    }
+    if (!tableHasColumn("activities", "recovery_rating")) {
+        db.exec(`ALTER TABLE activities ADD COLUMN recovery_rating INTEGER`);
+    }
     insertStmt = db.prepare(`
     INSERT INTO frames (
       participant, device, session, frame_index,
@@ -304,7 +316,7 @@ function initDb(dbPath) {
   `);
     listActivitiesStmt = db.prepare(`
     SELECT id, position, start_ms, end_ms, raw_label, category_label, source,
-           vlm_raw_label, vlm_category
+           vlm_raw_label, vlm_category, workload_rating, recovery_rating
     FROM activities
     WHERE participant = ? AND round = ?
     ORDER BY position
@@ -321,10 +333,12 @@ function initDb(dbPath) {
     INSERT INTO activities (
       participant, round, position, start_ms, end_ms,
       raw_label, category_label, source, vlm_raw_label, vlm_category,
+      workload_rating, recovery_rating,
       created_at, updated_at
     ) VALUES (
       @participant, @round, @position, @start_ms, @end_ms,
       @raw_label, @category_label, @source, @vlm_raw_label, @vlm_category,
+      @workload_rating, @recovery_rating,
       @created_at, @updated_at
     )
   `);
@@ -360,6 +374,8 @@ function initDb(dbPath) {
                 source: activity.source,
                 vlm_raw_label: activity.vlm_raw_label ?? matched?.vlm_raw_label ?? null,
                 vlm_category: activity.vlm_category ?? matched?.vlm_category ?? null,
+                workload_rating: activity.workload_rating ?? null,
+                recovery_rating: activity.recovery_rating ?? null,
                 created_at: now,
                 updated_at: now,
             });

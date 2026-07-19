@@ -2,7 +2,7 @@
 
 import { Trash2Icon } from "lucide-react";
 
-import type { CategoryLabel } from "@/lib/api-types";
+import type { CategoryLabel, ExperienceRating } from "@/lib/api-types";
 import { formatTimeOfDay } from "@/lib/time";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,10 @@ import { Label } from "@/components/ui/label";
 import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
 import { CategorySelect } from "@/components/reconstruct/category-select";
+import {
+  ExperienceRatingScale,
+  type RatedCategory,
+} from "@/components/reconstruct/experience-rating-scale";
 import type { EditableActivity } from "@/components/reconstruct/editor-types";
 
 /**
@@ -25,6 +29,7 @@ export const SelfActivityRow = ({
   onChangeEndTime,
   onChangeLabel,
   onChangeCategory,
+  onChangeExperienceRating,
   onDelete,
 }: {
   activity: EditableActivity;
@@ -34,6 +39,10 @@ export const SelfActivityRow = ({
   onChangeEndTime: (timeOfDay: string) => void;
   onChangeLabel: (rawLabel: string) => void;
   onChangeCategory: (category: CategoryLabel) => void;
+  onChangeExperienceRating: (
+    category: RatedCategory,
+    rating: ExperienceRating,
+  ) => void;
   onDelete: () => void;
 }) => {
   const startValue =
@@ -45,6 +54,14 @@ export const SelfActivityRow = ({
   const isTimeSpanIncomplete =
     highlightIssues && (activity.startMs === null || activity.endMs === null);
   const showIssueMessage = highlightIssues && issue !== null;
+  const ratedCategory: RatedCategory | null =
+    activity.categoryLabel === "work" || activity.categoryLabel === "break"
+      ? activity.categoryLabel
+      : null;
+  const experienceRating =
+    ratedCategory === "work"
+      ? activity.workloadRating
+      : activity.recoveryRating;
 
   return (
     <Column gap="md" className="rounded-xl border bg-card p-4 shadow-xs">
@@ -72,7 +89,9 @@ export const SelfActivityRow = ({
           />
         </Column>
         <Column gap="xs" className="min-w-48 flex-1">
-          <Label htmlFor={`${activity.localId}-label`}>Activity</Label>
+          <Label htmlFor={`${activity.localId}-label`}>
+            Activity Description
+          </Label>
           <Input
             id={`${activity.localId}-label`}
             value={activity.rawLabel}
@@ -82,8 +101,9 @@ export const SelfActivityRow = ({
           />
         </Column>
         <Column gap="xs">
-          <Label>Category</Label>
+          <Label htmlFor={`${activity.localId}-category`}>Activity Type</Label>
           <CategorySelect
+            id={`${activity.localId}-category`}
             value={activity.categoryLabel}
             onChange={onChangeCategory}
             invalid={isCategoryMissing}
@@ -98,6 +118,15 @@ export const SelfActivityRow = ({
           <Trash2Icon />
         </Button>
       </Row>
+
+      {ratedCategory !== null && (
+        <ExperienceRatingScale
+          category={ratedCategory}
+          value={experienceRating}
+          onChange={(rating) => onChangeExperienceRating(ratedCategory, rating)}
+          invalid={highlightIssues && experienceRating === null}
+        />
+      )}
 
       {showIssueMessage && <Text variant="destructive">{issue}</Text>}
     </Column>

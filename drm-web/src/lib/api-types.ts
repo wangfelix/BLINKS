@@ -11,6 +11,12 @@ export type ReconstructionStatus = "none" | "draft" | "submitted";
 
 export type ActivitySource = "vlm" | "user";
 
+/**
+ * 7-point Likert experience rating (1 = Not at all, 7 = Very much). Work
+ * activities rate mental demand, breaks rate mental recovery.
+ */
+export type ExperienceRating = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
 export interface LoginResponse {
   token: string;
   username: string;
@@ -48,6 +54,8 @@ export interface Activity {
   source: ActivitySource;
   vlmRawLabel: string | null;
   vlmCategory: string | null;
+  workloadRating: ExperienceRating | null;
+  recoveryRating: ExperienceRating | null;
 }
 
 /** Frame of the assisted round (never present for self rounds). */
@@ -86,6 +94,10 @@ export interface ActivityInput {
    */
   vlmRawLabel: string | null;
   vlmCategory: CategoryLabel | null;
+  /** Required on submit for category 'work' (mental demand, 1-7). */
+  workloadRating: ExperienceRating | null;
+  /** Required on submit for category 'break' (mental recovery, 1-7). */
+  recoveryRating: ExperienceRating | null;
 }
 
 export interface OkResponse {
