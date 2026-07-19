@@ -6,21 +6,15 @@ import {
   useQueryClient,
   type UseQueryResult,
 } from "@tanstack/react-query";
-import { CheckCircle2Icon, LockIcon, RefreshCwIcon } from "lucide-react";
+import { RefreshCwIcon } from "lucide-react";
 
 import type { RoundState, StudyStateResponse } from "@/lib/api-types";
-import {
-  ApiError,
-  clearStoredToken,
-  getRound,
-  getStudyState,
-} from "@/lib/api-client";
+import { ApiError, getRound, getStudyState } from "@/lib/api-client";
 import { formatHour } from "@/lib/time";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
@@ -28,7 +22,8 @@ import { StudyTeamContactLink } from "@/components/study-team-contact-link";
 import { RoundEditor } from "@/components/reconstruct/round-editor";
 import { ReadOnlyActivityList } from "@/components/reconstruct/read-only-activity-list";
 import { CategoryLegendCard } from "@/components/reconstruct/category-legend-card";
-import { mergeClassNames } from "@/lib/utils";
+import { StudyNavbar } from "@/components/study-navbar";
+import { StudyProgress } from "@/components/study-progress";
 
 /** The round the participant works on next; null once both are submitted. */
 const firstUnsubmittedRound = (
@@ -40,7 +35,7 @@ const firstUnsubmittedRound = (
   return null;
 };
 
-/** Chip label for a step; round 2's mode stays hidden while it is locked. */
+/** Full label for a step; round 2's mode stays hidden while it is locked. */
 const stepLabel = (roundState: RoundState): string => {
   if (roundState.round === 1) return "Step 1 · From memory";
   if (roundState.mode === "assisted") return "Step 2 · With photos";
@@ -57,15 +52,7 @@ const RoundSkeleton = () => (
   </Column>
 );
 
-const StudyStateSkeleton = () => (
-  <Column gap="lg">
-    <Row gap="sm">
-      <Skeleton className="h-10 w-44 rounded-xl" />
-      <Skeleton className="h-10 w-44 rounded-xl" />
-    </Row>
-    <RoundSkeleton />
-  </Column>
-);
+const StudyStateSkeleton = () => <RoundSkeleton />;
 
 const StudyStateErrorAlert = ({
   error,
@@ -112,51 +99,6 @@ const OpensInTheEveningNotice = ({
       {formatHour(availableFromHour)} at the earliest.
     </AlertDescription>
   </Alert>
-);
-
-/** "Step 1 of 2 / Step 2 of 2" progress header for the fixed two-step flow. */
-const StepProgress = ({
-  rounds,
-  activeRound,
-}: {
-  rounds: RoundState[];
-  activeRound: 1 | 2 | null;
-}) => (
-  <Row gap="sm" wrap>
-    {rounds.map((roundState) => {
-      const isActive = roundState.round === activeRound;
-      const isSubmitted = roundState.status === "submitted";
-      return (
-        <Row
-          key={roundState.round}
-          gap="sm"
-          align="center"
-          className={mergeClassNames(
-            "rounded-xl border bg-card px-3 py-2 text-sm",
-            isActive
-              ? "border-primary ring-2 ring-primary/25"
-              : "border-border",
-            roundState.locked && "opacity-60",
-          )}
-        >
-          {isSubmitted ? (
-            <CheckCircle2Icon className="size-4 text-primary" aria-hidden />
-          ) : roundState.locked ? (
-            <LockIcon className="size-4 text-muted-foreground" aria-hidden />
-          ) : null}
-          <span
-            className={mergeClassNames(
-              "font-medium",
-              !isActive && "text-muted-foreground",
-            )}
-          >
-            {stepLabel(roundState)}
-          </span>
-          {isSubmitted && <Badge variant="secondary">Submitted</Badge>}
-        </Row>
-      );
-    })}
-  </Row>
 );
 
 /** Read-only rendering of an already-submitted round (both-steps-done view). */
@@ -361,8 +303,6 @@ const StudyStateView = ({
   return (
     <Row gap="xl" align="start">
       <Column gap="xl" className="min-w-0 flex-1">
-        <StepProgress rounds={[round1, round2]} activeRound={activeRound} />
-        <Separator />
         {activeRound === null ? (
           <BothStepsSubmittedView
             round1={round1}
@@ -389,20 +329,11 @@ const StudyStateView = ({
 
 const ReconstructContent = () => {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const stateQuery = useQuery({
     queryKey: ["study-state"],
     queryFn: getStudyState,
     refetchOnMount: "always",
   });
-
-  const handleSignOut = () => {
-    clearStoredToken();
-    // Anti-leak on a shared browser: no cached rounds/frames may survive
-    // into the next account's session.
-    queryClient.clear();
-    router.replace("/");
-  };
 
   const handleRoundSubmitted = (round: 1 | 2) => {
     if (round === 2) {
@@ -415,24 +346,17 @@ const ReconstructContent = () => {
   };
 
   return (
-    <main className="mx-auto w-full max-w-4xl flex-1 space-y-6 px-4 py-8 lg:max-w-6xl">
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <Column>
-          <Text variant="eyebrow">BLINKS — Day Reconstruction Study</Text>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Reconstruct your day
-          </h1>
-        </Column>
-        <Button variant="ghost" size="sm" onClick={handleSignOut}>
-          Sign out
-        </Button>
-      </header>
+    <main className="flex w-full flex-1 flex-col">
+      <StudyNavbar />
+      <StudyProgress currentPage="reconstruction" />
 
-      <StudyStateView
-        stateQuery={stateQuery}
-        onRoundSubmitted={handleRoundSubmitted}
-        onGoToSurvey={() => router.push("/survey")}
-      />
+      <section className="mx-auto w-full max-w-4xl flex-1 px-4 py-8 lg:max-w-6xl">
+        <StudyStateView
+          stateQuery={stateQuery}
+          onRoundSubmitted={handleRoundSubmitted}
+          onGoToSurvey={() => router.push("/survey")}
+        />
+      </section>
     </main>
   );
 };

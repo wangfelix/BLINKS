@@ -13,6 +13,7 @@ import type {
   ActivityInput,
   LoginResponse,
   OkResponse,
+  ProfileResponse,
   RoundResponse,
   StudyStateResponse,
   SubmitResponse,
@@ -105,6 +106,8 @@ export const login = (username: string, password: string) =>
     body: { username, password },
     skipAuthRedirect: true,
   });
+
+export const getProfile = () => apiFetch<ProfileResponse>("/api/profile");
 
 export const getStudyState = () =>
   apiFetch<StudyStateResponse>("/api/reconstruction/state");

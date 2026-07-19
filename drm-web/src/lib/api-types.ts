@@ -22,6 +22,16 @@ export interface LoginResponse {
   username: string;
 }
 
+/** GET /api/profile (the study arm is deliberately not exposed). */
+export interface ProfileResponse {
+  username: string;
+  occupation: string | null;
+  workDescription: string | null;
+  wakeTime: string | null;
+  bedTime: string | null;
+  drmWebUrl: string;
+}
+
 /** One entry of GET /api/reconstruction/state's rounds array. */
 export interface RoundState {
   round: 1 | 2;

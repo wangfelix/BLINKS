@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { ExternalLinkIcon } from "lucide-react";
 
 import { useRequireAuth } from "@/lib/use-require-auth";
+import { StudyNavbar } from "@/components/study-navbar";
+import { StudyProgress } from "@/components/study-progress";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -22,38 +24,43 @@ const SurveyContent = () => {
   const router = useRouter();
 
   return (
-    <main className="flex flex-1 items-center justify-center px-4 py-12">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Final questionnaire</CardTitle>
-          <CardDescription>
-            Thank you — both steps of your reconstruction are submitted. To
-            finish the evening, please complete the questionnaire. It opens in a
-            new tab; come back here afterwards.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <a
-            href={PLACEHOLDER_SURVEY_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={mergeClassNames(
-              buttonVariants({ variant: "default" }),
-              "w-full",
-            )}
-          >
-            Open the questionnaire
-            <ExternalLinkIcon />
-          </a>
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => router.push("/done")}
-          >
-            Continue
-          </Button>
-        </CardContent>
-      </Card>
+    <main className="flex w-full flex-1 flex-col">
+      <StudyNavbar />
+      <StudyProgress currentPage="surveys" />
+
+      <section className="flex flex-1 items-center justify-center px-4 py-12">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Final questionnaire</CardTitle>
+            <CardDescription>
+              Thank you — both steps of your reconstruction are submitted. To
+              finish the evening, please complete the questionnaire. It opens in
+              a new tab; come back here afterwards.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <a
+              href={PLACEHOLDER_SURVEY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={mergeClassNames(
+                buttonVariants({ variant: "default" }),
+                "w-full",
+              )}
+            >
+              Open the questionnaire
+              <ExternalLinkIcon />
+            </a>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => router.push("/done")}
+            >
+              Continue
+            </Button>
+          </CardContent>
+        </Card>
+      </section>
     </main>
   );
 };
