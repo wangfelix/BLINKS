@@ -4,7 +4,7 @@ import Database = require("better-sqlite3");
 
 import { hashPassword } from "../src/auth";
 import { getUser, initAuthDb, insertUser, updatePasswordHash } from "../src/auth-db";
-import { initDb, insertFrame } from "../src/db";
+import { chunkStartOf, initDb, insertFrame } from "../src/db";
 
 // Seeds a fully clickable demo state for testing drm-web locally:
 //
@@ -112,12 +112,19 @@ const main = async (): Promise<void> => {
 
   const db = new Database(path.join(RECORDINGS_DIR, "recordings.db"));
   try {
-    const markProcessed = db.prepare(
+    const markFaceDone = db.prepare(
       `UPDATE frames SET
          face_status = 'done', face_count = 0, face_method = 'seed',
-         face_completed_at = ?, vlm_status = 'done', vlm_model = 'seed',
-         vlm_label = ?, vlm_category = ?, vlm_completed_at = ?
+         face_completed_at = ?
        WHERE participant = ? AND device = ? AND session = ? AND frame_index = ?`,
+    );
+    // VLM output lives on the 5-minute chunk (insertFrame created the row);
+    // the seed stands in for the chunk worker and labels it directly.
+    const markChunkDone = db.prepare(
+      `UPDATE chunks SET
+         status = 'done', vlm_model = 'seed', vlm_label = ?, vlm_category = ?,
+         vlm_completed_at = ?, updated_at = ?
+       WHERE participant = ? AND chunk_start_ms = ?`,
     );
 
     const today = dayKeyOf(Date.now());
@@ -155,7 +162,7 @@ const main = async (): Promise<void> => {
       );
 
       // wipe any previous demo state for repeatable runs
-      for (const table of ["frames", "reconstructions", "activities"]) {
+      for (const table of ["frames", "chunks", "reconstructions", "activities"]) {
         db.prepare(`DELETE FROM ${table} WHERE participant = ?`).run(
           user.username,
         );
@@ -193,15 +200,20 @@ const main = async (): Promise<void> => {
             byte_length: jpegBytes.length,
             jpeg_ok: 1,
           });
-          markProcessed.run(
-            Date.now(),
-            label,
-            category,
+          markFaceDone.run(
             Date.now(),
             user.username,
             user.device,
             session,
             frameIndex,
+          );
+          markChunkDone.run(
+            label,
+            category,
+            Date.now(),
+            Date.now(),
+            user.username,
+            chunkStartOf(cursorMs),
           );
         }
       }

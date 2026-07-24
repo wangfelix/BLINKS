@@ -22,6 +22,9 @@ export const SessionListItem = ({ session, onPress }: SessionListItemProps) => (
       <AppText variant="caption">
         {formatTimeOfDay(session.startedAtMs)} –{" "}
         {formatTimeOfDay(session.endedAtMs)} · {session.frameCount} frames
+        {session.deletedFrameCount > 0
+          ? ` · ${session.deletedFrameCount} deleted`
+          : ""}
       </AppText>
     </View>
     <CaretRightIcon size={20} color={colors.textMuted} />

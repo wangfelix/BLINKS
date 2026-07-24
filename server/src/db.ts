@@ -55,6 +55,7 @@ export interface SessionRow {
   started_at_ms: number;
   ended_at_ms: number;
   frame_count: number;
+  deleted_frame_count: number;
 }
 
 // Deliberately carries no vlm_* columns: the mobile app must never receive
@@ -63,6 +64,11 @@ export interface FrameRow {
   frame_index: number;
   capture_epoch_ms: number;
   file_path: string;
+}
+
+export interface FrameDeletionTarget {
+  filePath: string;
+  deletedAt: number | null;
 }
 
 // --- DRM row shapes ---------------------------------------------------------
@@ -121,21 +127,68 @@ export interface ActivityWriteInput {
   recovery_rating?: number | null;
 }
 
-// Per-day frame aggregate for /api/reconstruction/days.
+// Per-day frame aggregate for study-day resolution.
 export interface DayAggregate {
   day: string;
   frameCount: number;
-  vlmPendingCount: number; // vlm_status IN ('pending','processing')
+  vlmPendingCount: number; // frames whose chunk is not yet done/failed
 }
 
 // Frame rows of one local day, for the reconstruction API + segmentation.
+// vlm_label / vlm_category are inherited from the frame's 5-minute CHUNK
+// (non-null only once the chunk's VLM pass is done); chunk_status is the
+// chunk lifecycle (null only for legacy rows ingested before chunks existed).
 export interface DayFrameRow {
   capture_epoch_ms: number;
   file_path: string;
   face_status: string;
-  vlm_status: string;
+  chunk_status: string | null;
   vlm_label: string | null;
   vlm_category: string | null;
+}
+
+// --- 5-minute chunks ---------------------------------------------------------
+// The chunk is the VLM inference unit: frames are grouped into clock-aligned
+// 5-minute windows at ingestion, and the VLM worker labels whole chunks (not
+// individual frames). Epoch-aligned windows ARE local-clock-aligned windows:
+// every real-world UTC offset is a whole multiple of 5 minutes.
+
+export const CHUNK_WINDOW_MS = 5 * 60 * 1000;
+
+/** Clock-aligned window start containing the given capture time. */
+export function chunkStartOf(captureEpochMs: number): number {
+  return captureEpochMs - (captureEpochMs % CHUNK_WINDOW_MS);
+}
+
+// One day's chunk as segmentation/bootstrap input: the chunk's VLM result
+// plus the REAL first/last capture times of its servable (face-done) frames.
+export interface DayChunkRow {
+  chunk_start_ms: number;
+  status: string;
+  vlm_label: string | null;
+  vlm_category: string | null;
+  first_frame_ms: number | null; // null = no servable frame in this chunk
+  last_frame_ms: number | null;
+  served_frame_count: number;
+}
+
+export interface ChunkRow {
+  participant: string;
+  chunk_start_ms: number;
+  chunk_end_ms: number;
+  frame_count: number;
+  last_frame_received_ms: number | null;
+  status: string; // filling|ready|processing|done|failed
+  vlm_model: string | null;
+  vlm_label: string | null;
+  vlm_category: string | null;
+  vlm_description: string | null;
+  vlm_descriptor: string | null;
+  vlm_completed_at: number | null;
+  user_corrected_category_label: string | null;
+  user_corrected_activity_label: string | null;
+  created_at: number;
+  updated_at: number | null;
 }
 
 export const STUDY_ARMS = ["main", "control"] as const;
@@ -153,10 +206,24 @@ let insertStmt: Database.Statement;
 let exportStmt: Database.Statement;
 let listSessionsStmt: Database.Statement;
 let listFramesStmt: Database.Statement;
-let getFrameStmt: Database.Statement;
-let deleteFrameStmt: Database.Statement;
+let getFrameForDeletionStmt: Database.Statement;
+let softDeleteFrameStmt: Database.Statement;
 let maxFrameIndexStmt: Database.Statement;
 let frameStatusByPathStmt: Database.Statement;
+
+// Chunk statements
+let upsertChunkStmt: Database.Statement;
+let closeEarlierChunksStmt: Database.Statement;
+let closeIdleChunksStmt: Database.Statement;
+let closeParticipantChunksStmt: Database.Statement;
+let chunksInRangeStmt: Database.Statement;
+let getFrameChunkStmt: Database.Statement;
+let decrementChunkStmt: Database.Statement;
+let deleteEmptyChunkStmt: Database.Statement;
+let insertFrameTx: Database.Transaction<(row: FrameInsert) => void>;
+let softDeleteFrameTx: Database.Transaction<
+  (participant: string, device: string, session: number, frameIndex: number) => boolean
+>;
 
 // DRM statements
 let getParticipantStmt: Database.Statement;
@@ -239,6 +306,9 @@ export function initDb(dbPath: string): void {
       face_count        INTEGER,                             -- faces detected/obscured
       face_method       TEXT,                                -- e.g. 'mosaic:centerface@0.2'
       face_completed_at INTEGER,
+      -- Soft deletion keeps the research/audit row while removing the JPEG.
+      -- file_path is cleared at deletion so no serving path remains.
+      deleted_at        INTEGER,
       PRIMARY KEY (participant, device, session, frame_index)
     );
     CREATE INDEX IF NOT EXISTS idx_frames_time
@@ -257,16 +327,31 @@ export function initDb(dbPath: string): void {
   migrateAddColumn("face_count", "face_count INTEGER");
   migrateAddColumn("face_method", "face_method TEXT");
   migrateAddColumn("face_completed_at", "face_completed_at INTEGER");
+  migrateAddColumn("deleted_at", "deleted_at INTEGER");
 
-  // Created after the column exists so the migration path also gets the index.
+  // Recreate these partial indexes after the migration so older databases do
+  // not keep indexing soft-deleted work as pending.
   db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_frames_face_pending
-      ON frames (capture_epoch_ms) WHERE face_status = 'pending';
+    DROP INDEX IF EXISTS idx_frames_pending;
+    DROP INDEX IF EXISTS idx_frames_face_pending;
+    CREATE INDEX idx_frames_pending
+      ON frames (capture_epoch_ms)
+      WHERE vlm_status = 'pending' AND deleted_at IS NULL;
+    CREATE INDEX idx_frames_face_pending
+      ON frames (capture_epoch_ms)
+      WHERE face_status = 'pending' AND deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_frames_deleted
+      ON frames (participant, deleted_at)
+      WHERE deleted_at IS NOT NULL;
   `);
 
   // DRM migration (additive, same pattern as face_*): category + propagated
   // user-corrected labels on frames, plus the participants / reconstructions /
   // activities tables.
+  // NOTE (2026-07 chunk rework): frames.vlm_* and frames.user_corrected_* are
+  // FROZEN legacy columns — kept readable for pre-chunk test data but no
+  // longer written. The VLM output and the propagated corrections now live on
+  // the 5-minute chunks table below.
   migrateAddColumn("vlm_category", "vlm_category TEXT");
   migrateAddColumn(
     "user_corrected_category_label",
@@ -276,6 +361,42 @@ export function initDb(dbPath: string): void {
     "user_corrected_activity_label",
     "user_corrected_activity_label TEXT",
   );
+
+  // Chunk rework (additive): every frame knows its clock-aligned 5-minute
+  // window; NULL marks legacy rows ingested before chunks existed (they keep
+  // their frozen per-frame vlm_* data and are excluded from chunk logic).
+  migrateAddColumn("chunk_start_ms", "chunk_start_ms INTEGER");
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_frames_chunk
+      ON frames (participant, chunk_start_ms);
+    CREATE TABLE IF NOT EXISTS chunks (
+      participant     TEXT    NOT NULL,
+      chunk_start_ms  INTEGER NOT NULL,  -- clock-aligned 5-min window start
+      chunk_end_ms    INTEGER NOT NULL,  -- start + 5 min (exclusive)
+      frame_count     INTEGER NOT NULL DEFAULT 0,
+      last_frame_received_ms INTEGER,    -- server receipt of the newest frame
+      -- Lifecycle: 'filling' while the window can still receive frames;
+      -- 'ready' once closed (a later-window frame arrived, or the idle sweep
+      -- fired); the VLM worker takes it ready -> processing -> done|failed.
+      status          TEXT    NOT NULL DEFAULT 'filling',
+      vlm_model       TEXT,
+      vlm_label       TEXT,
+      vlm_category    TEXT,               -- work|break|other
+      vlm_description TEXT,
+      vlm_descriptor  TEXT,               -- JSON scene-state descriptor
+      vlm_completed_at INTEGER,
+      -- Label-quality propagation target (was frames.user_corrected_*): the
+      -- submitted ASSISTED reconstruction stamps its labels onto every chunk
+      -- overlapping each activity's span.
+      user_corrected_category_label TEXT,
+      user_corrected_activity_label TEXT,
+      created_at      INTEGER NOT NULL,
+      updated_at      INTEGER,
+      PRIMARY KEY (participant, chunk_start_ms)
+    );
+    CREATE INDEX IF NOT EXISTS idx_chunks_status
+      ON chunks (status, chunk_start_ms);
+  `);
 
   // Clean-break migration from the OLD multi-day DRM schema (2026-07-12,
   // decided with Felix): participants.condition_plan -> arm, reconstructions
@@ -356,12 +477,81 @@ export function initDb(dbPath: string): void {
     INSERT INTO frames (
       participant, device, session, frame_index,
       capture_epoch_ms, received_epoch_ms, file_path,
-      device_frame, byte_length, jpeg_ok
+      device_frame, byte_length, jpeg_ok, chunk_start_ms
     ) VALUES (
       @participant, @device, @session, @frame_index,
       @capture_epoch_ms, @received_epoch_ms, @file_path,
-      @device_frame, @byte_length, @jpeg_ok
+      @device_frame, @byte_length, @jpeg_ok, @chunk_start_ms
     )
+  `);
+
+  upsertChunkStmt = db.prepare(`
+    INSERT INTO chunks (
+      participant, chunk_start_ms, chunk_end_ms, frame_count,
+      last_frame_received_ms, created_at, updated_at
+    ) VALUES (
+      @participant, @chunk_start_ms, @chunk_end_ms, 1, @received_ms, @now, @now
+    )
+    ON CONFLICT (participant, chunk_start_ms) DO UPDATE SET
+      frame_count = frame_count + 1,
+      last_frame_received_ms = excluded.last_frame_received_ms,
+      updated_at = excluded.updated_at
+  `);
+
+  // Frames upload in capture order per participant (single camera, FIFO
+  // queue), so the arrival of a frame for a LATER window proves every earlier
+  // window can no longer grow: close them.
+  closeEarlierChunksStmt = db.prepare(`
+    UPDATE chunks SET status = 'ready', updated_at = @now
+    WHERE participant = @participant AND status = 'filling'
+      AND chunk_start_ms < @chunk_start_ms
+  `);
+
+  // Idle sweep (the day's LAST chunk never sees a later frame): close any
+  // still-filling chunk whose newest frame arrived longer than the idle
+  // window ago. Keyed on server receipt time so an offline phone's delayed
+  // catch-up upload keeps its chunk open while frames are still streaming in.
+  closeIdleChunksStmt = db.prepare(`
+    UPDATE chunks SET status = 'ready', updated_at = @now
+    WHERE status = 'filling' AND last_frame_received_ms < @cutoff_ms
+  `);
+
+  // The app's explicit End-session signal: every still-filling chunk of the
+  // participant closes immediately (the idle sweep stays as the fallback).
+  closeParticipantChunksStmt = db.prepare(`
+    UPDATE chunks SET status = 'ready', updated_at = @now
+    WHERE participant = @participant AND status = 'filling'
+  `);
+
+  chunksInRangeStmt = db.prepare(`
+    SELECT c.chunk_start_ms, c.status, c.vlm_label, c.vlm_category,
+           MIN(f.capture_epoch_ms) AS first_frame_ms,
+           MAX(f.capture_epoch_ms) AS last_frame_ms,
+           COUNT(f.capture_epoch_ms) AS served_frame_count
+    FROM chunks c
+    LEFT JOIN frames f
+      ON f.participant = c.participant
+     AND f.chunk_start_ms = c.chunk_start_ms
+     AND f.face_status = 'done'
+     AND f.deleted_at IS NULL
+    WHERE c.participant = ? AND c.chunk_start_ms BETWEEN ? AND ?
+    GROUP BY c.chunk_start_ms
+    ORDER BY c.chunk_start_ms
+  `);
+
+  getFrameChunkStmt = db.prepare(`
+    SELECT chunk_start_ms, deleted_at FROM frames
+    WHERE participant = ? AND device = ? AND session = ? AND frame_index = ?
+  `);
+
+  decrementChunkStmt = db.prepare(`
+    UPDATE chunks SET frame_count = frame_count - 1, updated_at = ?
+    WHERE participant = ? AND chunk_start_ms = ?
+  `);
+
+  deleteEmptyChunkStmt = db.prepare(`
+    DELETE FROM chunks
+    WHERE participant = ? AND chunk_start_ms = ? AND frame_count <= 0
   `);
 
   exportStmt = db.prepare(`
@@ -369,14 +559,22 @@ export function initDb(dbPath: string): void {
            byte_length, jpeg_ok, file_path
     FROM frames
     WHERE participant = @participant AND device = @device AND session = @session
+      AND deleted_at IS NULL
     ORDER BY frame_index
   `);
 
   listSessionsStmt = db.prepare(`
     SELECT device, session,
-           MIN(capture_epoch_ms) AS started_at_ms,
-           MAX(capture_epoch_ms) AS ended_at_ms,
-           COUNT(*)              AS frame_count
+           COALESCE(
+             MIN(CASE WHEN deleted_at IS NULL THEN capture_epoch_ms END),
+             MIN(capture_epoch_ms)
+           ) AS started_at_ms,
+           COALESCE(
+             MAX(CASE WHEN deleted_at IS NULL THEN capture_epoch_ms END),
+             MAX(capture_epoch_ms)
+           ) AS ended_at_ms,
+           COUNT(CASE WHEN deleted_at IS NULL THEN 1 END)     AS frame_count,
+           COUNT(CASE WHEN deleted_at IS NOT NULL THEN 1 END) AS deleted_frame_count
     FROM frames
     WHERE participant = ?
     GROUP BY device, session
@@ -391,17 +589,19 @@ export function initDb(dbPath: string): void {
     FROM frames
     WHERE participant = ? AND device = ? AND session = ?
       AND face_status = 'done'
+      AND deleted_at IS NULL
     ORDER BY frame_index
   `);
 
-  getFrameStmt = db.prepare(`
-    SELECT file_path FROM frames
+  getFrameForDeletionStmt = db.prepare(`
+    SELECT file_path, deleted_at FROM frames
     WHERE participant = ? AND device = ? AND session = ? AND frame_index = ?
   `);
 
-  deleteFrameStmt = db.prepare(`
-    DELETE FROM frames
+  softDeleteFrameStmt = db.prepare(`
+    UPDATE frames SET deleted_at = ?, file_path = ''
     WHERE participant = ? AND device = ? AND session = ? AND frame_index = ?
+      AND deleted_at IS NULL
   `);
 
   maxFrameIndexStmt = db.prepare(`
@@ -411,7 +611,7 @@ export function initDb(dbPath: string): void {
 
   frameStatusByPathStmt = db.prepare(`
     SELECT face_status FROM frames
-    WHERE participant = ? AND file_path = ?
+    WHERE participant = ? AND file_path = ? AND deleted_at IS NULL
   `);
 
   // --- DRM statements --------------------------------------------------------
@@ -452,17 +652,27 @@ export function initDb(dbPath: string): void {
   `);
 
   frameDayStatsStmt = db.prepare(`
-    SELECT capture_epoch_ms, vlm_status, face_status FROM frames
-    WHERE participant = ?
-    ORDER BY capture_epoch_ms
+    SELECT f.capture_epoch_ms, f.face_status, c.status AS chunk_status
+    FROM frames f
+    LEFT JOIN chunks c
+      ON c.participant = f.participant AND c.chunk_start_ms = f.chunk_start_ms
+    WHERE f.participant = ? AND f.deleted_at IS NULL
+    ORDER BY f.capture_epoch_ms
   `);
 
+  // Frames inherit their chunk's VLM output; the label is only surfaced once
+  // the chunk reached 'done' (mirrors the old per-frame vlm_status gate).
   framesInRangeStmt = db.prepare(`
-    SELECT capture_epoch_ms, file_path, face_status, vlm_status, vlm_label,
-           vlm_category
-    FROM frames
-    WHERE participant = ? AND capture_epoch_ms BETWEEN ? AND ?
-    ORDER BY capture_epoch_ms
+    SELECT f.capture_epoch_ms, f.file_path, f.face_status,
+           c.status AS chunk_status,
+           CASE WHEN c.status = 'done' THEN c.vlm_label    ELSE NULL END AS vlm_label,
+           CASE WHEN c.status = 'done' THEN c.vlm_category ELSE NULL END AS vlm_category
+    FROM frames f
+    LEFT JOIN chunks c
+      ON c.participant = f.participant AND c.chunk_start_ms = f.chunk_start_ms
+    WHERE f.participant = ? AND f.capture_epoch_ms BETWEEN ? AND ?
+      AND f.deleted_at IS NULL
+    ORDER BY f.capture_epoch_ms
   `);
 
   getReconstructionStmt = db.prepare(`
@@ -513,11 +723,13 @@ export function initDb(dbPath: string): void {
   `);
 
   // Label-quality propagation (contract): a submitted activity stamps its
-  // labels onto every frame in its time span.
+  // labels onto every CHUNK overlapping its time span. A chunk straddling two
+  // activities is stamped by both; activities are written in position order,
+  // so the later activity deterministically wins the boundary chunk.
   propagateCorrectionsStmt = db.prepare(`
-    UPDATE frames
+    UPDATE chunks
     SET user_corrected_category_label = ?, user_corrected_activity_label = ?
-    WHERE participant = ? AND capture_epoch_ms BETWEEN ? AND ?
+    WHERE participant = ? AND chunk_start_ms < ? AND chunk_end_ms > ?
   `);
 
   // Replace-all write for a round's activities. Draft saves and submissions
@@ -577,18 +789,75 @@ export function initDb(dbPath: string): void {
 
       // Defense in depth: the API validates every span against the day, but
       // the propagation additionally clamps to the day's UTC range so a bug
-      // upstream can never rewrite frames outside the pinned study day.
+      // upstream can never rewrite chunks outside the pinned study day.
       const { fromMs, toMs } = dayUtcRange(day);
       for (const activity of activities) {
         propagateCorrectionsStmt.run(
           activity.category_label,
           activity.raw_label,
           participant,
-          Math.max(activity.start_ms, fromMs),
-          Math.min(activity.end_ms, toMs),
+          Math.min(activity.end_ms, toMs), // chunk_start_ms < clamped end
+          Math.max(activity.start_ms, fromMs), // chunk_end_ms > clamped start
         );
       }
       return now;
+    },
+  );
+
+  // Ingest one frame atomically with its chunk bookkeeping: attach the frame
+  // to its clock-aligned window, create/grow the chunk row, and close every
+  // earlier still-filling chunk of this participant (frames arrive in capture
+  // order, so an older window can no longer grow once a newer one starts).
+  insertFrameTx = db.transaction((row: FrameInsert) => {
+    const chunkStart = chunkStartOf(row.capture_epoch_ms);
+    const now = Date.now();
+    insertStmt.run({ ...row, chunk_start_ms: chunkStart });
+    upsertChunkStmt.run({
+      participant: row.participant,
+      chunk_start_ms: chunkStart,
+      chunk_end_ms: chunkStart + CHUNK_WINDOW_MS,
+      received_ms: row.received_epoch_ms,
+      now,
+    });
+    closeEarlierChunksStmt.run({
+      participant: row.participant,
+      chunk_start_ms: chunkStart,
+      now,
+    });
+  });
+
+  // GDPR per-frame soft delete keeps the audit row but removes it from every
+  // active data path. Chunk bookkeeping still tracks only live imagery: the
+  // count drops once, and a chunk left with no live frames disappears.
+  softDeleteFrameTx = db.transaction(
+    (
+      participant: string,
+      device: string,
+      session: number,
+      frameIndex: number,
+    ): boolean => {
+      const frame = getFrameChunkStmt.get(
+        participant,
+        device,
+        session,
+        frameIndex,
+      ) as
+        | { chunk_start_ms: number | null; deleted_at: number | null }
+        | undefined;
+      if (!frame || frame.deleted_at !== null) return false;
+      const deleted =
+        softDeleteFrameStmt.run(
+          Date.now(),
+          participant,
+          device,
+          session,
+          frameIndex,
+        ).changes > 0;
+      if (deleted && frame?.chunk_start_ms != null) {
+        decrementChunkStmt.run(Date.now(), participant, frame.chunk_start_ms);
+        deleteEmptyChunkStmt.run(participant, frame.chunk_start_ms);
+      }
+      return deleted;
     },
   );
 }
@@ -620,16 +889,23 @@ export function listFrames(
   return listFramesStmt.all(participant, device, session) as FrameRow[];
 }
 
-export function getFrameFilePath(
+export function getFrameDeletionTarget(
   participant: string,
   device: string,
   session: number,
   frameIndex: number,
-): string | undefined {
-  const row = getFrameStmt.get(participant, device, session, frameIndex) as
-    | { file_path: string }
+): FrameDeletionTarget | undefined {
+  const row = getFrameForDeletionStmt.get(
+    participant,
+    device,
+    session,
+    frameIndex,
+  ) as
+    | { file_path: string; deleted_at: number | null }
     | undefined;
-  return row?.file_path;
+  return row
+    ? { filePath: row.file_path, deletedAt: row.deleted_at }
+    : undefined;
 }
 
 // Serving gate: returns the face anonymization status for a frame identified by
@@ -645,15 +921,13 @@ export function getFrameStatusByPath(
   return row?.face_status;
 }
 
-export function deleteFrameRow(
+export function softDeleteFrameRow(
   participant: string,
   device: string,
   session: number,
   frameIndex: number,
 ): boolean {
-  return (
-    deleteFrameStmt.run(participant, device, session, frameIndex).changes > 0
-  );
+  return softDeleteFrameTx(participant, device, session, frameIndex);
 }
 
 // Lets a reconnecting phone continue a session's frame numbering instead of
@@ -671,7 +945,35 @@ export function maxFrameIndex(
 }
 
 export function insertFrame(row: FrameInsert): void {
-  insertStmt.run(row);
+  insertFrameTx(row);
+}
+
+// Closes 'filling' chunks whose newest frame arrived more than idleMs ago
+// (the tail of a session that no later window will ever close). Called from
+// the server's periodic sweep. Returns how many chunks were closed.
+export function closeIdleChunks(idleMs: number): number {
+  const now = Date.now();
+  return closeIdleChunksStmt.run({ now, cutoff_ms: now - idleMs }).changes;
+}
+
+// The app's End-session signal: the participant deliberately stopped
+// recording, so no more frames are coming — every still-filling chunk goes to
+// the VLM immediately instead of waiting for the idle sweep.
+export function closeFillingChunks(participant: string): number {
+  return closeParticipantChunksStmt.run({ participant, now: Date.now() })
+    .changes;
+}
+
+// Every chunk of one local day with the real frame bounds of its servable
+// frames, ordered by window start. Windows are clock-aligned, so a chunk
+// never straddles the local-midnight day boundary.
+export function listChunksOnDay(
+  participant: string,
+  day: string,
+): DayChunkRow[] {
+  const { fromMs, toMs } = dayUtcRange(day);
+  const rows = chunksInRangeStmt.all(participant, fromMs, toMs) as DayChunkRow[];
+  return rows.filter((row) => dayKeyFromEpochMs(row.chunk_start_ms) === day);
 }
 
 export interface ExportQuery {
@@ -740,8 +1042,8 @@ export function listPushParticipants(): ParticipantRow[] {
 export function aggregateFrameDays(participant: string): DayAggregate[] {
   const rows = frameDayStatsStmt.all(participant) as {
     capture_epoch_ms: number;
-    vlm_status: string;
     face_status: string;
+    chunk_status: string | null;
   }[];
   const byDay = new Map<string, DayAggregate>();
   for (const row of rows) {
@@ -752,11 +1054,15 @@ export function aggregateFrameDays(participant: string): DayAggregate[] {
       byDay.set(day, aggregate);
     }
     aggregate.frameCount += 1;
-    // A face_status='failed' frame can never become VLM-done (the VLM gate
-    // requires face 'done'), so it must not count as pending — otherwise one
-    // failed blur would keep an assisted day in "still processing" forever.
+    // Pending = the frame's chunk has not reached a terminal state. Legacy
+    // frames without a chunk (NULL) are frozen, never pending. A
+    // face_status='failed' frame can never contribute to a chunk's VLM input,
+    // so it must not count as pending — otherwise one failed blur could keep
+    // an assisted day in "still processing" forever.
     if (
-      (row.vlm_status === "pending" || row.vlm_status === "processing") &&
+      row.chunk_status !== null &&
+      row.chunk_status !== "done" &&
+      row.chunk_status !== "failed" &&
       row.face_status !== "failed"
     ) {
       aggregate.vlmPendingCount += 1;

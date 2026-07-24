@@ -1,4 +1,5 @@
 import assert = require("assert");
+import fs = require("fs");
 import path = require("path");
 import Database = require("better-sqlite3");
 import WebSocket = require("ws");
@@ -97,38 +98,57 @@ const markAllAnonymized = (): number =>
         .run(Date.now()).changes,
   );
 
-// Stand in for the VLM worker: write label + category for one frame.
-const setVlmResult = (
+// Ingestion-built 5-minute chunks of one participant, ascending.
+const getChunks = (
   username: string,
-  captureEpochMs: number,
+): { chunk_start_ms: number; frame_count: number; status: string }[] =>
+  withDb((db) =>
+    db
+      .prepare(
+        "SELECT chunk_start_ms, frame_count, status FROM chunks " +
+          "WHERE participant = ? ORDER BY chunk_start_ms",
+      )
+      .all(username) as {
+      chunk_start_ms: number;
+      frame_count: number;
+      status: string;
+    }[],
+  );
+
+// Stand in for the VLM chunk worker (and for the idle sweep on the last,
+// still-filling window): label one 5-minute chunk as a whole.
+const setChunkResult = (
+  username: string,
+  chunkStartMs: number,
   label: string,
   category: string,
 ): void =>
   withDb((db) => {
     const changes = db
       .prepare(
-        "UPDATE frames SET vlm_status = 'done', vlm_label = ?, vlm_category = ? " +
-          "WHERE participant = ? AND capture_epoch_ms = ?",
+        "UPDATE chunks SET status = 'done', vlm_model = 'smoke', " +
+          "vlm_label = ?, vlm_category = ?, vlm_completed_at = ? " +
+          "WHERE participant = ? AND chunk_start_ms = ?",
       )
-      .run(label, category, username, captureEpochMs).changes;
-    assert.strictEqual(changes, 1, `vlm update hit frame at ${captureEpochMs}`);
+      .run(label, category, Date.now(), username, chunkStartMs).changes;
+    assert.strictEqual(changes, 1, `chunk update hit ${chunkStartMs}`);
   });
 
-const getFrameCorrections = (
+const getChunkCorrections = (
   username: string,
-  captureEpochMs: number,
+  chunkStartMs: number,
 ): { category: string | null; activity: string | null } =>
   withDb((db) => {
     const row = db
       .prepare(
         "SELECT user_corrected_category_label AS category, " +
           "user_corrected_activity_label AS activity " +
-          "FROM frames WHERE participant = ? AND capture_epoch_ms = ?",
+          "FROM chunks WHERE participant = ? AND chunk_start_ms = ?",
       )
-      .get(username, captureEpochMs) as
+      .get(username, chunkStartMs) as
       | { category: string | null; activity: string | null }
       | undefined;
-    assert.ok(row, `expected a frame at ${captureEpochMs}`);
+    assert.ok(row, `expected a chunk at ${chunkStartMs}`);
     return row!;
   });
 
@@ -158,6 +178,40 @@ const getParticipantRow = (
       | undefined;
     assert.ok(row, "participants row exists (created by create-user)");
     return row!;
+  });
+
+const getFrameDeletionState = (
+  username: string,
+  device: string,
+  session: number,
+  frameIndex: number,
+): { file_path: string; deleted_at: number | null } =>
+  withDb((db) => {
+    const row = db
+      .prepare(
+        "SELECT file_path, deleted_at FROM frames " +
+          "WHERE participant = ? AND device = ? AND session = ? AND frame_index = ?",
+      )
+      .get(username, device, session, frameIndex) as
+      | { file_path: string; deleted_at: number | null }
+      | undefined;
+    assert.ok(row, `retained frame row ${frameIndex}`);
+    return row!;
+  });
+
+const countSessionFrameRows = (
+  username: string,
+  device: string,
+  session: number,
+): number =>
+  withDb((db) => {
+    const row = db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM frames " +
+          "WHERE participant = ? AND device = ? AND session = ?",
+      )
+      .get(username, device, session) as { count: number };
+    return row.count;
   });
 
 // Minimal bytes that pass the SOI/EOI JPEG sanity check.
@@ -323,21 +377,108 @@ const main = async (): Promise<void> => {
   });
   assert.strictEqual(cookieJsonResponse.status, 401, "cookie rejected on JSON API");
 
-  // delete one frame: row + file gone
-  await api(`/api/sessions/${device}/${session}/frames/2`, {
+  // Single delete removes the JPEG, retains a soft-deleted row, clears its
+  // serving path, and is idempotent on retry.
+  const deletedImageUrl = frames[1].imageUrl;
+  const deletedRelativePath = decodeURIComponent(
+    deletedImageUrl.slice("/frames/".length),
+  );
+  const deletedAbsolutePath = path.join(RECORDINGS_DIR!, deletedRelativePath);
+  assert.ok(fs.existsSync(deletedAbsolutePath), "frame file exists before delete");
+  const singleDelete = await api(
+    `/api/sessions/${device}/${session}/frames/2`,
+    {
+      method: "DELETE",
+      token,
+    },
+  );
+  assert.strictEqual(singleDelete.deletedCount, 1);
+  assert.strictEqual(singleDelete.alreadyDeletedCount, 0);
+  assert.ok(!fs.existsSync(deletedAbsolutePath), "frame file removed");
+  const deletedFrameRow = getFrameDeletionState(
+    MAIN_USER,
+    device,
+    session,
+    2,
+  );
+  assert.strictEqual(
+    deletedFrameRow.file_path,
+    "",
+    "soft-deleted row has no serving path",
+  );
+  assert.ok(
+    typeof deletedFrameRow.deleted_at === "number",
+    "soft-deleted row carries deletion timestamp",
+  );
+  await api(deletedImageUrl, { token, expectStatus: 404 });
+
+  const repeatedSingleDelete = await api(
+    `/api/sessions/${device}/${session}/frames/2`,
+    {
+      method: "DELETE",
+      token,
+    },
+  );
+  assert.strictEqual(repeatedSingleDelete.deletedCount, 0);
+  assert.strictEqual(repeatedSingleDelete.alreadyDeletedCount, 1);
+
+  // Batch delete uses the same soft-delete path, collapses duplicate indexes,
+  // and repeated requests do not decrement chunks or counts twice.
+  const batchDelete = await api(
+    `/api/sessions/${device}/${session}/frames`,
+    {
+      method: "DELETE",
+      token,
+      body: { frameIndexes: [3, 4, 4] },
+    },
+  );
+  assert.strictEqual(batchDelete.requestedCount, 2);
+  assert.strictEqual(batchDelete.deletedCount, 2);
+  assert.strictEqual(batchDelete.alreadyDeletedCount, 0);
+  const repeatedBatchDelete = await api(
+    `/api/sessions/${device}/${session}/frames`,
+    {
+      method: "DELETE",
+      token,
+      body: { frameIndexes: [3, 4] },
+    },
+  );
+  assert.strictEqual(repeatedBatchDelete.deletedCount, 0);
+  assert.strictEqual(repeatedBatchDelete.alreadyDeletedCount, 2);
+  await api(`/api/sessions/${device}/${session}/frames`, {
     method: "DELETE",
     token,
+    body: { frameIndexes: [1, 999_999] },
+    expectStatus: 404,
   });
+  await api(`/api/sessions/${device}/${session}/frames`, {
+    method: "DELETE",
+    token,
+    body: { frameIndexes: [] },
+    expectStatus: 400,
+  });
+
   const afterDelete = await api(
     `/api/sessions/${device}/${session}/frames`,
     { token },
   );
-  assert.strictEqual(afterDelete.frames.length, 3, "frame deleted");
-  await api(`/api/sessions/${device}/${session}/frames/2`, {
-    method: "DELETE",
-    token,
-    expectStatus: 404,
-  });
+  assert.strictEqual(afterDelete.frames.length, 1, "deleted frames excluded");
+  assert.strictEqual(
+    countSessionFrameRows(MAIN_USER, device, session),
+    4,
+    "all database rows retained",
+  );
+  const afterDeleteSessions = await api("/api/sessions", { token });
+  assert.strictEqual(afterDeleteSessions.sessions[0].frameCount, 1);
+  assert.strictEqual(afterDeleteSessions.sessions[0].deletedFrameCount, 3);
+  const baseSessionCsv = Buffer.from(
+    await api(`/api/export.csv?device=${device}&session=${session}`, { token }),
+  ).toString("utf8");
+  assert.strictEqual(
+    baseSessionCsv.trim().split("\n").length,
+    2,
+    "participant CSV contains only its header and one live frame",
+  );
 
   // pause gate drops ingested frames
   await api("/api/pause", { method: "POST", token });
@@ -346,7 +487,7 @@ const main = async (): Promise<void> => {
     `/api/sessions/${device}/${session}/frames`,
     { token },
   );
-  assert.strictEqual(whilePaused.frames.length, 3, "paused frame dropped");
+  assert.strictEqual(whilePaused.frames.length, 1, "paused frame dropped");
   await api("/api/resume", { method: "POST", token });
 
   // change password: wrong current rejected, then real change + re-login
@@ -460,7 +601,7 @@ const main = async (): Promise<void> => {
   // state: study day resolved, round 1 open, round 2 locked with HIDDEN mode
   let state = await api("/api/reconstruction/state", { token });
   assert.strictEqual(state.day, TODAY);
-  assert.strictEqual(state.frameCount, 9, "3 base + 6 fixture frames today");
+  assert.strictEqual(state.frameCount, 7, "1 base + 6 fixture frames today");
   assert.strictEqual(state.available, true, "DRM_AVAILABLE_FROM_HOUR=0");
   assert.deepStrictEqual(
     state.rounds.map((r: any) => [r.round, r.mode, r.status, r.locked]),
@@ -623,10 +764,10 @@ const main = async (): Promise<void> => {
     "Likert ratings persist through submit",
   );
 
-  // Round 1 is SELF: submitting must NOT propagate onto the frames (only the
-  // assisted round is frame-aligned ground truth).
+  // Round 1 is SELF: submitting must NOT propagate onto the chunks (only the
+  // assisted round is chunk-aligned ground truth).
   assert.deepStrictEqual(
-    getFrameCorrections(MAIN_USER, baseT),
+    getChunkCorrections(MAIN_USER, baseT),
     { category: null, activity: null },
     "self-round submit does not stamp user_corrected_*",
   );
@@ -661,23 +802,49 @@ const main = async (): Promise<void> => {
   assert.strictEqual(pendingRound2.mode, "assisted");
   assert.strictEqual(pendingRound2.status, "draft", "pinned on open");
   assert.deepStrictEqual(pendingRound2.activities, []);
-  assert.strictEqual(pendingRound2.frames.length, 9, "assisted round lists frames");
-  assert.strictEqual(pendingRound2.vlmPendingCount, 9, "all frames still VLM-pending");
+  assert.strictEqual(pendingRound2.frames.length, 7, "assisted round lists frames");
+  assert.strictEqual(
+    pendingRound2.vlmPendingCount,
+    7,
+    "every frame's chunk still unlabeled -> all 7 pending",
+  );
 
-  // VLM worker stand-in: label every frame of the study day.
-  for (const t of [baseT, baseT + 60_000, baseT + 90_000]) {
-    setVlmResult(MAIN_USER, t, "Working at desk", "work");
-  }
-  setVlmResult(MAIN_USER, t0, "Deep work", "work");
-  setVlmResult(MAIN_USER, t0 + 120_000, "Deep work", "work");
-  setVlmResult(MAIN_USER, t0 + 150_000, "coffee", "break");
-  setVlmResult(MAIN_USER, t0 + 151_000, " Coffee ", "break"); // noisy label, same group
-  setVlmResult(MAIN_USER, t0 + 300_000, "Reading paper", "work");
-  setVlmResult(MAIN_USER, t0 + 480_000, "Reading paper", "work");
+  // Ingestion chunk bookkeeping: the 7 live frames span three clock-aligned
+  // 5-minute windows. The two older windows were closed ('ready') by the
+  // arrival of later-window frames; the newest stays 'filling' until the
+  // idle sweep. The baseT window also proves the frame-delete decrement
+  // (4 ingested, 3 soft-deleted -> 1).
+  assert.deepStrictEqual(
+    getChunks(MAIN_USER).map((c) => [c.chunk_start_ms, c.frame_count, c.status]),
+    [
+      [baseT, 1, "ready"],
+      [t0, 4, "ready"],
+      [t0 + 300_000, 2, "filling"],
+    ],
+    "frames grouped into 5-minute chunks, earlier windows closed",
+  );
+
+  // The app's End-session signal (Stop, not Pause) closes the still-filling
+  // trailing chunk immediately — no waiting for the idle sweep.
+  const ended = await api("/api/recording/ended", { method: "POST", token });
+  assert.strictEqual(ended.ok, true);
+  assert.strictEqual(ended.closedChunks, 1, "trailing chunk closed on end");
+  assert.deepStrictEqual(
+    getChunks(MAIN_USER).map((c) => c.status),
+    ["ready", "ready", "ready"],
+    "every chunk inferable after the end-of-recording signal",
+  );
+  await api("/api/recording/ended", { method: "POST", expectStatus: 401 });
+
+  // VLM worker stand-in: one label per CHUNK — frames inherit it.
+  setChunkResult(MAIN_USER, baseT, "Working at desk", "work");
+  setChunkResult(MAIN_USER, t0, "Deep work", "work");
+  setChunkResult(MAIN_USER, t0 + 300_000, "Reading paper", "work");
 
   // assisted round now auto-generates + persists the initial segmentation:
   //   block 1 (base session): lone short segment survives
-  //   block 2: short "coffee" run merged into the longer "Deep work" segment
+  //   block 2: two chunks with different labels -> two activities, with
+  //   activity bounds at real frame times (not window edges)
   const generated = await api("/api/reconstruction/round/2", { token });
   assert.strictEqual(generated.status, "draft", "generation persisted as draft");
   assert.strictEqual(generated.vlmPendingCount, 0);
@@ -690,15 +857,15 @@ const main = async (): Promise<void> => {
       a.source,
     ]),
     [
-      [baseT, baseT + 90_000, "Working at desk", "work", "vlm"],
+      [baseT, baseT, "Working at desk", "work", "vlm"],
       [t0, t0 + 151_000, "Deep work", "work", "vlm"],
       [t0 + 300_000, t0 + 480_000, "Reading paper", "work", "vlm"],
     ],
-    "segmentation groups, splits at the gap, and smooths the short break",
+    "chunk labels group into activities and split at the capture gap",
   );
   assert.strictEqual(generated.activities[1].vlmRawLabel, "Deep work");
   assert.strictEqual(generated.activities[1].vlmCategory, "work");
-  assert.strictEqual(generated.frames.length, 9);
+  assert.strictEqual(generated.frames.length, 7);
   assert.strictEqual(generated.frames[0].vlmLabel, "Working at desk");
   assert.strictEqual(generated.frames[0].vlmCategory, "work");
 
@@ -865,20 +1032,21 @@ const main = async (): Promise<void> => {
     expectStatus: 409,
   });
 
-  // propagation (ASSISTED round only): frames inside each span carry the
-  // submitted labels; the corrected "coffee" frame proves the
-  // misclassification signal lands. Round 1's differing self labels
-  // ("Working from memory") must NOT appear anywhere.
-  assert.deepStrictEqual(getFrameCorrections(MAIN_USER, baseT), {
+  // propagation (ASSISTED round only): chunks overlapping each span carry the
+  // submitted labels. The t0 chunk straddles "Focused work" AND the
+  // user-inserted "Stretch break"; activities stamp in position order, so the
+  // later one deterministically wins the boundary chunk. Round 1's differing
+  // self labels ("Working from memory") must NOT appear anywhere.
+  assert.deepStrictEqual(getChunkCorrections(MAIN_USER, baseT), {
     category: "work",
     activity: "Working at desk",
   });
   assert.deepStrictEqual(
-    getFrameCorrections(MAIN_USER, t0 + 150_000),
-    { category: "work", activity: "Focused work" },
-    "frame the VLM called 'coffee/break' now carries the user's correction",
+    getChunkCorrections(MAIN_USER, t0),
+    { category: "break", activity: "Stretch break" },
+    "boundary chunk stamped by the later overlapping activity",
   );
-  assert.deepStrictEqual(getFrameCorrections(MAIN_USER, t0 + 480_000), {
+  assert.deepStrictEqual(getChunkCorrections(MAIN_USER, t0 + 300_000), {
     category: "work",
     activity: "Reading paper",
   });
@@ -905,10 +1073,9 @@ const main = async (): Promise<void> => {
     "BBCCDDEEFF00",
   );
   assert.strictEqual(markAllAnonymized(), 2, "control frames anonymized");
-  // Give the control frames VLM labels so the no-leak assertions below are
+  // Give the control chunk a VLM label so the no-leak assertions below are
   // meaningful (labels exist server-side but must never reach this user).
-  setVlmResult(CONTROL_USER, c0, "Cooking dinner", "other");
-  setVlmResult(CONTROL_USER, c0 + 60_000, "Cooking dinner", "other");
+  setChunkResult(CONTROL_USER, c0, "Cooking dinner", "other");
 
   const controlActivities = [
     {
@@ -964,7 +1131,7 @@ const main = async (): Promise<void> => {
   // untouched (its VLM-accuracy value comes from comparing the activities
   // table to vlm_* researcher-side).
   assert.deepStrictEqual(
-    getFrameCorrections(CONTROL_USER, c0),
+    getChunkCorrections(CONTROL_USER, c0),
     { category: null, activity: null },
     "control-arm submits never stamp user_corrected_*",
   );

@@ -2,7 +2,7 @@ import { colors } from "@/application/theme/theme";
 
 export const TAB_BAR_HEIGHT = 64;
 export const TAB_BAR_HORIZONTAL_MARGIN = 24;
-export const TAB_BAR_BOTTOM_MARGIN = 12;
+export const TAB_BAR_BOTTOM_MARGIN = 28;
 export const TAB_BAR_BORDER_RADIUS = TAB_BAR_HEIGHT / 2;
 export const TAB_BAR_INNER_HORIZONTAL_PADDING = 6;
 export const TAB_BAR_INNER_VERTICAL_PADDING = 6;

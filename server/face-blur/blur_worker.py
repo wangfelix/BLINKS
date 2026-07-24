@@ -181,7 +181,7 @@ def _fetch_pending(conn: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
         """
         SELECT participant, device, session, frame_index, file_path
         FROM frames
-        WHERE face_status = 'pending'
+        WHERE face_status = 'pending' AND deleted_at IS NULL
         ORDER BY capture_epoch_ms
         LIMIT ?
         """,
@@ -196,6 +196,7 @@ def _mark(conn: sqlite3.Connection, row: sqlite3.Row, status: str,
         UPDATE frames
         SET face_status = ?, face_count = ?, face_method = ?, face_completed_at = ?
         WHERE participant = ? AND device = ? AND session = ? AND frame_index = ?
+          AND deleted_at IS NULL
         """,
         (
             status,

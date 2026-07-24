@@ -1,16 +1,25 @@
 import { useState } from "react";
-import { StyleSheet, TextInput, TextInputProps, View } from "react-native";
+import {
+  StyleProp,
+  StyleSheet,
+  TextInput,
+  TextInputProps,
+  TextStyle,
+  View,
+} from "react-native";
 
 import { AppText } from "@/application/components/app-text";
 import { colors, radius, spacing } from "@/application/theme/theme";
 
 interface AppTextInputProps extends TextInputProps {
   label: string;
+  labelStyle?: StyleProp<TextStyle>;
   errorMessage?: string | null;
 }
 
 export const AppTextInput = ({
   label,
+  labelStyle,
   errorMessage,
   ...inputProps
 }: AppTextInputProps) => {
@@ -18,7 +27,9 @@ export const AppTextInput = ({
 
   return (
     <View style={styles.container}>
-      <AppText variant="label">{label}</AppText>
+      <AppText variant="label" style={labelStyle}>
+        {label}
+      </AppText>
       <TextInput
         style={[
           styles.input,

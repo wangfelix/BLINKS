@@ -186,7 +186,7 @@ info "Starting BLINKS local development stack..."
 printf '%sServer%s   http://localhost:3000  (DRM gate open, push disabled)\n' "$CYAN" "$RESET"
 printf '%sBackend%s  ngrok http 3000\n' "$MAGENTA" "$RESET"
 printf '%sDRM web%s  http://localhost:3002\n' "$BLUE" "$RESET"
-printf '%sMobile%s   Expo dev-client tunnel; QR code will appear below\n' "$MAGENTA" "$RESET"
+printf '%sMobile%s   Expo dev-client tunnel (LAN fallback); QR code will appear below\n' "$MAGENTA" "$RESET"
 printf '%sStop everything with Ctrl+C.%s\n\n' "$DIM" "$RESET"
 
 start_prefixed "SERVER" "$CYAN" "server" \
@@ -223,5 +223,14 @@ printf '\n%s%s[MOBILE / METRO]%s Interactive output starts here; QR and shortcut
 cd "$ROOT_DIR/blinks-edge-app" || fail "Could not enter blinks-edge-app"
 env PATH="$APP_NODE_BIN:$PATH" "$APP_NODE_BIN/npm" run start-tunnel
 METRO_STATUS=$?
+
+if (( METRO_STATUS != 0 && METRO_STATUS != 130 && METRO_STATUS != 143 )); then
+  printf '\n'
+  info "Expo's shared tunnel is unavailable; restarting Metro in LAN mode."
+  printf '%sConnect the phone to the same WiFi as this computer, then scan the new QR code.%s\n\n' \
+    "$YELLOW" "$RESET"
+  env PATH="$APP_NODE_BIN:$PATH" "$APP_NODE_BIN/npm" run start
+  METRO_STATUS=$?
+fi
 
 exit "$METRO_STATUS"

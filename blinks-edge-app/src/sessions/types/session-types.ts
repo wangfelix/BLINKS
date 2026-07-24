@@ -6,6 +6,7 @@ export interface SessionSummary {
   startedAtMs: number;
   endedAtMs: number;
   frameCount: number;
+  deletedFrameCount: number;
 }
 
 // Deliberately carries NO VLM output: the app must never show the VLM's

@@ -6,7 +6,7 @@ in and reconstructs that day in **two sequential rounds, fixed order** — step 
 is always Self DRM (from memory, no frames, no VLM output), step 2 unlocks only
 after step 1 is submitted and is VLM-assisted (frames + editable auto-segmented
 activity list) for the `main` arm or Self DRM again for the `control` arm. Then
-the external questionnaire link, then offboarding. The order and the
+the embedded external questionnaire, then offboarding. The order and the
 frames/VLM anti-leak are enforced server-side; this app only renders them.
 
 Stack: Next.js (App Router, TypeScript strict, `src/` dir, Tailwind v4) +
@@ -19,7 +19,7 @@ shadcn/ui + TanStack Query. The app is a pure client of the BLINKS server API
 | -------------- | ------------------------------------------------------------------- |
 | `/`            | Landing + participant login (same credentials as the phone app)     |
 | `/reconstruct` | The two-step flow: step progress header + the active round's editor |
-| `/survey`      | Link to the external questionnaire (placeholder URL, new tab)       |
+| `/survey`      | Embedded LimeSurvey questionnaire with participant-specific URL     |
 | `/done`        | Offboarding: thank-you, device-return hint, sign-out                |
 
 All pages except `/` are guarded client-side (redirect to `/` without a token);
@@ -148,8 +148,13 @@ Deploy update: `cd /root/BLINKS && git pull && cd drm-web && npm ci && npm run b
 
 ## Before the study
 
-- Replace `PLACEHOLDER_SURVEY_URL` in `src/app/survey/page.tsx` with the real
-  oTree/LimeSurvey URL.
+- In LimeSurvey, keep survey embedding enabled and map the Panel Integration
+  URL parameter `participantId` to the hidden participant-ID question.
+- Serve `blinks.win.kit.edu` over HTTPS before relying on the iframe. As of
+  2026-07-21 the app is still HTTP while LimeSurvey is HTTPS; the resulting
+  cross-site cookie context can break LimeSurvey sessions in stricter browsers.
+- Verify one complete iframe submission and the new-tab fallback on each study
+  phone/browser before deployment.
 
 ## Code layout
 

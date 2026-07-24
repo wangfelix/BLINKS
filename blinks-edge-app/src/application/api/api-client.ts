@@ -62,6 +62,6 @@ export const apiClient = {
   ) => request<TResponse>(path, { method: "POST", body, ...options }),
   put: <TResponse>(path: string, body?: unknown) =>
     request<TResponse>(path, { method: "PUT", body }),
-  delete: <TResponse>(path: string) =>
-    request<TResponse>(path, { method: "DELETE" }),
+  delete: <TResponse>(path: string, body?: unknown) =>
+    request<TResponse>(path, { method: "DELETE", body }),
 };

@@ -4,7 +4,7 @@ import { AppButton } from "@/application/components/app-button";
 import { AppCard } from "@/application/components/app-card";
 import { AppText } from "@/application/components/app-text";
 import { AppTextInput } from "@/application/components/app-text-input";
-import { colors, spacing } from "@/application/theme/theme";
+import { colors, spacing, typography } from "@/application/theme/theme";
 import { useOccupationModel } from "@/profile/model/use-occupation-model";
 
 // Inline card on the Profile tab showing the participant's occupation + work
@@ -62,6 +62,7 @@ export const OccupationCard = () => {
             <View style={styles.timeField}>
               <AppTextInput
                 label="Usual wake-up time"
+                labelStyle={styles.timeLabel}
                 value={wakeTimeDraft}
                 onChangeText={setWakeTimeDraft}
                 placeholder="07:30"
@@ -72,6 +73,7 @@ export const OccupationCard = () => {
             <View style={styles.timeField}>
               <AppTextInput
                 label="Usual bedtime"
+                labelStyle={styles.timeLabel}
                 value={bedTimeDraft}
                 onChangeText={setBedTimeDraft}
                 placeholder="23:00"
@@ -116,13 +118,17 @@ export const OccupationCard = () => {
           </View>
           <View style={styles.timeRow}>
             <View style={[styles.valueBlock, styles.timeField]}>
-              <AppText variant="label">Usual wake-up time</AppText>
+              <AppText variant="label" style={styles.timeLabel}>
+                Usual wake-up time
+              </AppText>
               <AppText variant="body" color={wakeTime ? undefined : colors.textMuted}>
                 {displayValue(wakeTime)}
               </AppText>
             </View>
             <View style={[styles.valueBlock, styles.timeField]}>
-              <AppText variant="label">Usual bedtime</AppText>
+              <AppText variant="label" style={styles.timeLabel}>
+                Usual bedtime
+              </AppText>
               <AppText variant="body" color={bedTime ? undefined : colors.textMuted}>
                 {displayValue(bedTime)}
               </AppText>
@@ -142,4 +148,7 @@ const styles = StyleSheet.create({
   rowButton: { flex: 1 },
   timeRow: { flexDirection: "row", gap: spacing.md },
   timeField: { flex: 1 },
+  timeLabel: {
+    minHeight: typography.label.fontSize * 2 + spacing.sm,
+  },
 });

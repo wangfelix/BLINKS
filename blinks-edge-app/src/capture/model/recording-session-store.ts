@@ -1,4 +1,5 @@
 import {
+  notifyRecordingEnded,
   pauseCaptureOnServer,
   resumeCaptureOnServer,
 } from "@/capture/api/capture-api";
@@ -116,7 +117,15 @@ class RecordingSessionStore {
     this.uploader = null;
 
     await cameraLink?.stop().catch(() => {});
+    // stop() flushes the remaining queue into the socket (best effort); after
+    // it, no frame of this session can ever reach the server again.
     uploader?.stop();
+    // Deliberate Stop (not Pause): tell the server the recording is over so
+    // the last 5-minute chunk goes to the VLM now. Fire-and-forget — the
+    // server's idle sweep covers the offline case.
+    notifyRecordingEnded().catch((error) =>
+      console.warn("End-of-recording signal failed:", error),
+    );
     await stopCaptureForegroundService().catch(() => {});
     this.setState(idleState);
   };

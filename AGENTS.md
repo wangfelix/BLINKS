@@ -137,14 +137,14 @@ Expo SDK 54 (deliberately pinned, not 56: matches the sibling app's known-good r
 - **Tab bar:** the floating-pill bar ported from app-guards-isn (`src/navigation/components/custom-tab-bar/`): liquid glass on iOS 26+, shadowed pill fallback on Android, drag/tap/spring pill animations, adapted to Expo Router's `tabBar` prop (tamagui views → RN views, phosphor icons).
 - **Dashboard:** single recording-day card (not started / recording / completed today), one-session-per-day gate (client-side), Start/Return-to-session button. (The multi-day progress circles were removed in the 2026-07-12 single-day rewrite.)
 - **Recording screen:** full-screen, background animates green (`#15803D`) ↔ neutral (`#52525B`) on pause/resume, elapsed **active** (non-paused) time, camera/server/frame/queue status, Pause/Resume + End session. Pause = BLE control write + server `/api/pause` (+ app drops in-flight frames) — three layers, same defense-in-depth as the old pipeline.
-- **History:** sessions list → frames with thumbnail (authenticated image fetch), capture time, `vlm_label` (shows "pending" until the VLM pass runs), per-frame delete (server deletes JPEG + DB row). A frame only appears once it has been face-anonymized (the server withholds `face_status != 'done'` frames); no app change was needed since the API shape is unchanged (just fewer rows until the worker catches up, normally seconds).
+- **History:** sessions list → a compact divided frame list with authenticated thumbnails and capture times, but **no VLM output** (control-condition anti-leak). Single delete remains available; **Choose Multiple** enters checkbox selection and sends bounded batch deletes. Deletion removes the JPEG, clears its serving path, and retains the frame row with `deleted_at` for audit/counting. Soft-deleted frames are excluded from normal reads, DRM input, exports, face/VLM worker queries, and direct serving.
 - **Capture core (`src/capture/`):** `recording-session-store.ts` is a module-level singleton (survives navigation/backgrounding; notifee FGS keeps JS alive) wiring `CameraLink` (BLE central, reconnect loop) → `FrameAssembler` (tagged reassembly; **stamps capture time at header receipt** — within ~100 ms of true capture since the firmware sends the header right after capture; ESP32 has no clock) → `FrameUploader` (authenticated WS, in-memory queue ≤500 frames, 3 s reconnect, 20 s heartbeat).
 - **Build:** needs a dev build (BLE + notifee ≠ Expo Go): `npx expo run:android` or EAS. Dev server override: `EXPO_PUBLIC_SERVER_URL=http://<laptop-ip>:3000 npm start`. `npm run check-all` = tsc + lint (both clean). **First EAS/gradle build not yet run** — notifee 9.1.8 under RN 0.81/new-arch is the thing to watch.
 
 ### Server (`server/`) — auth + participant API + phone ingestion, built 2026-06-10
 
 - **Auth:** separate **`server/data/auth.db`** (NOT in `recordings/` — backups/rsyncs of research data must never carry credentials). `users` (username PK = participant id, argon2id `password_hash`, `created_at`) + `auth_tokens` (sha256-hashed opaque 32-byte tokens, no expiry for the short study, revocation = row delete). Login burns comparable argon2 time for unknown users (no username oracle). Provisioning: `npm run create-user -- <username> <password> [--reset] [--arm main|control]` — no self-signup.
-- **Endpoints** (bearer token; each participant sees only their own data): `POST /api/login`, `POST /api/change-password`, `GET /api/sessions` (grouped from `frames`), `GET /api/sessions/:device/:session/frames`, `DELETE /api/sessions/:device/:session/frames/:frameIndex` (JPEG + row), `GET /frames/<file_path>` (ownership-checked file serving, deliberately not `express.static`), `GET /api/export.csv?device=&session=`, `POST /api/pause`, `POST /api/resume`, `GET /health` (open).
+- **Endpoints** (bearer token; each participant sees only their own data): `POST /api/login`, `POST /api/change-password`, `GET /api/sessions` (grouped from `frames`, with live + soft-deleted counts), `GET /api/sessions/:device/:session/frames`, single `DELETE /api/sessions/:device/:session/frames/:frameIndex`, batch `DELETE /api/sessions/:device/:session/frames` with `{frameIndexes}` (both idempotent soft-delete paths: JPEG removed, row retained), `GET /frames/<file_path>` (ownership-checked file serving, deliberately not `express.static`), `GET /api/export.csv?device=&session=`, `POST /api/pause`, `POST /api/resume`, `GET /health` (open).
 - **Ingestion:** `WS /ingest?session=<epochSeconds>&device=<cameraId>` with `Authorization: Bearer` on the upgrade. The **phone declares the session id** (epoch of the Start tap) so BLE/WS reconnects resume the same session — frame numbering continues from `MAX(frame_index)`. Per frame: JSON `{"t":<phoneCaptureEpochMs>,"n":<cameraFrameCounter|null>}` then binary JPEG (same two-message shape as the old firmware). Paused-participant gate at ingestion unchanged. `device` = camera BLE MAC, colons stripped.
 - **Removed:** `/assign`, `/devices`, the unauthenticated `/camera/{mac}` WS path, `assignments.json`. Identity comes from login now.
 - Env overrides: `CAMERA_PORT`, `RECORDINGS_DIR`, `DATA_DIR`, `AUTH_DB_PATH`.
@@ -274,7 +274,7 @@ CREATE TABLE frames (
   capture_epoch_ms  INTEGER NOT NULL,            -- PHONE-stamped at BLE header receipt = biosignal alignment key
   received_epoch_ms INTEGER NOT NULL,            -- server receipt (latency, fallback)
   -- locator: link to the JPEG on disk, relative to recordings/
-  file_path         TEXT    NOT NULL,
+  file_path         TEXT    NOT NULL,            -- cleared to '' after file deletion
   -- QA (cheap, catches dropped / corrupt frames)
   device_frame      INTEGER,                     -- camera's own counter (BLE header); gaps = captured but undelivered
   byte_length       INTEGER,
@@ -291,11 +291,12 @@ CREATE TABLE frames (
   face_count        INTEGER,                        -- faces detected/obscured
   face_method       TEXT,                           -- e.g. 'mosaic:centerface@0.2'
   face_completed_at INTEGER,
+  deleted_at        INTEGER,                        -- NULL=live; epoch ms=soft-deleted
   PRIMARY KEY (participant, device, session, frame_index)
 );
 CREATE INDEX idx_frames_time         ON frames (participant, capture_epoch_ms);
-CREATE INDEX idx_frames_pending      ON frames (capture_epoch_ms) WHERE vlm_status  = 'pending';
-CREATE INDEX idx_frames_face_pending ON frames (capture_epoch_ms) WHERE face_status = 'pending';
+CREATE INDEX idx_frames_pending      ON frames (capture_epoch_ms) WHERE vlm_status  = 'pending' AND deleted_at IS NULL;
+CREATE INDEX idx_frames_face_pending ON frames (capture_epoch_ms) WHERE face_status = 'pending' AND deleted_at IS NULL;
 ```
 
 - **VLM output is inline for v1.** If multi-pass comparison (same frame, several models / prompts) is later needed, split the `vlm_*` columns into a separate `vlm_results` table keyed by `(frame, model)`; the migration is mechanical. `vlm_model` is recorded so every pass stays traceable.

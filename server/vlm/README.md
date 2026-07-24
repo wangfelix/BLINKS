@@ -1,11 +1,16 @@
-# VLM scene-understanding worker
+# VLM scene-understanding worker (5-minute chunks)
 
-Reads face-anonymized frames from `recordings.db`, sends each to a Vision
-Language Model, and writes a per-image **scene-state descriptor** + label +
-description back to the row. This is the context layer the biosignal study aligns
-against and the source of change-point-detection features.
+Labels **5-minute chunks**: the Node server groups frames into clock-aligned
+5-minute windows at ingestion (`chunks` table in `recordings.db`), and this
+worker sends each completed chunk's frames to a Vision Language Model in ONE
+multi-image call, writing a per-chunk **scene-state descriptor** + label +
+description onto the chunk row. Frames inherit their chunk's label everywhere
+downstream (segmentation, the assisted round). This is the context layer the
+biosignal study aligns against and the source of change-point-detection
+features. (`frames.vlm_*` is frozen legacy from the per-frame era — readable,
+never written.)
 
-For the **DRM subproject** it additionally classifies every frame into
+For the **DRM subproject** it additionally classifies every chunk into
 `work | break | other` (`vlm_category`) and picks the activity label from a
 curated vocabulary (`ACTIVITY_VOCABULARY`), conditioned on the participant's
 occupation + work description. See "What it writes" and "Occupation context"
@@ -13,26 +18,31 @@ below.
 
 It is a **separate long-lived Python process**, never inline with WS ingestion —
 same rule as the face-blur worker. VLM latency or API errors can never cost a
-frame, and old sessions can be re-processed later with a better model or prompt.
+frame, and old days can be re-processed later with a better model or prompt.
 
 ## How it fits the pipeline
 
 ```
-camera → BLE → phone → WS → server   (row: face_status=pending, vlm_status=pending)
+camera → BLE → phone → WS → server    frames row (face_status=pending)
+                              │       + chunks row (status='filling')
+                              │
+              a later-window frame arrives, or the idle sweep fires
+                              ▼
+                        chunk status='ready'
                               │
                               ▼
-                        face-blur worker   → face_status='done'
+                        face-blur worker   → face_status='done' (per frame)
                               │
                               ▼
-                        [this worker]      vlm_status pending → processing → done
+                        [this worker]      chunk ready → processing → done|failed
 ```
 
-**The ordering gate is a column, not a lock.** Both workers run as independent
-daemons in parallel. This one only ever selects frames with
-`vlm_status='pending' AND face_status='done'`, so the VLM **provably never sees
-an un-anonymized face** — important because the model is a remote API. A frame
-can be in VLM inference while the next frame is still being face-blurred
-(pipeline parallelism).
+**The ordering gate is a column, not a lock.** All workers run as independent
+daemons in parallel. This one only ever claims a chunk when `status='ready'`
+AND none of its frames is still `face_status` `pending`/`processing`, so the
+VLM **provably never sees an un-anonymized face** — important because the
+model is a remote API. One chunk can be in VLM inference while the next is
+still being face-blurred (pipeline parallelism).
 
 ## Model: KIT SCC AI toolbox
 
@@ -59,12 +69,12 @@ via `EnvironmentFile=` instead (see below).
 ```bash
 .venv/bin/python vlm_worker.py            # daemon: poll forever (production)
 .venv/bin/python vlm_worker.py --once     # process the current backlog, then exit
-.venv/bin/python vlm_worker.py --max 50   # stop after 50 frames (testing)
+.venv/bin/python vlm_worker.py --max 50   # stop after 50 chunks (testing)
 ```
 
 The worker reads `recordings.db` and the JPEGs written by the Node server, so it
-must run on the same host. It only processes frames the face-blur worker has
-already marked `done`.
+must run on the same host. It only claims chunks whose frames are all through
+the face-blur worker.
 
 ## Config (environment variables)
 
@@ -75,17 +85,18 @@ already marked `done`.
 | `VLM_MODEL` | `kit.gemma4-31b-it` | model name |
 | `RECORDINGS_DIR` | `../recordings` | recordings tree (matches the server's env) |
 | `RECORDINGS_DB` | `<RECORDINGS_DIR>/recordings.db` | the SQLite index |
-| `VLM_TIMEOUT` | `60` | per-request timeout (s) |
+| `VLM_TIMEOUT` | `120` | per-request timeout (s; multi-image requests are bigger) |
 | `VLM_TEMPERATURE` | `0.1` | sampling temperature |
-| `VLM_MAX_RETRIES` | `3` | retries per frame on API/parse error before marking `failed` |
+| `VLM_MAX_RETRIES` | `3` | retries per chunk on API/parse error before marking `failed` |
+| `VLM_CHUNK_MAX_FRAMES` | `20` | frames sent per chunk, evenly sampled across the window (a full window at the 15 s study interval) |
 | `POLL_INTERVAL_S` | `3.0` | sleep between polls when the queue is empty |
-| `BATCH_SIZE` | `20` | rows claimed per poll |
+| `BATCH_SIZE` | `8` | chunks claimed per poll |
 | `VLM_CONCURRENCY` | `8` | endpoint calls in flight at once (in-process thread pool) |
 | `DRM_TZ` | `Europe/Berlin` | study timezone for current-day-first ordering (match the server) |
 
 ### Claim ordering (current-day-first)
 
-Frames are claimed **today-first** (today in `DRM_TZ`) so an evening
+Chunks are claimed **today-first** (today in `DRM_TZ`) so an evening
 reconstruction is never stuck behind days of catch-up; within the backlog it's
 oldest-first, so the oldest still-incomplete day is what finishes next. If TZ
 data is unavailable it degrades to newest-first (still today-before-older).
@@ -100,14 +111,15 @@ there are no concurrent-write hazards. The KIT Gemma endpoint was measured to
 parallelize cleanly with no rate-limit wall or latency penalty at 8 concurrent.
 
 **Scale with `VLM_CONCURRENCY`, not by launching multiple processes.** A second
-process would double-process rows (the claim is a non-atomic select-then-update)
-and its startup reclaim would reset the first process's in-flight rows. If you
-ever truly need multiple processes, first switch to an atomic claim
-(`UPDATE ... WHERE vlm_status='pending' ... RETURNING`) and a time-based reclaim.
+process would double-process chunks (the claim is a non-atomic
+select-then-update) and its startup reclaim would reset the first process's
+in-flight chunks. If you ever truly need multiple processes, first switch to an
+atomic claim (`UPDATE ... WHERE status='ready' ... RETURNING`) and a
+time-based reclaim.
 
-## What it writes (`vlm_*` columns)
+## What it writes (`chunks` columns)
 
-- `vlm_status`: `pending → processing → done` (or `failed` after retries)
+- `status`: `ready → processing → done` (or `failed` after retries)
 - `vlm_model`: the model name, so every pass is traceable
 - `vlm_label`: the model's `"activity"` — the closest entry from
   `ACTIVITY_VOCABULARY` (in `vlm_worker.py`), or a concise 2-4 word label the
@@ -119,14 +131,15 @@ ever truly need multiple processes, first switch to an atomic claim
   Pause": coffee, resting, deliberate walk, socializing to recover); `other` =
   neither work nor restorative (chores, answering the door, errands, possibly
   cooking).
-- `vlm_description`: one short sentence
-- `vlm_descriptor`: JSON of the scene-state dimensions —
+- `vlm_description`: one short sentence about the window
+- `vlm_descriptor`: JSON of the scene-state dimensions (the dominant state
+  across the window) —
   `posture, movement, screen_engagement, object_manipulation, proximity, social_interaction`
 
-The **Node server owns the `vlm_category` migration** (`server/src/db.ts`
-`initDb`). If the column is missing (server not yet deployed/restarted with the
-DRM migration), the worker refuses to start with a clear message instead of
-failing every frame.
+The **Node server owns the `chunks` migration** (`server/src/db.ts` `initDb`).
+If the table is missing (server not yet deployed/restarted with the chunk
+rework), the worker refuses to start with a clear message instead of failing
+every chunk.
 
 The descriptor enums (`DESCRIPTOR_ENUMS`) and the activity vocabulary
 (`ACTIVITY_VOCABULARY`) in `vlm_worker.py` are a **v1 starting point** —
@@ -143,19 +156,21 @@ includes their **occupation + work description** from the `participants` table
 in `recordings.db` (written by the Node server via `PUT /api/profile`; queried
 once per participant per batch). If the table, the row, or the values are
 missing, the prompt states the occupation is unknown — the worker never crashes
-over it. Frames processed before a participant filled in their profile keep the
-occupation-less classification; requeue them (`UPDATE frames SET
-vlm_status='pending' WHERE participant='...'`) if you want them re-classified
-with context.
+over it. Chunks processed before a participant filled in their profile keep the
+occupation-less classification; requeue them (`UPDATE chunks SET
+status='ready' WHERE participant='...' AND status IN ('done','failed')`) if you
+want them re-classified with context.
 
 ## Operational notes
 
-- **Single-worker assumption:** on startup, any row left in `processing` (from a
-  crash) is reclaimed to `pending`. If you run more than one VLM worker at once,
-  switch to a time-based reclaim instead, or they will fight over the same rows.
-- **`failed` frames** never get a label (and stay served, since they are already
-  anonymized). Periodically requeue them — `UPDATE frames SET vlm_status='pending'
-  WHERE vlm_status='failed'` — once the cause (transient API outage, etc.) is gone.
+- **Single-worker assumption:** on startup, any chunk left in `processing`
+  (from a crash) is reclaimed to `ready`. If you run more than one VLM worker
+  at once, switch to a time-based reclaim instead, or they will fight over the
+  same chunks.
+- **`failed` chunks** never get a label (their frames stay served, since they
+  are already anonymized). Periodically requeue them — `UPDATE chunks SET
+  status='ready' WHERE status='failed'` — once the cause (transient API
+  outage, etc.) is gone.
 - Reachability: the toolbox must be reachable from the host. On the KIT VM both
   are inside KIT, so it should resolve directly; verify with a quick `--once` run.
 

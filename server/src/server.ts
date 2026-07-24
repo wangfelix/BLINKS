@@ -19,10 +19,12 @@ import { getUser, initAuthDb, updatePasswordHash } from "./auth-db";
 import {
   ActivityRow,
   ActivityWriteInput,
+  closeFillingChunks,
+  closeIdleChunks,
   countFramesOnDay,
-  deleteFrameRow,
   exportFramesCsv,
-  getFrameFilePath,
+  listChunksOnDay,
+  getFrameDeletionTarget,
   getFrameStatusByPath,
   getParticipant,
   getReconstruction,
@@ -38,6 +40,7 @@ import {
   pinReconstructionRound,
   replaceActivities,
   setPushToken,
+  softDeleteFrameRow,
   upsertParticipantProfile,
 } from "./db";
 import { segmentDay } from "./segmentation";
@@ -75,6 +78,7 @@ const RECORDINGS_DIR =
   process.env.RECORDINGS_DIR ?? path.join(__dirname, "..", "recordings");
 const DATA_DIR = process.env.DATA_DIR ?? path.join(__dirname, "..", "data");
 const PAUSED_PATH = path.join(RECORDINGS_DIR, "paused.json");
+const MAX_BATCH_DELETE_FRAMES = 500;
 
 // DRM: where the reconstruction website lives (linked from the app + pushes),
 // and the local hour from which TODAY's reconstruction opens (past days are
@@ -220,6 +224,7 @@ app.get("/api/sessions", requireAuth, (req: AuthenticatedRequest, res) => {
     startedAtMs: row.started_at_ms,
     endedAtMs: row.ended_at_ms,
     frameCount: row.frame_count,
+    deletedFrameCount: row.deleted_frame_count,
   }));
   res.json({ sessions });
 });
@@ -246,36 +251,150 @@ app.get(
   },
 );
 
-// GDPR-relevant: deletes the JPEG from disk AND the index row.
+interface DeleteFramesResult {
+  ok: boolean;
+  requestedCount: number;
+  deletedCount: number;
+  alreadyDeletedCount: number;
+  failedFrameIndexes?: number[];
+}
+
+// Deletes files synchronously before marking their rows. Node's request
+// handler cannot interleave another request between these synchronous steps,
+// and failed unlinks leave the row active so a retry can try again. ENOENT is
+// accepted: the file is already gone, and the retained row can still be
+// safely soft-deleted.
+const deleteFrames = (
+  participant: string,
+  device: string,
+  session: number,
+  frameIndexes: number[],
+):
+  | { status: 200 | 500; body: DeleteFramesResult }
+  | { status: 404; body: { error: string; missingFrameIndexes: number[] } } => {
+  const targets = frameIndexes.map((frameIndex) => ({
+    frameIndex,
+    target: getFrameDeletionTarget(participant, device, session, frameIndex),
+  }));
+  const missingFrameIndexes = targets
+    .filter(({ target }) => target === undefined)
+    .map(({ frameIndex }) => frameIndex);
+  if (missingFrameIndexes.length > 0) {
+    return {
+      status: 404,
+      body: { error: "one or more frames were not found", missingFrameIndexes },
+    };
+  }
+
+  let deletedCount = 0;
+  let alreadyDeletedCount = 0;
+  const failedFrameIndexes: number[] = [];
+  const recordingsRoot = path.resolve(RECORDINGS_DIR);
+
+  for (const { frameIndex, target } of targets) {
+    if (target!.deletedAt !== null) {
+      alreadyDeletedCount += 1;
+      continue;
+    }
+
+    try {
+      const absolutePath = path.resolve(RECORDINGS_DIR, target!.filePath);
+      if (
+        absolutePath !== recordingsRoot &&
+        !absolutePath.startsWith(`${recordingsRoot}${path.sep}`)
+      ) {
+        throw new Error("frame path escaped recordings directory");
+      }
+      try {
+        fs.unlinkSync(absolutePath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+
+      if (softDeleteFrameRow(participant, device, session, frameIndex)) {
+        deletedCount += 1;
+        console.log(
+          `Deleted frame file and retained row: ${participant}/${device}/${session}/#${frameIndex}`,
+        );
+      } else {
+        alreadyDeletedCount += 1;
+      }
+    } catch (error) {
+      failedFrameIndexes.push(frameIndex);
+      console.error(
+        `Failed to delete frame ${participant}/${device}/${session}/#${frameIndex}:`,
+        error,
+      );
+    }
+  }
+
+  const body: DeleteFramesResult = {
+    ok: failedFrameIndexes.length === 0,
+    requestedCount: frameIndexes.length,
+    deletedCount,
+    alreadyDeletedCount,
+    ...(failedFrameIndexes.length > 0 ? { failedFrameIndexes } : {}),
+  };
+  return { status: failedFrameIndexes.length > 0 ? 500 : 200, body };
+};
+
+// GDPR-relevant: delete the JPEG bytes while retaining a soft-deleted audit
+// row. Repeating a successful deletion is idempotent.
 app.delete(
   "/api/sessions/:device/:session/frames/:frameIndex",
   requireAuth,
   (req: AuthenticatedRequest, res) => {
-    const participant = req.participant!;
     const device = sanitize(req.params.device);
     const session = Number(req.params.session);
     const frameIndex = Number(req.params.frameIndex);
-    if (!device || !Number.isInteger(session) || !Number.isInteger(frameIndex)) {
+    if (
+      !device ||
+      !Number.isInteger(session) ||
+      !Number.isSafeInteger(frameIndex) ||
+      frameIndex < 1
+    ) {
       res.status(400).json({ error: "invalid device, session, or frameIndex" });
       return;
     }
 
-    const filePath = getFrameFilePath(participant, device, session, frameIndex);
-    if (filePath === undefined) {
-      res.status(404).json({ error: "frame not found" });
+    const result = deleteFrames(req.participant!, device, session, [frameIndex]);
+    res.status(result.status).json(result.body);
+  },
+);
+
+// Bounded, participant-scoped batch deletion. Duplicates are collapsed and a
+// repeated request succeeds without changing counts or chunk bookkeeping.
+app.delete(
+  "/api/sessions/:device/:session/frames",
+  requireAuth,
+  (req: AuthenticatedRequest, res) => {
+    const device = sanitize(req.params.device);
+    const session = Number(req.params.session);
+    const rawFrameIndexes = req.body?.frameIndexes;
+    if (
+      !device ||
+      !Number.isInteger(session) ||
+      !Array.isArray(rawFrameIndexes) ||
+      rawFrameIndexes.length < 1 ||
+      rawFrameIndexes.length > MAX_BATCH_DELETE_FRAMES ||
+      !rawFrameIndexes.every(
+        (value) => Number.isSafeInteger(value) && value >= 1,
+      )
+    ) {
+      res.status(400).json({
+        error: `frameIndexes must contain 1-${MAX_BATCH_DELETE_FRAMES} positive integers`,
+      });
       return;
     }
 
-    deleteFrameRow(participant, device, session, frameIndex);
-    fs.unlink(path.join(RECORDINGS_DIR, filePath), (err) => {
-      if (err && err.code !== "ENOENT") {
-        console.error(`Failed to delete ${filePath}:`, err);
-      }
-    });
-    console.log(
-      `Deleted frame: ${participant}/${device}/${session}/#${frameIndex}`,
+    const frameIndexes = [...new Set<number>(rawFrameIndexes)];
+    const result = deleteFrames(
+      req.participant!,
+      device,
+      session,
+      frameIndexes,
     );
-    res.json({ ok: true });
+    res.status(result.status).json(result.body);
   },
 );
 
@@ -710,11 +829,15 @@ app.get(
     if (mode === "assisted") {
       const dayFrames = listFramesOnDay(participant, day);
       const servedFrames = dayFrames.filter((f) => f.face_status === "done");
-      // face_status='failed' frames can never become VLM-done — do not let
-      // them hold the round in "still processing" forever.
+      // Pending = frames whose 5-minute chunk is not terminal yet (filling /
+      // ready / processing). Legacy frames without a chunk are frozen, and
+      // face_status='failed' frames can never feed a chunk's VLM input — do
+      // not let either hold the round in "still processing" forever.
       const vlmPendingCount = dayFrames.filter(
         (f) =>
-          (f.vlm_status === "pending" || f.vlm_status === "processing") &&
+          f.chunk_status !== null &&
+          f.chunk_status !== "done" &&
+          f.chunk_status !== "failed" &&
           f.face_status !== "failed",
       ).length;
 
@@ -732,17 +855,29 @@ app.get(
         vlmPendingCount === 0 &&
         servedFrames.length > 0
       ) {
+        // Segmentation runs on the day's CHUNKS: consecutive same-label
+        // windows group into one activity, with activity bounds at the real
+        // first/last frame times inside the grouped windows. Failed or
+        // unlabeled chunks come in as null/null (segmentDay merges them into
+        // a labeled neighbor); chunks with no servable frame are skipped.
+        const dayChunks = listChunksOnDay(participant, day);
         const segments = segmentDay(
-          servedFrames.map((frame) => ({
-            captureEpochMs: frame.capture_epoch_ms,
-            vlmLabel: frame.vlm_status === "done" ? frame.vlm_label : null,
-            vlmCategory:
-              frame.vlm_status === "done" &&
-              frame.vlm_category !== null &&
-              CATEGORY_LABELS.has(frame.vlm_category)
-                ? frame.vlm_category
-                : null,
-          })),
+          dayChunks
+            .filter(
+              (chunk) =>
+                chunk.first_frame_ms !== null && chunk.last_frame_ms !== null,
+            )
+            .map((chunk) => ({
+              firstFrameMs: chunk.first_frame_ms!,
+              lastFrameMs: chunk.last_frame_ms!,
+              vlmLabel: chunk.status === "done" ? chunk.vlm_label : null,
+              vlmCategory:
+                chunk.status === "done" &&
+                chunk.vlm_category !== null &&
+                CATEGORY_LABELS.has(chunk.vlm_category)
+                  ? chunk.vlm_category
+                  : null,
+            })),
         );
         replaceActivities({
           participant,
@@ -862,6 +997,26 @@ app.post("/api/resume", requireAuth, (req: AuthenticatedRequest, res) => {
   console.log(`Resumed participant ${req.participant}`);
   res.json({ ok: true, paused: false });
 });
+
+// The app's explicit End-session signal (Stop, not Pause): the day's
+// recording is over, so the trailing still-filling 5-minute chunk can go to
+// the VLM immediately instead of waiting for the idle sweep. The sweep stays
+// as the fallback for crashes / lost connectivity, and any frame that still
+// straggles in lands in its (now 'ready') chunk before the VLM worker samples
+// the frames at claim time.
+app.post(
+  "/api/recording/ended",
+  requireAuth,
+  (req: AuthenticatedRequest, res) => {
+    const closedChunks = closeFillingChunks(req.participant!);
+    if (closedChunks > 0) {
+      console.log(
+        `Recording ended: ${req.participant} — closed ${closedChunks} chunk(s) for VLM`,
+      );
+    }
+    res.json({ ok: true, closedChunks });
+  },
+);
 
 // --- WebSocket ingestion (the phone is the client) ---------------------------
 
@@ -994,6 +1149,24 @@ wss.on("connection", (ws: WebSocket, req) => {
 });
 
 startPushScheduler();
+
+// Chunk idle sweep: a session's LAST 5-minute window never sees a later
+// frame, so it is closed once no new frame has arrived for CHUNK_IDLE_CLOSE_MS
+// (server receipt time — a delayed catch-up upload keeps its chunk open while
+// frames are still streaming in). 60 s tick, same cadence as the push loop.
+const CHUNK_IDLE_CLOSE_MS = Number(
+  process.env.CHUNK_IDLE_CLOSE_MS ?? 10 * 60 * 1000,
+);
+setInterval(() => {
+  try {
+    const closed = closeIdleChunks(CHUNK_IDLE_CLOSE_MS);
+    if (closed > 0) {
+      console.log(`Chunk idle sweep: closed ${closed} chunk(s) for VLM`);
+    }
+  } catch (err) {
+    console.error("Chunk idle sweep failed:", err);
+  }
+}, 60_000);
 
 server.listen(PORT, () => {
   console.log(`BLINKS server listening on http://0.0.0.0:${PORT}`);

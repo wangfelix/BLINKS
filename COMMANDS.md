@@ -116,8 +116,12 @@ Env: `FACE_THRESHOLD` (default `0.2`, lower = safer), `FACE_METHOD=mosaic|blur`,
 
 ## 3. VLM worker (`server/vlm/`, Python) — makes assisted days appear
 
-Processes only frames the face-blur worker has marked `done`. An assisted day
-stays "still being processed" in the web app until **all** its frames are VLM-done.
+Labels **5-minute chunks** (one multi-image call per chunk; frames inherit the
+chunk's label). A chunk becomes inferable once the server closed its window
+(`chunks.status='ready'`) AND every frame in it is through the face-blur
+worker. An assisted day stays "still being processed" in the web app until all
+its chunks are done — the server's idle sweep closes the day's last window
+~10 min after the final frame arrives (`CHUNK_IDLE_CLOSE_MS`).
 
 ```bash
 cd server/vlm
@@ -125,18 +129,19 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # once
 cp .env.example .env        # then put the real KIT_API_KEY in .env (gitignored)
 .venv/bin/python vlm_worker.py             # daemon: poll + label forever
 .venv/bin/python vlm_worker.py --once      # process the backlog, then exit
-.venv/bin/python vlm_worker.py --once --max-frames 20   # just a few (testing)
+.venv/bin/python vlm_worker.py --once --max 5   # just a few chunks (testing)
 ```
 
 Needs `KIT_API_KEY` in `.env` and the **KIT network / VPN** (endpoint is
-KIT-internal). Env: `VLM_MODEL` (default `kit.gemma4-31b-it`), `VLM_MAX_RETRIES`
-(default `3` = 1 try + 2 retries, then the frame is marked `failed`),
-`BATCH_SIZE` (`20`), `POLL_INTERVAL_S` (`3.0`).
+KIT-internal). Env: `VLM_MODEL` (default `kit.gemma4-31b-it`),
+`VLM_CHUNK_MAX_FRAMES` (`20`, evenly sampled per chunk), `VLM_MAX_RETRIES`
+(default `3`, then the chunk is marked `failed`), `BATCH_SIZE` (`8` chunks per
+poll), `POLL_INTERVAL_S` (`3.0`).
 
-Requeue failed frames after fixing the cause:
+Requeue failed chunks after fixing the cause:
 
 ```bash
-sqlite3 recordings/recordings.db "UPDATE frames SET vlm_status='pending' WHERE vlm_status='failed'"
+sqlite3 recordings/recordings.db "UPDATE chunks SET status='ready' WHERE status='failed'"
 ```
 
 ---
@@ -210,7 +215,7 @@ EXPO_PUBLIC_SERVER_URL=https://<name>.ngrok-free.dev        # ngrok-tunneled ser
 ## Quick "everything up for a full local test"
 
 From the repo root, start the server, its `ngrok http 3000` tunnel, both Python
-workers, DRM web app, and Metro tunnel together:
+workers, DRM web app, and Metro together:
 
 ```bash
 ./dev-all.sh
@@ -219,7 +224,10 @@ DRM_DEV_MODE=1 ./dev-all.sh   # floating DRM dev navigator + direct round access
 
 The output uses a different color/name prefix for each background service.
 Metro remains attached directly to the terminal, so its QR code and keyboard
-shortcuts still work. `Ctrl+C` stops the whole stack. The launcher defaults to
+shortcuts still work. The launcher first requests Expo's dev-client tunnel. If
+that shared tunnel service is unavailable, it keeps the other services running
+and restarts Metro in LAN mode; connect the phone to the same WiFi and scan the
+replacement QR code. `Ctrl+C` stops the whole stack. The launcher defaults to
 `DRM_AVAILABLE_FROM_HOUR=0` and `DISABLE_PUSH=1`; either can still be overridden:
 
 ```bash
@@ -260,9 +268,14 @@ the web app in the evening (or with `DRM_AVAILABLE_FROM_HOUR=0`, any time).
 ## Handy DB peeks (`server/recordings/recordings.db`)
 
 ```bash
-# frame status for a participant (why the assisted round is/ isn't ready):
+# chunk status for a participant (why the assisted round is/ isn't ready):
 sqlite3 recordings/recordings.db \
-  "SELECT vlm_status, COUNT(*) FROM frames WHERE participant='<user>' GROUP BY vlm_status"
+  "SELECT status, COUNT(*) FROM chunks WHERE participant='<user>' GROUP BY status"
+
+# the labeled 5-minute timeline of a participant:
+sqlite3 recordings/recordings.db \
+  "SELECT datetime(chunk_start_ms/1000,'unixepoch','localtime'), vlm_label, vlm_category \
+   FROM chunks WHERE participant='<user>' ORDER BY chunk_start_ms"
 
 # a participant's arm + profile:
 sqlite3 recordings/recordings.db \
