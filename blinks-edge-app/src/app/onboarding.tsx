@@ -1,10 +1,5 @@
-import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
+import { StyleSheet, View } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppButton } from "@/application/components/app-button";
@@ -35,76 +30,74 @@ const OnboardingScreen = () => {
   } = useOnboardingModel();
 
   return (
-    <KeyboardAvoidingView
+    <KeyboardAwareScrollView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      contentContainerStyle={[
+        styles.content,
+        { paddingTop: insets.top + spacing.xxl },
+      ]}
+      automaticallyAdjustKeyboardInsets
+      enableOnAndroid
+      extraScrollHeight={spacing.lg}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
     >
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingTop: insets.top + spacing.xxl },
-        ]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.header}>
-          <AppText variant="title">Tell us about yourself</AppText>
-          <AppText variant="body" color={colors.textSecondary}>
-            The AI assistant uses your work description to distinguish work
-            from other activities; your usual schedule times the evening
-            reminder.
-          </AppText>
-        </View>
+      <View style={styles.header}>
+        <AppText variant="title">Tell us about yourself</AppText>
+        <AppText variant="body" color={colors.textSecondary}>
+          The AI assistant uses your work description to distinguish work from
+          other activities; your usual schedule times the evening reminder.
+        </AppText>
+      </View>
 
-        <View style={styles.form}>
-          <AppTextInput
-            label="Occupation"
-            value={occupation}
-            onChangeText={setOccupation}
-            placeholder="e.g. PhD student"
-            autoCapitalize="sentences"
-            returnKeyType="next"
-          />
-          <AppTextInput
-            label="What your work consists of"
-            value={workDescription}
-            onChangeText={setWorkDescription}
-            placeholder="e.g. writing papers, analyzing data, meetings"
-            autoCapitalize="sentences"
-            multiline
-          />
-          <View style={styles.timeRow}>
-            <View style={styles.timeField}>
-              <AppTextInput
-                label="Usual wake-up time"
-                value={wakeTime}
-                onChangeText={setWakeTime}
-                placeholder="07:30"
-                keyboardType="numbers-and-punctuation"
-                maxLength={5}
-              />
-            </View>
-            <View style={styles.timeField}>
-              <AppTextInput
-                label="Usual bedtime"
-                value={bedTime}
-                onChangeText={setBedTime}
-                placeholder="23:00"
-                keyboardType="numbers-and-punctuation"
-                maxLength={5}
-                errorMessage={validationError}
-              />
-            </View>
+      <View style={styles.form}>
+        <AppTextInput
+          label="Occupation"
+          value={occupation}
+          onChangeText={setOccupation}
+          placeholder="e.g. PhD student"
+          autoCapitalize="sentences"
+          returnKeyType="next"
+        />
+        <AppTextInput
+          label="What your work consists of"
+          value={workDescription}
+          onChangeText={setWorkDescription}
+          placeholder="e.g. writing papers, analyzing data, meetings"
+          autoCapitalize="sentences"
+          multiline
+        />
+        <View style={styles.timeRow}>
+          <View style={styles.timeField}>
+            <AppTextInput
+              label="Usual wake-up time"
+              value={wakeTime}
+              onChangeText={setWakeTime}
+              placeholder="07:30"
+              keyboardType="numbers-and-punctuation"
+              maxLength={5}
+            />
           </View>
-          <AppButton
-            label="Continue"
-            onPress={submit}
-            loading={isSubmitting}
-            disabled={!canSubmit}
-          />
+          <View style={styles.timeField}>
+            <AppTextInput
+              label="Usual bedtime"
+              value={bedTime}
+              onChangeText={setBedTime}
+              placeholder="23:00"
+              keyboardType="numbers-and-punctuation"
+              maxLength={5}
+              errorMessage={validationError}
+            />
+          </View>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        <AppButton
+          label="Continue"
+          onPress={submit}
+          loading={isSubmitting}
+          disabled={!canSubmit}
+        />
+      </View>
+    </KeyboardAwareScrollView>
   );
 };
 

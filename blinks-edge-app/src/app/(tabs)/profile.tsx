@@ -28,7 +28,7 @@ const ProfileScreen = () => {
   } = useProfileModel();
 
   return (
-    <ScreenContainer scrollable bottomSpacing={tabBarHeight}>
+    <ScreenContainer scrollable keyboardAware bottomSpacing={tabBarHeight}>
       <AppText variant="title">Profile</AppText>
 
       <AppCard style={styles.identityCard}>
