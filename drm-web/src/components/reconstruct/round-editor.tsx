@@ -10,7 +10,6 @@ import type {
   CategoryLabel,
   ExperienceRating,
   Frame,
-  RoundMode,
 } from "@/lib/api-types";
 import { ApiError, saveRoundDraft, submitRound } from "@/lib/api-client";
 import { dayTimeToEpochMs, formatDayLabel } from "@/lib/time";
@@ -92,22 +91,19 @@ const InsertBetweenButton = ({ onClick }: { onClick: () => void }) => (
 );
 
 /**
- * Editable reconstruction for one (non-submitted) round. Self rounds start
- * from memory (manual time entry, no frames — round 1 for everyone, round 2
- * in the control arm); the assisted round shows the VLM-proposed segmentation
- * with frame thumbnails. Drafts autosave (debounced); Submit locks the round
- * permanently (and, for round 1, unlocks round 2).
+ * Editable reconstruction for one (non-submitted) round. Round 1 starts from
+ * memory with manual time entry and no frames. Round 2 shows the VLM-proposed
+ * segmentation with frame thumbnails. Drafts autosave (debounced); Submit
+ * locks the round permanently (and, for round 1, unlocks round 2).
  */
 export const RoundEditor = ({
   round,
-  mode,
   day,
   initialActivities,
   frames,
   onSubmitted,
 }: {
   round: 1 | 2;
-  mode: RoundMode;
   day: string;
   initialActivities: Activity[];
   frames: Frame[] | null; // present for the assisted round only
@@ -293,8 +289,8 @@ export const RoundEditor = ({
 
   // --- Validation + submit ---------------------------------------------------
 
-  const isAssistedRound = mode === "assisted";
-  const issues = computeRowIssues(rows, mode === "self");
+  const isAssistedRound = round === 2;
+  const issues = computeRowIssues(rows, round === 1);
   const issueByLocalId = new Map(
     issues.map((issue) => [issue.localId, issue.message]),
   );
@@ -385,9 +381,7 @@ export const RoundEditor = ({
 
   const editorHint = isAssistedRound
     ? "Review the proposed activities, correct the labels and time spans until they match your day."
-    : round === 2
-      ? "Go through your day once more from memory — add every activity you can remember now."
-      : "Reconstruct your day from memory, one activity at a time.";
+    : "Reconstruct your day from memory, one activity at a time.";
 
   return (
     <Column gap="lg">

@@ -29,9 +29,7 @@ const firstUnsubmittedRound = (
 
 const roundLabel = (roundState: RoundState): string => {
   if (roundState.round === 1) return "DRM From memory";
-  if (roundState.mode === "assisted") return "DRM With photos";
-  if (roundState.mode === "self") return "DRM From memory again";
-  return "DRM Next reconstruction";
+  return "DRM With photos";
 };
 
 const roundStepState = (

@@ -54,22 +54,13 @@ DRM_AVAILABLE_FROM_HOUR=0 DISABLE_PUSH=1 npm run dev
 ### Create / manage participants
 
 ```bash
-# main arm (default): round 2 = VLM-assisted
+# every participant: round 1 self, round 2 VLM-assisted
 npm run create-user -- participant1 <password>
 
-# control arm: round 2 = self again (pure repetition baseline)
-npm run create-user -- participant7 <password> --arm control
-
-# reset a password (keeps occupation/schedule + arm unless --arm is also given):
+# reset a password (keeps occupation/schedule):
 npm run create-user -- participant1 <newpassword> --reset
-
-# reset a password AND change the arm:
-npm run create-user -- participant1 <newpassword> --reset --arm control
 ```
 
-- `--arm` = `main` (round 2 assisted) or `control` (round 2 self again);
-  round 1 is always self. The arm can be changed until the participant first
-  opens round 2 (its mode is pinned then).
 - Username: letters/digits/`-`/`_` only (it becomes the recordings folder name).
 - Password: ≥ 8 chars.
 - Writes the auth user (`auth.db`) **and** a `participants` row (`recordings.db`).
@@ -80,15 +71,16 @@ npm run create-user -- participant1 <newpassword> --reset --arm control
 ### Tests
 
 ```bash
-npx tsx scripts/test-segmentation.ts    # pure segmentation unit tests (10 cases)
+npx tsx scripts/test-segmentation.ts    # pure chunk-segmentation tests (12 cases)
+npx tsx scripts/test-activity-lists.ts  # legacy/natural-key migration + parent FK + three-list immutability
+npx tsx scripts/test-reconstruction-timing-migration.ts  # reconstructions -> response-parent workflow/timing migration
 
-# end-to-end smoke test (needs its own throwaway dirs + a matching server;
-# one user per study arm):
+# end-to-end smoke test (needs its own throwaway dirs + a matching server):
 rm -rf /tmp/blinks-smoke && mkdir -p /tmp/blinks-smoke/{recordings,data}
 DATA_DIR=/tmp/blinks-smoke/data RECORDINGS_DIR=/tmp/blinks-smoke/recordings \
   npx tsx scripts/create-user.ts smoketester password123
 DATA_DIR=/tmp/blinks-smoke/data RECORDINGS_DIR=/tmp/blinks-smoke/recordings \
-  npx tsx scripts/create-user.ts smokecontrol password123 --arm control
+  npx tsx scripts/create-user.ts smokesecond password123
 RECORDINGS_DIR=/tmp/blinks-smoke/recordings DATA_DIR=/tmp/blinks-smoke/data \
   CAMERA_PORT=3100 DRM_AVAILABLE_FROM_HOUR=0 DISABLE_PUSH=1 node dist/server.js &   # (npm run build first)
 SMOKE_BASE_URL=http://127.0.0.1:3100 RECORDINGS_DIR=/tmp/blinks-smoke/recordings \
@@ -170,12 +162,12 @@ behavior. Authentication and submitted-round finality still apply.
 ```bash
 cd server
 RECORDINGS_DIR=<same as server> DATA_DIR=<same as server> \
-  npx tsx scripts/seed-demo-data.ts        # demo + democtl, password demo12345
+  npx tsx scripts/seed-demo-data.ts        # demo + demo2, password demo12345
 ```
 
-Creates two participants, each with one fully labeled field day (today):
-`demo` = main arm (step 2 VLM-assisted), `democtl` = control arm (step 2 self
-again), so the whole two-round flow is clickable for both arms immediately.
+Creates two participants, each with one fully labeled field day (today).
+`demo` and `demo2` both follow step 1 self, step 2 VLM-assisted, so the
+invariant two-round flow is clickable immediately.
 Re-runnable (resets the demo users).
 
 ---
@@ -261,7 +253,7 @@ cd drm-web && npm run dev        # http://localhost:3002
 cd blinks-edge-app && npm run start-tunnel
 ```
 
-Then `npm run create-user -- <user> <pw> [--arm control]`, record from the
+Then `npm run create-user -- <user> <pw>`, record from the
 phone (or `npx tsx scripts/seed-demo-data.ts` for instant demo data), and open
 the web app in the evening (or with `DRM_AVAILABLE_FROM_HOUR=0`, any time).
 
@@ -277,15 +269,17 @@ sqlite3 recordings/recordings.db \
   "SELECT datetime(chunk_start_ms/1000,'unixepoch','localtime'), vlm_label, vlm_category \
    FROM chunks WHERE participant='<user>' ORDER BY chunk_start_ms"
 
-# a participant's arm + profile:
+# participant profiles (the legacy arm column may still exist but is ignored):
 sqlite3 recordings/recordings.db \
-  "SELECT username, arm, occupation, wake_time, bed_time FROM participants"
+  "SELECT username, occupation, wake_time, bed_time FROM participants"
 
-# reconstruction rounds (mode is pinned when the round is first opened):
+# activity lists + round workflow (kind is the sole role discriminator):
 sqlite3 recordings/recordings.db \
-  "SELECT participant, round, mode, day, status, submitted_at FROM reconstructions"
+  "SELECT id, participant, round, kind, day, status, submitted_at, proposal_viewed_at \
+   FROM activity_lists ORDER BY participant, round, kind"
 
 # unlock a submitted round for a participant (researcher-only escape hatch):
 sqlite3 recordings/recordings.db \
-  "UPDATE reconstructions SET status='draft', submitted_at=NULL WHERE participant='<user>' AND round=2"
+  "UPDATE activity_lists SET status='draft', submitted_at=NULL \
+   WHERE participant='<user>' AND round=2 AND kind!='vlm_proposal'"
 ```

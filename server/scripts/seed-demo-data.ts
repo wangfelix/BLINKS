@@ -14,10 +14,10 @@ import { chunkStartOf, initDb, insertFrame } from "../src/db";
 // (today, 09:00-16:15 local, one frame per 5 min, face_status='done', a
 // plausible VLM label timeline):
 //
-//   demo    / demo12345  -> MAIN arm    (round 2 = VLM-assisted)
-//   democtl / demo12345  -> CONTROL arm (round 2 = self again)
+//   demo    / demo12345
+//   demo2   / demo12345
 //
-// so the whole two-round flow is clickable for both arms without a
+// so the invariant self-then-assisted flow is clickable for two accounts without a
 // camera/VLM run. Occupation + schedule are pre-filled (the app onboarding
 // gate and the bedtime reminder are satisfied).
 //
@@ -26,9 +26,8 @@ import { chunkStartOf, initDb, insertFrame } from "../src/db";
 // first real frame found under RECORDINGS_DIR (falls back to an embedded
 // 1x1 JPEG, which renders as a grey thumbnail).
 //
-// Re-runnable: wipes and re-seeds the demo users' frames, reconstructions
-// and activities. Run the server with DRM_AVAILABLE_FROM_HOUR=0 to test
-// before 19:00.
+// Re-runnable: wipes and re-seeds the demo users' frames and activity lists.
+// Run the server with DRM_AVAILABLE_FROM_HOUR=0 to test before 19:00.
 
 const RECORDINGS_DIR =
   process.env.RECORDINGS_DIR ?? path.join(__dirname, "..", "recordings");
@@ -36,9 +35,9 @@ const DATA_DIR = process.env.DATA_DIR ?? path.join(__dirname, "..", "data");
 const DRM_TZ = process.env.DRM_TZ ?? "Europe/Berlin";
 
 const PASSWORD = process.argv[2] ?? "demo12345";
-const USERS: { username: string; arm: "main" | "control"; device: string }[] = [
-  { username: "demo", arm: "main", device: "DEMOCAM00001" },
-  { username: "democtl", arm: "control", device: "DEMOCAM00002" },
+const USERS: { username: string; device: string }[] = [
+  { username: "demo", device: "DEMOCAM00001" },
+  { username: "demo2", device: "DEMOCAM00002" },
 ];
 const FRAME_INTERVAL_MS = 5 * 60_000;
 
@@ -111,6 +110,7 @@ const main = async (): Promise<void> => {
   );
 
   const db = new Database(path.join(RECORDINGS_DIR, "recordings.db"));
+  db.pragma("foreign_keys = ON");
   try {
     const markFaceDone = db.prepare(
       `UPDATE frames SET
@@ -138,18 +138,17 @@ const main = async (): Promise<void> => {
         console.log(`Created auth user '${user.username}'.`);
       }
 
-      // participants row: arm + occupation + schedule pre-filled so the app
+      // participants row: occupation + schedule pre-filled so the app
       // onboarding gate and the bedtime reminder are satisfied.
       db.prepare(
         `INSERT INTO participants
-           (username, occupation, work_description, wake_time, bed_time, arm, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+           (username, occupation, work_description, wake_time, bed_time, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(username) DO UPDATE SET
            occupation = excluded.occupation,
            work_description = excluded.work_description,
            wake_time = excluded.wake_time,
            bed_time = excluded.bed_time,
-           arm = excluded.arm,
            updated_at = excluded.created_at`,
       ).run(
         user.username,
@@ -157,12 +156,17 @@ const main = async (): Promise<void> => {
         "Research, writing, and data analysis at a computer (demo account).",
         "07:30",
         "23:00",
-        user.arm,
         Date.now(),
       );
 
       // wipe any previous demo state for repeatable runs
-      for (const table of ["frames", "chunks", "reconstructions", "activities"]) {
+      db.prepare(
+        `DELETE FROM activities
+         WHERE activity_list_id IN (
+           SELECT id FROM activity_lists WHERE participant = ?
+         )`,
+      ).run(user.username);
+      for (const table of ["frames", "chunks", "activity_lists"]) {
         db.prepare(`DELETE FROM ${table} WHERE participant = ?`).run(
           user.username,
         );
@@ -218,14 +222,14 @@ const main = async (): Promise<void> => {
         }
       }
       console.log(
-        `Seeded ${user.username} (${user.arm} arm): ${frameIndex} frames on ${today}.`,
+        `Seeded ${user.username}: ${frameIndex} frames on ${today}.`,
       );
     }
 
     console.log(`
 Done. Log into drm-web:
-  demo    / '${PASSWORD}'  -> MAIN arm    (step 1 self, step 2 VLM-assisted)
-  democtl / '${PASSWORD}'  -> CONTROL arm (step 1 self, step 2 self again)
+  demo  / '${PASSWORD}'  -> step 1 self, step 2 VLM-assisted
+  demo2 / '${PASSWORD}'  -> step 1 self, step 2 VLM-assisted
 Run the server with DRM_AVAILABLE_FROM_HOUR=0 to test today before 19:00.`);
   } finally {
     db.close();

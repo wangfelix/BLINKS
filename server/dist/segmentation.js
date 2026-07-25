@@ -1,31 +1,40 @@
 "use strict";
 // ===========================================================================
-// Initial VLM-assisted day segmentation (DRM subproject).
+// Initial VLM-assisted day segmentation (DRM subproject) — CHUNK-BASED
+// (reworked 2026-07-19 with the 5-minute-chunk pipeline).
 //
-// Pure function: turns one day's face-anonymized frames (ordered by capture
-// time, carrying the VLM's per-frame category + raw activity label) into an
-// initial activity list the participant then edits on the reconstruction
-// website. Rules (frozen contract):
+// Pure function: turns one day's labeled 5-minute chunks (ordered by window
+// start, each carrying the VLM's per-chunk category + raw activity label plus
+// the REAL first/last frame times inside the window) into an initial activity
+// list the participant then edits on the reconstruction website. Rules
+// (frozen contract):
 //
-//   1. Group consecutive frames sharing (vlm_category, normalized vlm_label).
+//   1. Split into blocks at real capture gaps > 10 minutes (camera off /
+//      paused): a gap is measured from one chunk's last frame to the next
+//      chunk's first frame, so a missing window with a short actual gap does
+//      NOT split, and a long outage inside sparse windows does.
+//   2. Group consecutive chunks sharing (vlm_category, normalized vlm_label).
 //      normalize = lowercase + trim + collapse whitespace.
-//   2. Split at capture gaps > 10 minutes (camera off / paused); segments
-//      never merge across such a gap.
-//   3. Smoothing: any segment shorter than 2 minutes is merged into its
-//      neighbor (prefer previous); the merged segment's label/category come
-//      from the longer constituent. Unlabeled runs (VLM failed / no output)
-//      merge into neighbors the same way, with one refinement: when exactly
-//      one constituent is labeled, the labeled one wins regardless of length
-//      (an unlabeled constituent has no label to contribute).
+//   3. Unlabeled chunks (VLM failed / no output) merge into a labeled
+//      neighbor (prefer previous); a block that is entirely unlabeled stays
+//      one activity with null labels for the participant to fill in. When
+//      such a merge leaves two adjacent segments with the same label +
+//      category (a failed chunk in the middle of one activity), they are
+//      coalesced into one.
 //
-// Activity startMs/endMs = first/last frame capture_epoch_ms of the group.
+// There is deliberately NO minimum-duration smoothing anymore: it existed to
+// suppress per-frame label flicker, and chunk labels cannot flicker below the
+// window size — a chunk with its own label is a real 5-minute observation.
+//
+// Activity startMs/endMs = first/last real frame time of the grouped chunks
+// (never the window edges), so an activity never claims minutes where no
+// frames exist.
 // ===========================================================================
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MIN_SEGMENT_MS = exports.GAP_SPLIT_MS = void 0;
+exports.GAP_SPLIT_MS = void 0;
 exports.normalizeLabel = normalizeLabel;
 exports.segmentDay = segmentDay;
 exports.GAP_SPLIT_MS = 10 * 60 * 1000;
-exports.MIN_SEGMENT_MS = 2 * 60 * 1000;
 // lowercase + trim + collapse whitespace; empty becomes null (= no label).
 function normalizeLabel(label) {
     if (label === null)
@@ -40,18 +49,11 @@ function displayLabel(label) {
     const cleaned = label.trim().replace(/\s+/g, " ");
     return cleaned.length > 0 ? cleaned : null;
 }
-const durationOf = (segment) => segment.endMs - segment.startMs;
-// Merges two adjacent segments; the winner donates label + category. A labeled
-// constituent always beats an unlabeled one; otherwise the longer constituent
-// wins, with ties going to the earlier segment ("prefer previous").
+// Merges two adjacent segments; the labeled constituent donates label +
+// category (only merges involving an unlabeled side ever happen, so there is
+// no labeled-vs-labeled conflict to arbitrate).
 function mergeAdjacent(earlier, later) {
-    let winner;
-    if (earlier.unlabeled !== later.unlabeled) {
-        winner = earlier.unlabeled ? later : earlier;
-    }
-    else {
-        winner = durationOf(later) > durationOf(earlier) ? later : earlier;
-    }
+    const winner = earlier.unlabeled ? later : earlier;
     return {
         startMs: earlier.startMs,
         endMs: later.endMs,
@@ -60,13 +62,12 @@ function mergeAdjacent(earlier, later) {
         unlabeled: earlier.unlabeled && later.unlabeled,
     };
 }
-// Repeatedly merges away segments that are unlabeled or shorter than 2 min,
-// each into its previous neighbor when one exists (else the next). A block
-// that shrinks to a single segment keeps it, even if short or unlabeled.
-function smoothBlock(segments) {
+// Repeatedly merges unlabeled segments into a neighbor (prefer previous). A
+// block that shrinks to a single segment keeps it, even if unlabeled.
+function mergeUnlabeled(segments) {
     const result = [...segments];
     while (result.length > 1) {
-        const index = result.findIndex((segment) => segment.unlabeled || durationOf(segment) < exports.MIN_SEGMENT_MS);
+        const index = result.findIndex((segment) => segment.unlabeled);
         if (index === -1)
             break;
         const mergeAt = index > 0 ? index - 1 : 0;
@@ -75,48 +76,68 @@ function smoothBlock(segments) {
     }
     return result;
 }
-// Groups one gap-free run of frames into segments by (category, normalized
-// label); consecutive frames with the same key extend the current segment.
-function groupBlock(frames) {
+// Joins adjacent segments that ended up with the same label + category after
+// the unlabeled merges (a failed chunk in the middle of one activity must not
+// split it into two identical rows).
+function coalesceSameKey(segments) {
+    const result = [];
+    for (const segment of segments) {
+        const previous = result[result.length - 1];
+        if (previous !== undefined &&
+            !previous.unlabeled &&
+            !segment.unlabeled &&
+            previous.categoryLabel === segment.categoryLabel &&
+            normalizeLabel(previous.rawLabel) === normalizeLabel(segment.rawLabel)) {
+            previous.endMs = segment.endMs;
+        }
+        else {
+            result.push({ ...segment });
+        }
+    }
+    return result;
+}
+// Groups one gap-free run of chunks into segments by (category, normalized
+// label); consecutive chunks with the same key extend the current segment.
+function groupBlock(chunks) {
     const segments = [];
     let currentKey = null;
-    for (const frame of frames) {
-        const normalized = normalizeLabel(frame.vlmLabel);
-        const key = `${frame.vlmCategory ?? ""}\u0000${normalized ?? ""}`;
+    for (const chunk of chunks) {
+        const normalized = normalizeLabel(chunk.vlmLabel);
+        const key = `${chunk.vlmCategory ?? ""}\u0000${normalized ?? ""}`;
         const current = segments[segments.length - 1];
         if (current !== undefined && key === currentKey) {
-            current.endMs = frame.captureEpochMs;
+            current.endMs = chunk.lastFrameMs;
         }
         else {
             segments.push({
-                startMs: frame.captureEpochMs,
-                endMs: frame.captureEpochMs,
-                rawLabel: displayLabel(frame.vlmLabel),
-                categoryLabel: frame.vlmCategory,
-                unlabeled: normalized === null && frame.vlmCategory === null,
+                startMs: chunk.firstFrameMs,
+                endMs: chunk.lastFrameMs,
+                rawLabel: displayLabel(chunk.vlmLabel),
+                categoryLabel: chunk.vlmCategory,
+                unlabeled: normalized === null && chunk.vlmCategory === null,
             });
             currentKey = key;
         }
     }
     return segments;
 }
-// The generator: frames must be ordered by captureEpochMs ascending.
-function segmentDay(frames) {
-    if (frames.length === 0)
+// The generator: chunks must be ordered by window start, ascending.
+function segmentDay(chunks) {
+    if (chunks.length === 0)
         return [];
-    // Split into blocks at capture gaps > 10 minutes.
+    // Split into blocks at real capture gaps > 10 minutes.
     const blocks = [];
-    let block = [frames[0]];
-    for (let i = 1; i < frames.length; i++) {
-        if (frames[i].captureEpochMs - frames[i - 1].captureEpochMs > exports.GAP_SPLIT_MS) {
+    let block = [chunks[0]];
+    for (let i = 1; i < chunks.length; i++) {
+        if (chunks[i].firstFrameMs - chunks[i - 1].lastFrameMs > exports.GAP_SPLIT_MS) {
             blocks.push(block);
             block = [];
         }
-        block.push(frames[i]);
+        block.push(chunks[i]);
     }
     blocks.push(block);
     return blocks
-        .flatMap((blockFrames) => smoothBlock(groupBlock(blockFrames)))
+        .flatMap((blockChunks) => coalesceSameKey(mergeUnlabeled(groupBlock(blockChunks))))
         .map(({ startMs, endMs, rawLabel, categoryLabel }) => ({
         startMs,
         endMs,

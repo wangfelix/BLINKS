@@ -4,8 +4,8 @@ Participant-facing evening web app for the DRM subproject (single-day,
 two-round design): in the evening of their one field day the participant signs
 in and reconstructs that day in **two sequential rounds, fixed order** — step 1
 is always Self DRM (from memory, no frames, no VLM output), step 2 unlocks only
-after step 1 is submitted and is VLM-assisted (frames + editable auto-segmented
-activity list) for the `main` arm or Self DRM again for the `control` arm. Then
+after step 1 is submitted and is always VLM-assisted (frames + editable
+auto-segmented activity list). Then
 the embedded external questionnaire, then offboarding. The order and the
 frames/VLM anti-leak are enforced server-side; this app only renders them.
 
@@ -52,8 +52,8 @@ npm run dev   # http://localhost:3002 (BLINKS API expected on :3000)
   is same-origin in dev exactly like in production (where Apache does the
   routing). Point the proxy elsewhere with `API_PROXY_TARGET`, e.g.
   `API_PROXY_TARGET=http://127.0.0.1:3100 npm run dev`.
-- For clickable local test data (`demo` = main arm, `democtl` = control arm,
-  each with one fully labeled field day), see
+- For clickable local test data (`demo` and `demo2`, each with one fully
+  labeled field day and the same self-then-assisted workflow), see
   `server/scripts/seed-demo-data.ts`.
 
 Env vars:

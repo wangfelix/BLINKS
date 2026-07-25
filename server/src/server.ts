@@ -22,22 +22,26 @@ import {
   closeFillingChunks,
   closeIdleChunks,
   countFramesOnDay,
+  createVlmProposal,
   exportFramesCsv,
+  getActivityList,
   listChunksOnDay,
   getFrameDeletionTarget,
   getFrameStatusByPath,
   getParticipant,
-  getReconstruction,
+  getRoundResponseList,
   initDb,
   insertFrame,
   latestFrameDay,
   listActivities,
+  listActivitiesByKind,
   listFrames,
   listFramesOnDay,
   listSessions,
+  markRoundResponseOpened,
+  markVlmProposalViewed,
   maxFrameIndex,
-  parseArm,
-  pinReconstructionRound,
+  pinRoundResponseList,
   replaceActivities,
   setPushToken,
   softDeleteFrameRow,
@@ -240,8 +244,7 @@ app.get(
       return;
     }
     // Deliberately NO vlm_* fields: the mobile app must never receive VLM
-    // output (anti-leak for the DRM control condition — labels exist only on
-    // the reconstruction website, and only on assisted days).
+    // output before the fixed-order assisted reconstruction website.
     const frames = listFrames(req.participant!, device, session).map((row) => ({
       frameIndex: row.frame_index,
       captureEpochMs: row.capture_epoch_ms,
@@ -450,8 +453,6 @@ app.get("/api/export.csv", requireAuth, (req: AuthenticatedRequest, res) => {
 
 app.get("/api/profile", requireAuth, (req: AuthenticatedRequest, res) => {
   const participant = getParticipant(req.participant!);
-  // Deliberately no arm here: the participant must never learn (or be able to
-  // infer before round 2 unlocks) which study arm they are in.
   res.json({
     username: req.participant!,
     occupation: participant?.occupation ?? null,
@@ -490,8 +491,7 @@ app.put("/api/profile", requireAuth, (req: AuthenticatedRequest, res) => {
       .json({ error: "wakeTime and bedTime must be HH:MM (24-hour)" });
     return;
   }
-  // Upserts only the profile fields; arm is provisioning state and is never
-  // clobbered here.
+  // Upserts only participant-entered profile fields.
   upsertParticipantProfile(
     req.participant!,
     occupation.trim(),
@@ -519,9 +519,9 @@ app.post("/api/register-push", requireAuth, (req: AuthenticatedRequest, res) => 
 // open) in two sequential rounds the same evening. Round 1 is always SELF
 // (from memory — no frames, no VLM output). Round 2 unlocks only after round
 // 1 is SUBMITTED (server-enforced, so the VLM proposals can never contaminate
-// the from-memory recall) and its mode depends on the provisioning-time arm:
-// main -> assisted (frames + VLM segmentation), control -> self again (pure
-// second-attempt baseline). Reconstructing TODAY only opens at
+// the from-memory recall). Round 2 is always assisted: its immutable
+// vlm_proposal and editable assisted response are separate lists.
+// Reconstructing TODAY only opens at
 // AVAILABLE_FROM_HOUR local time (a past study day is always available).
 
 const CATEGORY_LABELS = new Set(["work", "break", "other"]);
@@ -533,19 +533,10 @@ const isDayAvailable = (day: string): boolean => {
   return currentLocalHour() >= AVAILABLE_FROM_HOUR;
 };
 
-// The study day: pinned by round 1's reconstruction row once that round was
+// The study day: pinned by round 1's response-list row once that round was
 // first opened; before that, the latest frame day. Undefined = no frames yet.
 const resolveStudyDay = (participant: string): string | undefined =>
-  getReconstruction(participant, 1)?.day ?? latestFrameDay(participant);
-
-// Round 1 is always self; round 2's mode derives from the provisioning-time
-// arm (pinned onto the reconstruction row when round 2 is first opened).
-const modeForRound = (participant: string, round: number): string =>
-  round === 1
-    ? "self"
-    : parseArm(getParticipant(participant)?.arm) === "main"
-      ? "assisted"
-      : "self";
+  getRoundResponseList(participant, 1)?.day ?? latestFrameDay(participant);
 
 const toActivityJson = (row: ActivityRow) => ({
   id: row.id,
@@ -570,16 +561,16 @@ const MAX_ACTIVITIES_PER_ROUND = 300;
 // categoryLabel on every activity, plus the category's experience rating
 // (work -> workloadRating, break -> recoveryRating; both 7-point Likert).
 // Every span must lie within the pinned study day and spans must not
-// overlap — the assisted submit propagation stamps user_corrected_* onto
+// overlap — the round-2 submit propagation stamps user_corrected_* onto
 // frames by time range, so an out-of-day span could otherwise rewrite frames
-// outside the study day. On SELF rounds every activity must be user-sourced
+// outside the study day. On round 1 every activity must be user-sourced
 // and carries no VLM provenance (there is no VLM proposal the participant
 // could have seen).
 const parseActivityInputs = (
   body: unknown,
   day: string,
   requireLabels: boolean,
-  mode: string,
+  round: 1 | 2,
 ): { activities?: ActivityWriteInput[]; error?: string } => {
   const list = (body as { activities?: unknown } | undefined)?.activities;
   if (!Array.isArray(list)) return { error: "activities array is required" };
@@ -635,7 +626,7 @@ const parseActivityInputs = (
     if (source !== "vlm" && source !== "user") {
       return { error: `activity ${index}: source must be 'vlm' or 'user'` };
     }
-    if (mode !== "assisted" && source !== "user") {
+    if (round === 1 && source !== "user") {
       return { error: `activity ${index}: source must be 'user' on a self round` };
     }
     if (requireLabels && trimmedLabel === null) {
@@ -679,13 +670,13 @@ const parseActivityInputs = (
     // label-quality bookkeeping; the frame-level vlm_* columns stay VLM-owned.
     // Self rounds never carry provenance (no proposal was ever shown).
     const vlmRawLabel =
-      mode === "assisted" &&
+      round === 2 &&
       typeof entry.vlmRawLabel === "string" &&
       entry.vlmRawLabel.length > 0
         ? entry.vlmRawLabel
         : null;
     const vlmCategory =
-      mode === "assisted" && CATEGORY_LABELS.has(entry.vlmCategory as string)
+      round === 2 && CATEGORY_LABELS.has(entry.vlmCategory as string)
         ? (entry.vlmCategory as string)
         : null;
     activities.push({
@@ -712,17 +703,32 @@ const parseActivityInputs = (
   return { activities };
 };
 
+const roundTimingJson = (
+  responseList:
+    | {
+        first_opened_at: number | null;
+        first_draft_saved_at: number | null;
+        last_draft_saved_at: number | null;
+        submitted_at: number | null;
+      }
+    | undefined,
+): Record<string, number | null> => ({
+  firstOpenedAt: responseList?.first_opened_at ?? null,
+  firstDraftSavedAt: responseList?.first_draft_saved_at ?? null,
+  lastDraftSavedAt: responseList?.last_draft_saved_at ?? null,
+  submittedAt: responseList?.submitted_at ?? null,
+});
+
 // The whole evening at a glance: the pinned/derived study day and both
 // rounds' status, so the website can render the linear two-step flow without
-// any client-side study logic. Round 2's mode is revealed ONLY once round 1
-// is submitted — before that a control participant could infer their arm.
+// client-side workflow branching.
 app.get(
   "/api/reconstruction/state",
   requireAuth,
   (req: AuthenticatedRequest, res) => {
     const participant = req.participant!;
-    const round1 = getReconstruction(participant, 1);
-    const round2 = getReconstruction(participant, 2);
+    const round1 = getRoundResponseList(participant, 1);
+    const round2 = getRoundResponseList(participant, 2);
     const day = resolveStudyDay(participant) ?? null;
     const round1Submitted = round1?.status === "submitted";
     const round2Unlocked = DRM_DEV_MODE || round1Submitted;
@@ -734,17 +740,17 @@ app.get(
       rounds: [
         {
           round: 1,
-          mode: "self",
           status: round1?.status ?? "none",
           locked: false,
+          ...roundTimingJson(round1),
         },
         {
           round: 2,
-          mode: round2Unlocked
-            ? (round2?.mode ?? modeForRound(participant, 2))
-            : null,
           status: round2?.status ?? "none",
           locked: !round2Unlocked,
+          // A stale/dev-created round-2 row must not leak timing metadata
+          // through the fixed-order gate.
+          ...roundTimingJson(round2Unlocked ? round2 : undefined),
         },
       ],
     });
@@ -760,14 +766,14 @@ const guardRound = (
   req: AuthenticatedRequest,
   res: express.Response,
   forWrite: boolean,
-): { round: number; day: string; mode: string } | undefined => {
+): { round: 1 | 2; day: string } | undefined => {
   const round = Number(req.params.round);
   if (round !== 1 && round !== 2) {
     res.status(400).json({ error: "round must be 1 or 2" });
     return undefined;
   }
   const participant = req.participant!;
-  const existing = getReconstruction(participant, round);
+  const existing = getRoundResponseList(participant, round);
   const day = existing?.day ?? resolveStudyDay(participant);
   if (day === undefined) {
     res.status(404).json({ error: "no frames recorded yet" });
@@ -785,17 +791,16 @@ const guardRound = (
   if (
     !DRM_DEV_MODE &&
     round === 2 &&
-    getReconstruction(participant, 1)?.status !== "submitted"
+    getRoundResponseList(participant, 1)?.status !== "submitted"
   ) {
     res.status(403).json({ error: "step 1 must be submitted first" });
     return undefined;
   }
-  const mode = existing?.mode ?? modeForRound(participant, round);
   if (forWrite && existing?.status === "submitted") {
     res.status(409).json({ error: "this step is already submitted" });
     return undefined;
   }
-  return { round, day, mode };
+  return { round, day };
 };
 
 app.get(
@@ -805,28 +810,25 @@ app.get(
     const guard = guardRound(req, res, false);
     if (!guard) return;
     const participant = req.participant!;
-    const { round, day, mode } = guard;
+    const { round, day } = guard;
 
-    // Pin mode + study day on first open (INSERT OR IGNORE) so neither can
-    // shift afterwards (new frames the next morning, frame deletion, or an
-    // arm change mid-evening).
-    pinReconstructionRound(participant, round, mode, day);
+    // Pin the response-list role + study day on first open (INSERT OR IGNORE)
+    // so later frames or frame deletion cannot shift the seen round.
+    pinRoundResponseList(participant, round, day);
 
-    let reconstruction = getReconstruction(participant, round);
+    let responseList = getRoundResponseList(participant, round);
     let activities = listActivities(participant, round);
+    let proposalPayload: Record<string, unknown> | undefined;
 
     const payload: Record<string, unknown> = {
       round,
-      mode,
       day,
-      status: reconstruction?.status ?? "none",
+      status: responseList?.status ?? "none",
     };
 
-    // Frames and VLM output go ONLY to the assisted round — on self rounds
-    // the participant reconstructs from memory alone, so leaking them here
-    // would contaminate the design (round 1 recall AND the control arm's
-    // second attempt). Enforced server-side, not just in UI.
-    if (mode === "assisted") {
+    // Frames and VLM output go ONLY to round 2. Round 1 is from memory, so
+    // exposing either there would contaminate the fixed-order design.
+    if (round === 2) {
       const dayFrames = listFramesOnDay(participant, day);
       const servedFrames = dayFrames.filter((f) => f.face_status === "done");
       // Pending = frames whose 5-minute chunk is not terminal yet (filling /
@@ -841,17 +843,19 @@ app.get(
           f.face_status !== "failed",
       ).length;
 
-      // The assisted round bootstraps itself: once the VLM pass is complete
-      // and no activities are stored, the initial segmentation is generated,
-      // persisted as a draft, and returned. While labels are still processing
-      // the round stays empty (the website shows "still processing"). Keyed
-      // on empty activities + not submitted (NOT on the reconstructions row,
-      // which pin-on-open creates eagerly); side effect: an assisted draft
-      // deliberately emptied by the participant re-proposes on reload, which
-      // is the self-healing behavior we want pre-submit.
+      // The assisted round bootstraps from two distinct lists:
+      //   1. an immutable original VLM proposal, generated exactly once after
+      //      the chunk pass completes;
+      //   2. the editable assisted list used by the existing web API.
+      // Draft saves replace only (2). If the participant empties that draft,
+      // reload restores it from (1) without re-running segmentation.
+      let proposalList = getActivityList(
+        participant,
+        round,
+        "vlm_proposal",
+      );
       if (
-        reconstruction?.status !== "submitted" &&
-        activities.length === 0 &&
+        proposalList === undefined &&
         vlmPendingCount === 0 &&
         servedFrames.length > 0
       ) {
@@ -879,32 +883,78 @@ app.get(
                   : null,
             })),
         );
+        const proposalActivities = segments.map((segment) => ({
+          start_ms: segment.startMs,
+          end_ms: segment.endMs,
+          raw_label: segment.rawLabel,
+          category_label: segment.categoryLabel,
+          source: "vlm" as const,
+          vlm_raw_label: segment.rawLabel,
+          vlm_category: segment.categoryLabel,
+        }));
+        const created = createVlmProposal({
+          participant,
+          round,
+          day,
+          activities: proposalActivities,
+        });
+        proposalList = getActivityList(participant, round, "vlm_proposal");
+        if (created) {
+          console.log(
+            `Generated immutable VLM proposal: ${participant}/round ${round} (${proposalActivities.length} activities)`,
+          );
+        }
+      }
+
+      if (
+        responseList?.status !== "submitted" &&
+        activities.length === 0 &&
+        proposalList !== undefined
+      ) {
+        const proposalActivities = listActivitiesByKind(
+          participant,
+          round,
+          "vlm_proposal",
+        );
         replaceActivities({
           participant,
           round,
-          mode,
           day,
           submit: false,
-          activities: segments.map((segment) => ({
-            start_ms: segment.startMs,
-            end_ms: segment.endMs,
-            raw_label: segment.rawLabel,
-            category_label: segment.categoryLabel,
+          activities: proposalActivities.map((activity) => ({
+            start_ms: activity.start_ms,
+            end_ms: activity.end_ms,
+            raw_label: activity.raw_label,
+            category_label: activity.category_label,
             source: "vlm",
-            // The generated proposal IS the VLM's proposal: record it for the
-            // label-quality analysis (user edits later diverge from these).
-            vlm_raw_label: segment.rawLabel,
-            vlm_category: segment.categoryLabel,
+            vlm_raw_label: activity.raw_label,
+            vlm_category: activity.category_label,
           })),
         });
-        reconstruction = getReconstruction(participant, round);
+        responseList = getRoundResponseList(participant, round);
         activities = listActivities(participant, round);
-        console.log(
-          `Generated initial segmentation: ${participant}/round ${round} (${activities.length} activities)`,
-        );
       }
 
-      payload.status = reconstruction?.status ?? "none";
+      if (
+        round === 2 &&
+        vlmPendingCount === 0 &&
+        proposalList !== undefined
+      ) {
+        proposalPayload = {
+          id: proposalList.id,
+          kind: proposalList.kind,
+          immutable: proposalList.immutable === 1,
+          proposalViewedAt: proposalList.proposal_viewed_at,
+          activities: listActivitiesByKind(
+            participant,
+            round,
+            "vlm_proposal",
+          ).map(toActivityJson),
+        };
+        payload.vlmProposal = proposalPayload;
+      }
+
+      payload.status = responseList?.status ?? "none";
       payload.vlmPendingCount = vlmPendingCount;
       payload.frames = servedFrames.map((frame) => ({
         captureEpochMs: frame.capture_epoch_ms,
@@ -915,6 +965,24 @@ app.get(
     }
 
     payload.activities = activities.map(toActivityJson);
+
+    // These markers are written only after the successful response payload is
+    // fully assembled. A pending assisted response counts as a round open, but
+    // not as proposal exposure because it does not contain vlmProposal.
+    if (proposalPayload !== undefined) {
+      const proposalList = getActivityList(
+        participant,
+        round,
+        "vlm_proposal",
+      );
+      if (proposalList === undefined) {
+        throw new Error("VLM proposal disappeared before response");
+      }
+      proposalPayload.proposalViewedAt = markVlmProposalViewed(proposalList.id);
+    }
+    markRoundResponseOpened(participant, round);
+    responseList = getRoundResponseList(participant, round);
+    Object.assign(payload, roundTimingJson(responseList));
     res.json(payload);
   },
 );
@@ -930,7 +998,7 @@ app.put(
       req.body,
       guard.day,
       false,
-      guard.mode,
+      guard.round,
     );
     if (!activities) {
       res.status(400).json({ error: error! });
@@ -939,18 +1007,22 @@ app.put(
     replaceActivities({
       participant: req.participant!,
       round: guard.round,
-      mode: guard.mode,
       day: guard.day,
       activities,
       submit: false,
+      recordDraftSave: true,
     });
-    res.json({ ok: true });
+    const responseList = getRoundResponseList(
+      req.participant!,
+      guard.round,
+    );
+    res.json({ ok: true, ...roundTimingJson(responseList) });
   },
 );
 
 // Atomic save + lock; the ASSISTED round additionally propagates the labels
-// onto the frames in each activity's span (the per-frame label-quality
-// ground truth). Submitting round 1 unlocks round 2.
+// onto every chunk overlapping each activity's span (chunk-level
+// label-quality ground truth). Submitting round 1 unlocks round 2.
 app.post(
   "/api/reconstruction/round/:round/submit",
   requireAuth,
@@ -961,7 +1033,7 @@ app.post(
       req.body,
       guard.day,
       true,
-      guard.mode,
+      guard.round,
     );
     if (!activities) {
       res.status(400).json({ error: error! });
@@ -970,15 +1042,22 @@ app.post(
     const { submittedAt } = replaceActivities({
       participant: req.participant!,
       round: guard.round,
-      mode: guard.mode,
       day: guard.day,
       activities,
       submit: true,
     });
     console.log(
-      `Reconstruction round ${guard.round} (${guard.mode}) submitted: ${req.participant}/${guard.day} (${activities.length} activities)`,
+      `Reconstruction round ${guard.round} submitted: ${req.participant}/${guard.day} (${activities.length} activities)`,
     );
-    res.json({ ok: true, submittedAt });
+    const responseList = getRoundResponseList(
+      req.participant!,
+      guard.round,
+    );
+    res.json({
+      ok: true,
+      submittedAt,
+      ...roundTimingJson(responseList),
+    });
   },
 );
 

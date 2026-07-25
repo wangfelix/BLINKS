@@ -6,9 +6,9 @@ import WebSocket = require("ws");
 
 // End-to-end smoke test against a locally running server. Expects:
 //   RECORDINGS_DIR/DATA_DIR pointing at a throwaway directory
-//   two users created via create-user (one per study arm):
+//   two users created via create-user:
 //     npx tsx scripts/create-user.ts smoketester password123
-//     npx tsx scripts/create-user.ts smokecontrol password123 --arm control
+//     npx tsx scripts/create-user.ts smokesecond password123
 //   the server running with DRM_AVAILABLE_FROM_HOUR=0 and DISABLE_PUSH=1
 // The test reads RECORDINGS_DIR to reach recordings.db, so it can simulate the
 // face-blur worker (face_status='done') and the VLM worker (vlm_status='done'
@@ -23,7 +23,7 @@ const BASE_URL = process.env.SMOKE_BASE_URL ?? "http://127.0.0.1:3100";
 const WS_URL = BASE_URL.replace(/^http/, "ws");
 const RECORDINGS_DIR = process.env.RECORDINGS_DIR;
 const MAIN_USER = "smoketester";
-const CONTROL_USER = "smokecontrol";
+const SECOND_USER = "smokesecond";
 const PASSWORD = "password123";
 
 // --- Study-day helpers (mirror server/src/time.ts; Europe/Berlin default) ----
@@ -152,10 +152,60 @@ const getChunkCorrections = (
     return row!;
   });
 
+const getStoredActivityLists = (
+  username: string,
+): {
+  id: number;
+  round: number;
+  kind: string;
+  immutable: number;
+  status: string | null;
+  proposal_viewed_at: number | null;
+  items: {
+    position: number;
+    start_ms: number;
+    end_ms: number;
+    raw_label: string | null;
+    category_label: string | null;
+    source: string;
+  }[];
+}[] =>
+  withDb((db) => {
+    const lists = db
+      .prepare(
+        "SELECT id, round, kind, immutable, status, proposal_viewed_at " +
+          "FROM activity_lists " +
+          "WHERE participant = ? ORDER BY round, kind",
+      )
+      .all(username) as {
+      id: number;
+      round: number;
+      kind: string;
+      immutable: number;
+      status: string | null;
+      proposal_viewed_at: number | null;
+    }[];
+    const items = db.prepare(
+      "SELECT position, start_ms, end_ms, raw_label, category_label, source " +
+        "FROM activities WHERE activity_list_id = ? " +
+        "ORDER BY position",
+    );
+    return lists.map((list) => ({
+      ...list,
+      items: items.all(list.id) as {
+        position: number;
+        start_ms: number;
+        end_ms: number;
+        raw_label: string | null;
+        category_label: string | null;
+        source: string;
+      }[],
+    }));
+  });
+
 const getParticipantRow = (
   username: string,
 ): {
-  arm: string;
   push_token: string | null;
   occupation: string | null;
   wake_time: string | null;
@@ -164,12 +214,11 @@ const getParticipantRow = (
   withDb((db) => {
     const row = db
       .prepare(
-        "SELECT arm, push_token, occupation, wake_time, bed_time " +
+        "SELECT push_token, occupation, wake_time, bed_time " +
           "FROM participants WHERE username = ?",
       )
       .get(username) as
       | {
-          arm: string;
           push_token: string | null;
           occupation: string | null;
           wake_time: string | null;
@@ -509,17 +558,17 @@ const main = async (): Promise<void> => {
 
   // =========================================================================
   // DRM subproject: profile (occupation + schedule), push registration,
-  // two-round reconstruction API (main arm)
+  // invariant two-round reconstruction API
   // =========================================================================
 
-  // profile: arm must never appear; schedule starts empty
+  // profile: legacy arm metadata must never appear; schedule starts empty
   const initialProfile = await api("/api/profile", { token });
   assert.strictEqual(initialProfile.username, MAIN_USER);
   assert.strictEqual(initialProfile.occupation, null);
   assert.strictEqual(initialProfile.workDescription, null);
   assert.strictEqual(initialProfile.wakeTime, null);
   assert.strictEqual(initialProfile.bedTime, null);
-  assert.ok(!("arm" in initialProfile), "profile must not reveal the arm");
+  assert.ok(!("arm" in initialProfile), "profile omits legacy arm metadata");
   assert.ok(
     !("studyDurationDays" in initialProfile),
     "multi-day study length removed",
@@ -557,12 +606,6 @@ const main = async (): Promise<void> => {
   assert.strictEqual(updatedProfile.occupation, "PhD student");
   assert.strictEqual(updatedProfile.wakeTime, "07:00");
   assert.strictEqual(updatedProfile.bedTime, "23:30");
-  // Profile PUT must never clobber the provisioned arm.
-  assert.strictEqual(
-    getParticipantRow(MAIN_USER).arm,
-    "main",
-    "arm untouched by profile PUT",
-  );
   assert.strictEqual(getParticipantRow(MAIN_USER).bed_time, "23:30");
 
   // push registration
@@ -598,18 +641,31 @@ const main = async (): Promise<void> => {
   ]);
   assert.strictEqual(markAllAnonymized(), 6, "face-blur stand-in marked 6 frames");
 
-  // state: study day resolved, round 1 open, round 2 locked with HIDDEN mode
+  // state: study day resolved, round 1 open, round 2 locked.
   let state = await api("/api/reconstruction/state", { token });
   assert.strictEqual(state.day, TODAY);
   assert.strictEqual(state.frameCount, 7, "1 base + 6 fixture frames today");
   assert.strictEqual(state.available, true, "DRM_AVAILABLE_FROM_HOUR=0");
   assert.deepStrictEqual(
-    state.rounds.map((r: any) => [r.round, r.mode, r.status, r.locked]),
+    state.rounds.map((r: any) => [r.round, r.status, r.locked]),
     [
-      [1, "self", "none", false],
-      [2, null, "none", true],
+      [1, "none", false],
+      [2, "none", true],
     ],
-    "round 2 locked and its mode hidden until round 1 is submitted",
+    "round 2 remains locked until round 1 is submitted",
+  );
+  assert.ok(
+    state.rounds.every((r: any) => !("mode" in r)),
+    "state API does not expose redundant mode",
+  );
+  assert.strictEqual(state.rounds[0].firstOpenedAt, null);
+  assert.strictEqual(state.rounds[0].firstDraftSavedAt, null);
+  assert.strictEqual(state.rounds[0].lastDraftSavedAt, null);
+  assert.strictEqual(state.rounds[0].submittedAt, null);
+  assert.strictEqual(
+    state.rounds[1].firstOpenedAt,
+    null,
+    "locked round 2 timing stays hidden",
   );
 
   // FIXED ORDER, server-enforced: round 2 is inaccessible before round 1 is
@@ -626,7 +682,7 @@ const main = async (): Promise<void> => {
   // Round 1 (self, from memory): no frames, no VLM anything, no proposal.
   const round1 = await api("/api/reconstruction/round/1", { token });
   assert.strictEqual(round1.round, 1);
-  assert.strictEqual(round1.mode, "self");
+  assert.ok(!("mode" in round1), "round API does not expose redundant mode");
   assert.strictEqual(round1.day, TODAY);
   assert.strictEqual(round1.status, "draft", "pinned on first open");
   assert.deepStrictEqual(round1.activities, []);
@@ -634,6 +690,17 @@ const main = async (): Promise<void> => {
   assert.ok(
     !("vlmPendingCount" in round1),
     "self round reveals nothing about VLM processing",
+  );
+  assert.ok(typeof round1.firstOpenedAt === "number");
+  assert.strictEqual(round1.firstDraftSavedAt, null);
+  assert.strictEqual(round1.lastDraftSavedAt, null);
+  assert.strictEqual(round1.submittedAt, null);
+  const round1FirstOpenedAt = round1.firstOpenedAt;
+  const round1Reload = await api("/api/reconstruction/round/1", { token });
+  assert.strictEqual(
+    round1Reload.firstOpenedAt,
+    round1FirstOpenedAt,
+    "first-open timestamp is stable across reloads",
   );
 
   // Self rounds only accept user-sourced activities...
@@ -674,11 +741,17 @@ const main = async (): Promise<void> => {
       recoveryRating: 2,
     },
   ];
-  await api("/api/reconstruction/round/1", {
+  const round1FirstSave = await api("/api/reconstruction/round/1", {
     method: "PUT",
     token,
     body: { activities: round1Activities },
   });
+  assert.ok(typeof round1FirstSave.firstDraftSavedAt === "number");
+  assert.strictEqual(
+    round1FirstSave.lastDraftSavedAt,
+    round1FirstSave.firstDraftSavedAt,
+    "first successful draft save initializes both save timestamps",
+  );
   const round1Draft = await api("/api/reconstruction/round/1", { token });
   assert.strictEqual(round1Draft.activities.length, 2);
   assert.strictEqual(
@@ -749,6 +822,12 @@ const main = async (): Promise<void> => {
   });
   assert.strictEqual(round1Submit.ok, true);
   assert.ok(typeof round1Submit.submittedAt === "number");
+  assert.strictEqual(
+    round1Submit.firstDraftSavedAt,
+    round1FirstSave.firstDraftSavedAt,
+    "submit preserves first draft-save time",
+  );
+  assert.ok(round1Submit.submittedAt >= round1Submit.lastDraftSavedAt);
 
   // Experience ratings round-trip: stored and returned per activity.
   const submittedRound1 = await api("/api/reconstruction/round/1", { token });
@@ -763,6 +842,8 @@ const main = async (): Promise<void> => {
     ],
     "Likert ratings persist through submit",
   );
+  assert.strictEqual(submittedRound1.firstOpenedAt, round1FirstOpenedAt);
+  assert.strictEqual(submittedRound1.submittedAt, round1Submit.submittedAt);
 
   // Round 1 is SELF: submitting must NOT propagate onto the chunks (only the
   // assisted round is chunk-aligned ground truth).
@@ -786,20 +867,20 @@ const main = async (): Promise<void> => {
     expectStatus: 409,
   });
 
-  // state: round 2 unlocked, mode now revealed (main arm -> assisted)
+  // state: round 2 unlocks after round 1 submission.
   state = await api("/api/reconstruction/state", { token });
   assert.deepStrictEqual(
-    state.rounds.map((r: any) => [r.round, r.mode, r.status, r.locked]),
+    state.rounds.map((r: any) => [r.round, r.status, r.locked]),
     [
-      [1, "self", "submitted", false],
-      [2, "assisted", "none", false],
+      [1, "submitted", false],
+      [2, "none", false],
     ],
-    "round 2 unlocks as assisted after round 1 submit (main arm)",
+    "round 2 unlocks after round 1 submit",
   );
 
   // Assisted round with pending VLM work: frames served, no proposal yet.
   const pendingRound2 = await api("/api/reconstruction/round/2", { token });
-  assert.strictEqual(pendingRound2.mode, "assisted");
+  assert.ok(!("mode" in pendingRound2));
   assert.strictEqual(pendingRound2.status, "draft", "pinned on open");
   assert.deepStrictEqual(pendingRound2.activities, []);
   assert.strictEqual(pendingRound2.frames.length, 7, "assisted round lists frames");
@@ -807,6 +888,12 @@ const main = async (): Promise<void> => {
     pendingRound2.vlmPendingCount,
     7,
     "every frame's chunk still unlabeled -> all 7 pending",
+  );
+  assert.ok(typeof pendingRound2.firstOpenedAt === "number");
+  assert.strictEqual(pendingRound2.firstDraftSavedAt, null);
+  assert.ok(
+    !("vlmProposal" in pendingRound2),
+    "pending assisted response does not expose or mark the proposal",
   );
 
   // Ingestion chunk bookkeeping: the 7 live frames span three clock-aligned
@@ -868,10 +955,86 @@ const main = async (): Promise<void> => {
   assert.strictEqual(generated.frames.length, 7);
   assert.strictEqual(generated.frames[0].vlmLabel, "Working at desk");
   assert.strictEqual(generated.frames[0].vlmCategory, "work");
+  assert.strictEqual(
+    generated.firstDraftSavedAt,
+    null,
+    "automatic proposal bootstrap is not a participant draft save",
+  );
+  assert.strictEqual(generated.vlmProposal.kind, "vlm_proposal");
+  assert.strictEqual(generated.vlmProposal.immutable, true);
+  assert.ok(typeof generated.vlmProposal.proposalViewedAt === "number");
+  assert.deepStrictEqual(
+    generated.vlmProposal.activities.map((activity: any) => [
+      activity.startMs,
+      activity.endMs,
+      activity.rawLabel,
+      activity.categoryLabel,
+    ]),
+    generated.activities.map((activity: any) => [
+      activity.startMs,
+      activity.endMs,
+      activity.rawLabel,
+      activity.categoryLabel,
+    ]),
+    "ready response exposes the immutable proposal separately from the editable list",
+  );
 
-  // idempotent: a second GET returns the stored draft, no duplicate generation
+  const generatedLists = getStoredActivityLists(MAIN_USER);
+  const originalProposal = generatedLists.find(
+    (list) => list.round === 2 && list.kind === "vlm_proposal",
+  );
+  assert.ok(originalProposal, "immutable VLM proposal list is persisted");
+  assert.strictEqual(originalProposal!.immutable, 1);
+  assert.strictEqual(originalProposal!.status, null);
+  assert.ok(originalProposal!.id > 0, "proposal has a stable parent-list id");
+  assert.strictEqual(
+    originalProposal!.proposal_viewed_at,
+    generated.vlmProposal.proposalViewedAt,
+  );
+  assert.deepStrictEqual(
+    originalProposal!.items.map((item) => [
+      item.start_ms,
+      item.end_ms,
+      item.raw_label,
+      item.category_label,
+    ]),
+    generated.activities.map((activity: any) => [
+      activity.startMs,
+      activity.endMs,
+      activity.rawLabel,
+      activity.categoryLabel,
+    ]),
+    "original proposal snapshot exactly matches the generated editable list",
+  );
+
+  // An emptied draft still self-heals, but now by copying the immutable
+  // snapshot rather than re-running segmentation. Changing a chunk label
+  // after generation must not change the restored proposal.
+  setChunkResult(MAIN_USER, t0, "Changed after proposal", "other");
+  const round2FirstSave = await api("/api/reconstruction/round/2", {
+    method: "PUT",
+    token,
+    body: { activities: [] },
+  });
+  assert.ok(typeof round2FirstSave.firstDraftSavedAt === "number");
+  assert.strictEqual(
+    round2FirstSave.lastDraftSavedAt,
+    round2FirstSave.firstDraftSavedAt,
+  );
   const regenerated = await api("/api/reconstruction/round/2", { token });
-  assert.strictEqual(regenerated.activities.length, 3, "no re-generation");
+  assert.strictEqual(regenerated.activities.length, 3, "draft restored");
+  assert.strictEqual(
+    regenerated.activities[1].rawLabel,
+    "Deep work",
+    "restore uses the original snapshot, not current chunk labels",
+  );
+  assert.deepStrictEqual(
+    getStoredActivityLists(MAIN_USER).find(
+      (list) => list.round === 2 && list.kind === "vlm_proposal",
+    ),
+    originalProposal,
+    "repeated round reads never mutate or duplicate the proposal",
+  );
 
   // draft PUT (replace-all): edit a label, insert a user activity; identical
   // spans keep their original VLM proposal for the label-quality analysis
@@ -909,11 +1072,19 @@ const main = async (): Promise<void> => {
       workloadRating: 2,
     },
   ];
-  await api("/api/reconstruction/round/2", {
+  const round2EditedSave = await api("/api/reconstruction/round/2", {
     method: "PUT",
     token,
     body: { activities: editedActivities },
   });
+  assert.strictEqual(
+    round2EditedSave.firstDraftSavedAt,
+    round2FirstSave.firstDraftSavedAt,
+    "later saves preserve first draft-save time",
+  );
+  assert.ok(
+    round2EditedSave.lastDraftSavedAt >= round2FirstSave.lastDraftSavedAt,
+  );
   const draft = await api("/api/reconstruction/round/2", { token });
   assert.strictEqual(draft.status, "draft");
   assert.strictEqual(draft.activities.length, 4);
@@ -930,6 +1101,13 @@ const main = async (): Promise<void> => {
   );
   assert.strictEqual(draft.activities[2].source, "user");
   assert.strictEqual(draft.activities[2].vlmRawLabel, null);
+  assert.deepStrictEqual(
+    getStoredActivityLists(MAIN_USER).find(
+      (list) => list.round === 2 && list.kind === "vlm_proposal",
+    ),
+    originalProposal,
+    "draft edits leave the complete proposal snapshot untouched",
+  );
 
   // provenance echo: a boundary edit changes the span (so the DB-side exact
   // span match fails), but the client echoes the original VLM proposal and it
@@ -1011,11 +1189,27 @@ const main = async (): Promise<void> => {
     body: { activities: editedActivities },
   });
   assert.strictEqual(round2Submit.ok, true);
+  assert.ok(round2Submit.submittedAt >= round2Submit.lastDraftSavedAt);
 
   state = await api("/api/reconstruction/state", { token });
   assert.deepStrictEqual(
     state.rounds.map((r: any) => r.status),
     ["submitted", "submitted"],
+  );
+  assert.deepStrictEqual(
+    getStoredActivityLists(MAIN_USER).map((list) => [
+      list.round,
+      list.kind,
+      list.immutable,
+      list.status,
+      list.items.length,
+    ]),
+    [
+      [1, "self", 0, "submitted", 2],
+      [2, "assisted", 0, "submitted", 4],
+      [2, "vlm_proposal", 1, null, 3],
+    ],
+    "list kind, workflow status, and three-list identity stay distinct",
   );
 
   // locked: no further submit or draft save
@@ -1052,35 +1246,32 @@ const main = async (): Promise<void> => {
   });
 
   // =========================================================================
-  // Control arm: round 2 is SELF again — no frames, no VLM, no propagation
+  // A second participant follows the same invariant self -> assisted flow.
   // =========================================================================
 
-  const { token: controlToken } = await api("/api/login", {
+  const { token: secondToken } = await api("/api/login", {
     method: "POST",
-    body: { username: CONTROL_USER, password: PASSWORD },
+    body: { username: SECOND_USER, password: PASSWORD },
   });
-  assert.strictEqual(getParticipantRow(CONTROL_USER).arm, "control");
 
-  const controlSession = session + 3;
-  const c0 = TODAY_NOON + 3_600_000; // 13:00 local
+  const secondSession = session + 3;
+  const s0 = TODAY_NOON + 3_600_000; // 13:00 local
   await sendFramesOverWs(
-    controlToken,
-    controlSession,
+    secondToken,
+    secondSession,
     [
-      { t: c0, n: 1 },
-      { t: c0 + 60_000, n: 2 },
+      { t: s0, n: 1 },
+      { t: s0 + 60_000, n: 2 },
     ],
     "BBCCDDEEFF00",
   );
-  assert.strictEqual(markAllAnonymized(), 2, "control frames anonymized");
-  // Give the control chunk a VLM label so the no-leak assertions below are
-  // meaningful (labels exist server-side but must never reach this user).
-  setChunkResult(CONTROL_USER, c0, "Cooking dinner", "other");
+  assert.strictEqual(markAllAnonymized(), 2, "second participant frames anonymized");
+  setChunkResult(SECOND_USER, s0, "Cooking dinner", "other");
 
-  const controlActivities = [
+  const secondActivities = [
     {
-      startMs: c0 - 600_000,
-      endMs: c0 + 600_000,
+      startMs: s0,
+      endMs: s0 + 60_000,
       rawLabel: "Cooking",
       categoryLabel: "other",
       source: "user",
@@ -1088,58 +1279,55 @@ const main = async (): Promise<void> => {
   ];
 
   // Round 1 self, submit.
-  const controlRound1 = await api("/api/reconstruction/round/1", {
-    token: controlToken,
+  const secondRound1 = await api("/api/reconstruction/round/1", {
+    token: secondToken,
   });
-  assert.strictEqual(controlRound1.mode, "self");
-  assert.ok(!("frames" in controlRound1));
+  assert.ok(!("mode" in secondRound1));
+  assert.ok(!("frames" in secondRound1));
   await api("/api/reconstruction/round/1/submit", {
     method: "POST",
-    token: controlToken,
-    body: { activities: controlActivities },
+    token: secondToken,
+    body: { activities: secondActivities },
   });
 
-  // Round 2 unlocks as SELF (control arm), still without frames or VLM.
-  const controlState = await api("/api/reconstruction/state", {
-    token: controlToken,
+  const secondState = await api("/api/reconstruction/state", {
+    token: secondToken,
   });
   assert.deepStrictEqual(
-    controlState.rounds.map((r: any) => [r.round, r.mode, r.locked]),
+    secondState.rounds.map((r: any) => [r.round, r.locked]),
     [
-      [1, "self", false],
-      [2, "self", false],
+      [1, false],
+      [2, false],
     ],
-    "control arm: round 2 is self again",
+    "second participant unlocks the same round-2 workflow",
   );
-  const controlRound2 = await api("/api/reconstruction/round/2", {
-    token: controlToken,
+  const secondRound2 = await api("/api/reconstruction/round/2", {
+    token: secondToken,
   });
-  assert.strictEqual(controlRound2.mode, "self");
-  assert.deepStrictEqual(controlRound2.activities, []);
+  assert.ok(!("mode" in secondRound2));
   assert.ok(
-    !("frames" in controlRound2),
-    "control round 2 must never include frames/VLM output",
+    Array.isArray(secondRound2.frames) && secondRound2.frames.length === 2,
+    "round 2 always includes the participant's frames",
   );
-  assert.ok(!("vlmPendingCount" in controlRound2));
+  assert.strictEqual(secondRound2.vlmPendingCount, 0);
+  assert.strictEqual(secondRound2.vlmProposal.kind, "vlm_proposal");
+  assert.strictEqual(secondRound2.activities[0].rawLabel, "Cooking dinner");
 
   await api("/api/reconstruction/round/2/submit", {
     method: "POST",
-    token: controlToken,
-    body: { activities: controlActivities },
+    token: secondToken,
+    body: { activities: secondActivities },
   });
-  // Self rounds never propagate — the control arm leaves user_corrected_*
-  // untouched (its VLM-accuracy value comes from comparing the activities
-  // table to vlm_* researcher-side).
   assert.deepStrictEqual(
-    getChunkCorrections(CONTROL_USER, c0),
-    { category: null, activity: null },
-    "control-arm submits never stamp user_corrected_*",
+    getChunkCorrections(SECOND_USER, s0),
+    { category: "other", activity: "Cooking" },
+    "every participant's round-2 response propagates corrections",
   );
 
   console.log("SMOKE TEST PASSED");
 };
 
 main().catch((error) => {
-  console.error("SMOKE TEST FAILED:", error.message);
+  console.error("SMOKE TEST FAILED:", error.stack ?? error.message);
   process.exit(1);
 });

@@ -9,9 +9,9 @@ export interface SessionSummary {
   deletedFrameCount: number;
 }
 
-// Deliberately carries NO VLM output: the app must never show the VLM's
-// labels to participants (it would bias the control condition of the DRM
-// study). The server stopped sending vlmStatus/vlmLabel for the same reason.
+// Deliberately carries NO VLM output: the app must never show the VLM's labels
+// before the participant submits the from-memory round. The server stopped
+// sending vlmStatus/vlmLabel for the same reason.
 export interface SessionFrame {
   frameIndex: number;
   captureEpochMs: number;

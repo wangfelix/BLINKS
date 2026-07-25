@@ -11,12 +11,11 @@ import { dayKeyFromEpochMs, dayUtcRange } from "./time";
 // separate VLM process later writes labels / descriptions / descriptors back.
 // See CLAUDE.md, "Storage and VLM metadata", for the rationale and full schema.
 //
-// DRM subproject additions (single-day, two-round design): participants
-// (occupation / schedule / study arm / push token), reconstructions (one per
-// participant+round, round 1 = self from memory, round 2 = assisted or self
-// depending on the arm), activities (the reconstruction unit), plus per-frame
-// vlm_category and user_corrected_* columns filled by propagating the
-// submitted ASSISTED reconstruction onto its frames.
+// DRM subproject additions (single-day, two-round design): participants,
+// explicitly identified activity_lists (self response, immutable
+// vlm_proposal, editable/final assisted response), and their activities. A
+// submitted ASSISTED response propagates user_corrected_* labels onto chunks;
+// self responses never do.
 // ===========================================================================
 
 // Inserted at ingestion time. The vlm_* columns are filled later by the VLM
@@ -35,9 +34,8 @@ export interface FrameInsert {
 }
 
 // Shape returned by the CSV export query. Deliberately NO vlm_* columns: the
-// export is participant-facing (bearer token), and a control-day participant
-// must never be able to obtain VLM output (the researcher reads recordings.db
-// directly on the VM for analysis).
+// export is participant-facing (bearer token) and must never expose VLM output;
+// the researcher reads recordings.db directly on the VM for analysis.
 interface ExportRow {
   frame_index: number;
   capture_epoch_ms: number;
@@ -59,7 +57,7 @@ export interface SessionRow {
 }
 
 // Deliberately carries no vlm_* columns: the mobile app must never receive
-// VLM output (anti-leak for the DRM control condition).
+// VLM output before the assisted reconstruction.
 export interface FrameRow {
   frame_index: number;
   capture_epoch_ms: number;
@@ -79,25 +77,16 @@ export interface ParticipantRow {
   work_description: string | null;
   wake_time: string | null; // "HH:MM" local study time, from app onboarding
   bed_time: string | null; // "HH:MM"; drives the fallback push reminder
-  arm: string; // 'main'|'control', set at provisioning (create-user --arm)
+  arm: string; // Legacy column retained for SQLite compatibility; workflow ignores it.
   push_token: string | null;
   last_reminder_day: string | null;
   created_at: number;
   updated_at: number | null;
 }
 
-export interface ReconstructionRow {
-  participant: string;
-  round: number; // 1|2
-  mode: string; // 'self'|'assisted'
-  day: string; // pinned study day (YYYY-MM-DD)
-  status: string; // 'draft'|'submitted'
-  created_at: number;
-  submitted_at: number | null;
-}
-
 export interface ActivityRow {
   id: number;
+  activity_list_id: number;
   position: number;
   start_ms: number;
   end_ms: number;
@@ -112,9 +101,37 @@ export interface ActivityRow {
   recovery_rating: number | null;
 }
 
+export const ACTIVITY_LIST_KINDS = [
+  "self",
+  "vlm_proposal",
+  "assisted",
+] as const;
+export type ActivityListKind = (typeof ACTIVITY_LIST_KINDS)[number];
+
+export interface ActivityListRow {
+  id: number;
+  participant: string;
+  round: number;
+  day: string;
+  kind: ActivityListKind;
+  immutable: number;
+  status: "draft" | "submitted" | null;
+  created_at: number;
+  updated_at: number | null;
+  first_opened_at: number | null;
+  first_draft_saved_at: number | null;
+  last_draft_saved_at: number | null;
+  submitted_at: number | null;
+  proposal_viewed_at: number | null;
+}
+
+export interface ActivityListSnapshot extends ActivityListRow {
+  activities: ActivityRow[];
+}
+
 // Replace-all write shape; the DB layer assigns position from array order and
-// fills vlm_raw_label/vlm_category from a matching existing 'vlm' row (same
-// [start_ms, end_ms] span) unless the caller supplies them (generation path).
+// fills vlm_raw_label/vlm_category from the immutable original proposal's
+// matching [start_ms, end_ms] span unless the caller supplies them.
 export interface ActivityWriteInput {
   start_ms: number;
   end_ms: number;
@@ -191,16 +208,6 @@ export interface ChunkRow {
   updated_at: number | null;
 }
 
-export const STUDY_ARMS = ["main", "control"] as const;
-export type StudyArm = (typeof STUDY_ARMS)[number];
-
-// Normalizes a participants.arm value, defaulting to 'main' on anything
-// malformed (defensive: the column is provisioned by create-user, but a
-// hand-edited DB must not take the API down).
-export function parseArm(value: string | null | undefined): StudyArm {
-  return value === "control" ? "control" : "main";
-}
-
 let db: Database.Database;
 let insertStmt: Database.Statement;
 let exportStmt: Database.Statement;
@@ -228,29 +235,45 @@ let softDeleteFrameTx: Database.Transaction<
 // DRM statements
 let getParticipantStmt: Database.Statement;
 let insertParticipantStmt: Database.Statement;
-let updateArmStmt: Database.Statement;
 let updateProfileStmt: Database.Statement;
 let updatePushTokenStmt: Database.Statement;
 let updateLastReminderDayStmt: Database.Statement;
 let listPushParticipantsStmt: Database.Statement;
 let frameDayStatsStmt: Database.Statement;
 let framesInRangeStmt: Database.Statement;
-let getReconstructionStmt: Database.Statement;
-let insertReconstructionStmt: Database.Statement;
+let getRoundResponseListStmt: Database.Statement;
+let insertRoundResponseListStmt: Database.Statement;
+let markFirstOpenedStmt: Database.Statement;
+let markDraftSavedStmt: Database.Statement;
 let markSubmittedStmt: Database.Statement;
+let markVlmProposalViewedStmt: Database.Statement;
 let listActivitiesStmt: Database.Statement;
+let listActivitiesByKindStmt: Database.Statement;
+let getActivityListStmt: Database.Statement;
+let listActivityListsForDayStmt: Database.Statement;
+let upsertEditableActivityListStmt: Database.Statement;
+let insertVlmProposalListStmt: Database.Statement;
 let listVlmSpanActivitiesStmt: Database.Statement;
 let deleteActivitiesStmt: Database.Statement;
 let insertActivityStmt: Database.Statement;
 let propagateCorrectionsStmt: Database.Statement;
+let createVlmProposalTx: Database.Transaction<
+  (
+    participant: string,
+    round: number,
+    day: string,
+    activities: ActivityWriteInput[],
+    now: number,
+  ) => boolean
+>;
 let replaceActivitiesTx: Database.Transaction<
   (
     participant: string,
     round: number,
-    mode: string,
     day: string,
     activities: ActivityWriteInput[],
     submit: boolean,
+    recordDraftSave: boolean,
     now: number,
   ) => number | null
 >;
@@ -269,6 +292,10 @@ function migrateAddColumn(column: string, ddl: string): void {
 
 export function initDb(dbPath: string): void {
   db = new Database(dbPath);
+  // Schema upgrades may rebuild the DRM parent/child tables. Foreign-key
+  // enforcement must be disabled outside that transaction, then is enabled
+  // and checked before any prepared statement can use the database.
+  db.pragma("foreign_keys = OFF");
   // WAL lets the VLM reader run alongside the ingestion writer; NORMAL is the
   // standard fast/consistent pairing (a power loss can drop only the last
   // transaction, whose JPEG is likely lost too).
@@ -346,8 +373,7 @@ export function initDb(dbPath: string): void {
   `);
 
   // DRM migration (additive, same pattern as face_*): category + propagated
-  // user-corrected labels on frames, plus the participants / reconstructions /
-  // activities tables.
+  // user-corrected labels on frames, plus participants and activity lists.
   // NOTE (2026-07 chunk rework): frames.vlm_* and frames.user_corrected_* are
   // FROZEN legacy columns — kept readable for pre-chunk test data but no
   // longer written. The VLM output and the propagated corrections now live on
@@ -398,11 +424,9 @@ export function initDb(dbPath: string): void {
       ON chunks (status, chunk_start_ms);
   `);
 
-  // Clean-break migration from the OLD multi-day DRM schema (2026-07-12,
-  // decided with Felix): participants.condition_plan -> arm, reconstructions
-  // keyed by day -> by round. Only test data ever lived in the old shape, so
-  // old-shape DRM tables are dropped and recreated; frames + auth untouched.
-  // Re-provision test users (create-user / seed-demo-data) after this runs.
+  // DRM schema discovery. Workflow state used to live in a separate
+  // reconstructions table; the final model moves it onto the response-list
+  // parent so an opened-but-empty round still has one durable identity.
   const tableHasColumn = (table: string, column: string): boolean => {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all() as {
       name: string;
@@ -413,9 +437,6 @@ export function initDb(dbPath: string): void {
     (db.prepare(`PRAGMA table_info(${table})`).all() as unknown[]).length > 0;
   if (tableExists("participants") && !tableHasColumn("participants", "arm")) {
     db.exec(`DROP TABLE participants;`);
-  }
-  if (tableExists("reconstructions") && !tableHasColumn("reconstructions", "round")) {
-    db.exec(`DROP TABLE reconstructions; DROP TABLE IF EXISTS activities;`);
   }
 
   db.exec(`
@@ -431,46 +452,449 @@ export function initDb(dbPath: string): void {
       created_at        INTEGER NOT NULL,
       updated_at        INTEGER
     );
-    CREATE TABLE IF NOT EXISTS reconstructions (
-      participant  TEXT NOT NULL,
-      round        INTEGER NOT NULL,
-      mode         TEXT NOT NULL,
-      day          TEXT NOT NULL,
-      status       TEXT NOT NULL DEFAULT 'draft',
-      created_at   INTEGER NOT NULL,
-      submitted_at INTEGER,
-      PRIMARY KEY (participant, round)
-    );
-    CREATE TABLE IF NOT EXISTS activities (
-      id             INTEGER PRIMARY KEY AUTOINCREMENT,
-      participant    TEXT NOT NULL,
-      round          INTEGER NOT NULL,
-      position       INTEGER NOT NULL,
-      start_ms       INTEGER NOT NULL,
-      end_ms         INTEGER NOT NULL,
-      raw_label      TEXT,
-      category_label TEXT,
-      source         TEXT NOT NULL,
-      vlm_raw_label  TEXT,
-      vlm_category   TEXT,
-      -- 7-point Likert experience ratings (1-7, NULL = not answered):
-      -- mental demand for work activities, mental recovery for breaks.
-      workload_rating INTEGER,
-      recovery_rating INTEGER,
-      created_at     INTEGER NOT NULL,
-      updated_at     INTEGER
-    );
-    CREATE INDEX IF NOT EXISTS idx_activities_round
-      ON activities (participant, round, position);
   `);
 
-  // Additive migration for activities tables created before the experience
-  // ratings existed (same pattern as the frames face_*/DRM columns).
-  if (!tableHasColumn("activities", "workload_rating")) {
-    db.exec(`ALTER TABLE activities ADD COLUMN workload_rating INTEGER`);
+  const reconstructionsExist = tableExists("reconstructions");
+  if (
+    reconstructionsExist &&
+    !tableHasColumn("reconstructions", "round")
+  ) {
+    throw new Error(
+      "cannot safely migrate the obsolete pre-round reconstructions schema",
+    );
   }
-  if (!tableHasColumn("activities", "recovery_rating")) {
-    db.exec(`ALTER TABLE activities ADD COLUMN recovery_rating INTEGER`);
+
+  const activityListsSchema = `
+    CREATE TABLE activity_lists (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      participant  TEXT NOT NULL,
+      round        INTEGER NOT NULL,
+      day          TEXT NOT NULL,
+      -- The list role is the workflow truth: round 1 has a self response;
+      -- round 2 has an immutable proposal plus an assisted response.
+      kind         TEXT NOT NULL CHECK (kind IN ('self', 'vlm_proposal', 'assisted')),
+      immutable    INTEGER NOT NULL DEFAULT 0 CHECK (immutable IN (0, 1)),
+      status       TEXT CHECK (status IN ('draft', 'submitted')),
+      created_at   INTEGER NOT NULL,
+      updated_at   INTEGER,
+      first_opened_at INTEGER,
+      first_draft_saved_at INTEGER,
+      last_draft_saved_at INTEGER,
+      submitted_at INTEGER,
+      proposal_viewed_at INTEGER,
+      CHECK (
+        (round = 1 AND kind = 'self')
+        OR
+        (round = 2 AND kind IN ('vlm_proposal', 'assisted'))
+      ),
+      CHECK (
+        (kind = 'vlm_proposal' AND immutable = 1 AND status IS NULL
+          AND first_opened_at IS NULL
+          AND first_draft_saved_at IS NULL
+          AND last_draft_saved_at IS NULL
+          AND submitted_at IS NULL)
+        OR
+        (kind != 'vlm_proposal' AND immutable = 0 AND status IS NOT NULL
+          AND proposal_viewed_at IS NULL)
+      ),
+      UNIQUE (participant, round, kind)
+    )
+  `;
+  const activitiesSchema = `
+    CREATE TABLE activities (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      activity_list_id INTEGER NOT NULL,
+      position         INTEGER NOT NULL,
+      start_ms         INTEGER NOT NULL,
+      end_ms           INTEGER NOT NULL,
+      raw_label        TEXT,
+      category_label   TEXT,
+      source           TEXT NOT NULL,
+      vlm_raw_label    TEXT,
+      vlm_category     TEXT,
+      workload_rating INTEGER,
+      recovery_rating INTEGER,
+      created_at       INTEGER NOT NULL,
+      updated_at       INTEGER,
+      FOREIGN KEY (activity_list_id)
+        REFERENCES activity_lists(id) ON DELETE CASCADE
+    )
+  `;
+
+  const activityListsExist = tableExists("activity_lists");
+  const activitiesExist = tableExists("activities");
+  const parentIdColumn = activityListsExist
+    ? (
+        db.prepare(`PRAGMA table_info(activity_lists)`).all() as {
+          name: string;
+          pk: number;
+        }[]
+      ).find((column) => column.name === "id")
+    : undefined;
+  const parentHasId = parentIdColumn?.pk === 1;
+  const childHasForeignKey =
+    activitiesExist && tableHasColumn("activities", "activity_list_id");
+  const childHasParentForeignKey =
+    childHasForeignKey &&
+    (
+      db.prepare(`PRAGMA foreign_key_list(activities)`).all() as {
+        table: string;
+        from: string;
+        to: string;
+        on_delete: string;
+      }[]
+    ).some(
+      (foreignKey) =>
+        foreignKey.table === "activity_lists" &&
+        foreignKey.from === "activity_list_id" &&
+        foreignKey.to === "id" &&
+        foreignKey.on_delete.toUpperCase() === "CASCADE",
+    );
+  const childHasRedundantIdentity =
+    activitiesExist &&
+    (tableHasColumn("activities", "participant") ||
+      tableHasColumn("activities", "round") ||
+      tableHasColumn("activities", "list_kind"));
+  const parentHasFinalWorkflow =
+    activityListsExist &&
+    [
+      "status",
+      "first_opened_at",
+      "first_draft_saved_at",
+      "last_draft_saved_at",
+      "submitted_at",
+      "proposal_viewed_at",
+    ].every((column) => tableHasColumn("activity_lists", column)) &&
+    !tableHasColumn("activity_lists", "mode");
+
+  if (!activityListsExist && !activitiesExist && !reconstructionsExist) {
+    db.exec(`${activityListsSchema}; ${activitiesSchema};`);
+  } else if (
+    reconstructionsExist ||
+    !parentHasId ||
+    !parentHasFinalWorkflow ||
+    !childHasForeignKey ||
+    !childHasParentForeignKey ||
+    childHasRedundantIdentity
+  ) {
+    // SQLite cannot add a primary key or foreign key with ALTER TABLE. Rebuild
+    // both tables transactionally, preserving IDs where they already exist.
+    // This handles, in one atomic migration:
+    //   1. legacy activities keyed only by participant+round;
+    //   2. the natural-key three-list implementation (activities.list_kind);
+    //   3. the parent/child implementation plus reconstructions workflow;
+    //   4. a partially upgraded parent/child schema.
+    const parentHasUpdatedAt =
+      activityListsExist && tableHasColumn("activity_lists", "updated_at");
+    const parentHasStatus =
+      activityListsExist && tableHasColumn("activity_lists", "status");
+    const parentHasFirstOpened =
+      activityListsExist && tableHasColumn("activity_lists", "first_opened_at");
+    const parentHasFirstDraftSaved =
+      activityListsExist &&
+      tableHasColumn("activity_lists", "first_draft_saved_at");
+    const parentHasLastDraftSaved =
+      activityListsExist &&
+      tableHasColumn("activity_lists", "last_draft_saved_at");
+    const parentHasSubmitted =
+      activityListsExist && tableHasColumn("activity_lists", "submitted_at");
+    const parentHasProposalViewedAt =
+      activityListsExist &&
+      tableHasColumn("activity_lists", "proposal_viewed_at");
+    const reconstructionHasFirstOpened =
+      reconstructionsExist &&
+      tableHasColumn("reconstructions", "first_opened_at");
+    const reconstructionHasFirstDraftSaved =
+      reconstructionsExist &&
+      tableHasColumn("reconstructions", "first_draft_saved_at");
+    const reconstructionHasLastDraftSaved =
+      reconstructionsExist &&
+      tableHasColumn("reconstructions", "last_draft_saved_at");
+    const childHasListKind =
+      activitiesExist && tableHasColumn("activities", "list_kind");
+    const childHasWorkload =
+      activitiesExist && tableHasColumn("activities", "workload_rating");
+    const childHasRecovery =
+      activitiesExist && tableHasColumn("activities", "recovery_rating");
+    const childHasUpdatedAt =
+      activitiesExist && tableHasColumn("activities", "updated_at");
+    const legacyActivityCount = activitiesExist
+      ? (
+          db.prepare(`SELECT COUNT(*) AS count FROM activities`).get() as {
+            count: number;
+          }
+        ).count
+      : 0;
+
+    if (activityListsExist) {
+      const conflictingParents = db
+        .prepare(`
+          SELECT participant, round,
+                 CASE WHEN round = 1 THEN 'self'
+                      WHEN kind = 'vlm_proposal' THEN 'vlm_proposal'
+                      ELSE 'assisted' END AS target_kind,
+                 COUNT(*) AS count
+          FROM activity_lists
+          GROUP BY participant, round, target_kind
+          HAVING COUNT(*) > 1
+        `)
+        .all() as {
+        participant: string;
+        round: number;
+        target_kind: string;
+        count: number;
+      }[];
+      if (conflictingParents.length > 0) {
+        const conflict = conflictingParents[0];
+        throw new Error(
+          `cannot merge ${conflict.count} activity lists into ` +
+            `${conflict.participant}/round ${conflict.round}/${conflict.target_kind}`,
+        );
+      }
+    }
+
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_activities_round;
+        DROP INDEX IF EXISTS idx_activities_list_position;
+        DROP INDEX IF EXISTS idx_activities_parent;
+        DROP INDEX IF EXISTS idx_activity_lists_day;
+        DROP INDEX IF EXISTS idx_activity_lists_response;
+      `);
+      if (activityListsExist) {
+        db.exec(`ALTER TABLE activity_lists RENAME TO activity_lists_legacy`);
+      }
+      if (activitiesExist) {
+        db.exec(`ALTER TABLE activities RENAME TO activities_legacy`);
+      }
+      if (reconstructionsExist) {
+        db.exec(`ALTER TABLE reconstructions RENAME TO reconstructions_legacy`);
+      }
+      db.exec(`${activityListsSchema}; ${activitiesSchema};`);
+
+      if (activityListsExist) {
+        const idColumn = parentHasId ? "id, " : "";
+        const idValue = parentHasId ? "id, " : "";
+        const updatedAtValue = parentHasUpdatedAt
+          ? "p.updated_at"
+          : "p.created_at";
+        const kindValue =
+          "CASE WHEN p.round = 1 THEN 'self' " +
+          "WHEN p.kind = 'vlm_proposal' THEN 'vlm_proposal' ELSE 'assisted' END";
+        const reconstructionJoin = reconstructionsExist
+          ? `LEFT JOIN reconstructions_legacy r
+               ON r.participant = p.participant AND r.round = p.round`
+          : "";
+        const reconstructionStatus = reconstructionsExist
+          ? "r.status"
+          : "NULL";
+        const statusValue = parentHasStatus
+          ? reconstructionsExist
+            ? "COALESCE(p.status, r.status)"
+            : "p.status"
+          : reconstructionStatus;
+        const firstOpenedValue = parentHasFirstOpened
+          ? reconstructionHasFirstOpened
+            ? "COALESCE(p.first_opened_at, r.first_opened_at)"
+            : "p.first_opened_at"
+          : reconstructionHasFirstOpened
+            ? "r.first_opened_at"
+            : "NULL";
+        const firstDraftSavedValue = parentHasFirstDraftSaved
+          ? reconstructionHasFirstDraftSaved
+            ? "COALESCE(p.first_draft_saved_at, r.first_draft_saved_at)"
+            : "p.first_draft_saved_at"
+          : reconstructionHasFirstDraftSaved
+            ? "r.first_draft_saved_at"
+            : "NULL";
+        const lastDraftSavedValue = parentHasLastDraftSaved
+          ? reconstructionHasLastDraftSaved
+            ? "COALESCE(p.last_draft_saved_at, r.last_draft_saved_at)"
+            : "p.last_draft_saved_at"
+          : reconstructionHasLastDraftSaved
+            ? "r.last_draft_saved_at"
+            : "NULL";
+        const submittedValue = parentHasSubmitted
+          ? reconstructionsExist
+            ? "COALESCE(p.submitted_at, r.submitted_at)"
+            : "p.submitted_at"
+          : reconstructionsExist
+            ? "r.submitted_at"
+            : "NULL";
+        const proposalViewedAtValue = parentHasProposalViewedAt
+          ? "p.proposal_viewed_at"
+          : "NULL";
+        db.exec(`
+          INSERT INTO activity_lists (
+            ${idColumn}participant, round, day, kind, immutable, status,
+            created_at, updated_at, first_opened_at,
+            first_draft_saved_at, last_draft_saved_at, submitted_at,
+            proposal_viewed_at
+          )
+          SELECT ${idValue}p.participant, p.round, p.day, ${kindValue},
+                 CASE WHEN ${kindValue} = 'vlm_proposal' THEN 1 ELSE 0 END,
+                 CASE WHEN ${kindValue} = 'vlm_proposal' THEN NULL
+                      ELSE COALESCE(${statusValue}, 'draft') END,
+                 p.created_at, ${updatedAtValue},
+                 CASE WHEN ${kindValue} = 'vlm_proposal' THEN NULL
+                      ELSE ${firstOpenedValue} END,
+                 CASE WHEN ${kindValue} = 'vlm_proposal' THEN NULL
+                      ELSE ${firstDraftSavedValue} END,
+                 CASE WHEN ${kindValue} = 'vlm_proposal' THEN NULL
+                      ELSE ${lastDraftSavedValue} END,
+                 CASE WHEN ${kindValue} = 'vlm_proposal' THEN NULL
+                      ELSE ${submittedValue} END,
+                 CASE WHEN ${kindValue} = 'vlm_proposal'
+                      THEN ${proposalViewedAtValue} ELSE NULL END
+          FROM activity_lists_legacy p
+          ${reconstructionJoin}
+        `);
+      }
+
+      if (reconstructionsExist) {
+        const firstOpenedValue = reconstructionHasFirstOpened
+          ? "first_opened_at"
+          : "NULL";
+        const firstDraftSavedValue = reconstructionHasFirstDraftSaved
+          ? "first_draft_saved_at"
+          : "NULL";
+        const lastDraftSavedValue = reconstructionHasLastDraftSaved
+          ? "last_draft_saved_at"
+          : "NULL";
+        // Every legacy reconstruction becomes its participant-facing response
+        // list, including opened/submitted rounds with zero activity children.
+        db.exec(`
+          INSERT OR IGNORE INTO activity_lists (
+            participant, round, day, kind, immutable, status,
+            created_at, updated_at, first_opened_at,
+            first_draft_saved_at, last_draft_saved_at, submitted_at,
+            proposal_viewed_at
+          )
+          SELECT participant, round, day,
+                 CASE WHEN round = 1 THEN 'self' ELSE 'assisted' END,
+                 0, status, created_at, COALESCE(submitted_at, created_at),
+                 ${firstOpenedValue}, ${firstDraftSavedValue},
+                 ${lastDraftSavedValue}, submitted_at, NULL
+          FROM reconstructions_legacy
+          WHERE round IN (1, 2)
+        `);
+      }
+
+      if (activitiesExist) {
+        const workloadValue = childHasWorkload
+          ? "a.workload_rating"
+          : "NULL";
+        const recoveryValue = childHasRecovery
+          ? "a.recovery_rating"
+          : "NULL";
+        const updatedAtValue = childHasUpdatedAt ? "a.updated_at" : "a.created_at";
+        let relationshipJoin: string;
+        let activityListIdValue: string;
+        if (childHasForeignKey) {
+          relationshipJoin = "";
+          activityListIdValue = "a.activity_list_id";
+        } else if (childHasListKind) {
+          relationshipJoin = `
+            JOIN activity_lists l
+              ON l.participant = a.participant
+             AND l.round = a.round
+             AND l.kind = CASE
+               WHEN a.round = 1 THEN 'self'
+               WHEN a.list_kind = 'vlm_proposal' THEN 'vlm_proposal'
+               ELSE 'assisted'
+             END
+          `;
+          activityListIdValue = "l.id";
+        } else {
+          if (!reconstructionsExist) {
+            throw new Error(
+              "participant/round activities require legacy reconstruction metadata",
+            );
+          }
+          relationshipJoin = `
+            JOIN reconstructions_legacy r
+              ON r.participant = a.participant AND r.round = a.round
+            JOIN activity_lists l
+              ON l.participant = a.participant
+             AND l.round = a.round
+             AND l.kind = CASE WHEN a.round = 1 THEN 'self' ELSE 'assisted' END
+          `;
+          activityListIdValue = "l.id";
+        }
+        db.exec(`
+          INSERT INTO activities (
+            id, activity_list_id, position, start_ms, end_ms,
+            raw_label, category_label, source, vlm_raw_label, vlm_category,
+            workload_rating, recovery_rating, created_at, updated_at
+          )
+          SELECT a.id, ${activityListIdValue}, a.position, a.start_ms, a.end_ms,
+                 a.raw_label, a.category_label, a.source,
+                 a.vlm_raw_label, a.vlm_category,
+                 ${workloadValue}, ${recoveryValue},
+                 a.created_at, ${updatedAtValue}
+          FROM activities_legacy a
+          ${relationshipJoin}
+        `);
+      }
+
+      const migratedActivityCount = (
+        db.prepare(`SELECT COUNT(*) AS count FROM activities`).get() as {
+          count: number;
+        }
+      ).count;
+      if (migratedActivityCount !== legacyActivityCount) {
+        throw new Error(
+          `activity-list migration preserved ${migratedActivityCount}/${legacyActivityCount} activities`,
+        );
+      }
+
+      if (reconstructionsExist) {
+        const unmappedReconstructions = (
+          db.prepare(`
+            SELECT COUNT(*) AS count
+            FROM reconstructions_legacy r
+            LEFT JOIN activity_lists l
+              ON l.participant = r.participant
+             AND l.round = r.round
+             AND l.kind = CASE WHEN r.round = 1 THEN 'self' ELSE 'assisted' END
+            WHERE l.id IS NULL
+          `).get() as { count: number }
+        ).count;
+        if (unmappedReconstructions !== 0) {
+          throw new Error(
+            `${unmappedReconstructions} reconstruction row(s) could not be migrated`,
+          );
+        }
+      }
+
+      if (activitiesExist) db.exec(`DROP TABLE activities_legacy`);
+      if (activityListsExist) db.exec(`DROP TABLE activity_lists_legacy`);
+      if (reconstructionsExist) db.exec(`DROP TABLE reconstructions_legacy`);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_activities_parent
+      ON activities (activity_list_id, position);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_activities_list_position
+      ON activities (activity_list_id, position);
+    CREATE INDEX IF NOT EXISTS idx_activity_lists_day
+      ON activity_lists (participant, day, round, kind);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_lists_response
+      ON activity_lists (participant, round)
+      WHERE kind != 'vlm_proposal';
+  `);
+  db.pragma("foreign_keys = ON");
+  const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+  if (foreignKeyViolations.length > 0) {
+    throw new Error(
+      `activity-list migration left ${foreignKeyViolations.length} foreign-key violation(s)`,
+    );
   }
 
   insertStmt = db.prepare(`
@@ -626,10 +1050,6 @@ export function initDb(dbPath: string): void {
     INSERT OR IGNORE INTO participants (username, created_at) VALUES (?, ?)
   `);
 
-  updateArmStmt = db.prepare(`
-    UPDATE participants SET arm = ?, updated_at = ? WHERE username = ?
-  `);
-
   updateProfileStmt = db.prepare(`
     UPDATE participants
     SET occupation = ?, work_description = ?, wake_time = ?, bed_time = ?,
@@ -675,47 +1095,130 @@ export function initDb(dbPath: string): void {
     ORDER BY f.capture_epoch_ms
   `);
 
-  getReconstructionStmt = db.prepare(`
-    SELECT participant, round, mode, day, status, created_at, submitted_at
-    FROM reconstructions WHERE participant = ? AND round = ?
+  getRoundResponseListStmt = db.prepare(`
+    SELECT id, participant, round, day, kind, immutable, status,
+           created_at, updated_at, first_opened_at, first_draft_saved_at,
+           last_draft_saved_at, submitted_at, proposal_viewed_at
+    FROM activity_lists
+    WHERE participant = ? AND round = ?
+      AND kind = CASE WHEN round = 1 THEN 'self' ELSE 'assisted' END
   `);
 
-  insertReconstructionStmt = db.prepare(`
-    INSERT OR IGNORE INTO reconstructions (participant, round, mode, day, status, created_at)
-    VALUES (?, ?, ?, ?, 'draft', ?)
+  insertRoundResponseListStmt = db.prepare(`
+    INSERT OR IGNORE INTO activity_lists (
+      participant, round, day, kind, immutable, status,
+      created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, 0, 'draft', ?, ?)
+  `);
+
+  markFirstOpenedStmt = db.prepare(`
+    UPDATE activity_lists
+    SET first_opened_at = COALESCE(first_opened_at, ?)
+    WHERE participant = ? AND round = ? AND kind != 'vlm_proposal'
+  `);
+
+  markDraftSavedStmt = db.prepare(`
+    UPDATE activity_lists
+    SET first_draft_saved_at = COALESCE(first_draft_saved_at, ?),
+        last_draft_saved_at = ?,
+        updated_at = ?
+    WHERE participant = ? AND round = ? AND kind != 'vlm_proposal'
   `);
 
   markSubmittedStmt = db.prepare(`
-    UPDATE reconstructions SET status = 'submitted', submitted_at = ?
-    WHERE participant = ? AND round = ?
+    UPDATE activity_lists
+    SET status = 'submitted', submitted_at = ?, updated_at = ?
+    WHERE participant = ? AND round = ? AND kind != 'vlm_proposal'
   `);
 
   listActivitiesStmt = db.prepare(`
-    SELECT id, position, start_ms, end_ms, raw_label, category_label, source,
-           vlm_raw_label, vlm_category, workload_rating, recovery_rating
-    FROM activities
-    WHERE participant = ? AND round = ?
-    ORDER BY position
+    SELECT a.id, a.activity_list_id, a.position, a.start_ms, a.end_ms,
+           a.raw_label, a.category_label, a.source,
+           a.vlm_raw_label, a.vlm_category,
+           a.workload_rating, a.recovery_rating
+    FROM activities a
+    JOIN activity_lists l ON l.id = a.activity_list_id
+    WHERE l.participant = ? AND l.round = ? AND l.kind != 'vlm_proposal'
+    ORDER BY a.position
+  `);
+
+  listActivitiesByKindStmt = db.prepare(`
+    SELECT a.id, a.activity_list_id, a.position, a.start_ms, a.end_ms,
+           a.raw_label, a.category_label, a.source,
+           a.vlm_raw_label, a.vlm_category,
+           a.workload_rating, a.recovery_rating
+    FROM activities a
+    JOIN activity_lists l ON l.id = a.activity_list_id
+    WHERE l.participant = ? AND l.round = ? AND l.kind = ?
+    ORDER BY a.position
+  `);
+
+  getActivityListStmt = db.prepare(`
+    SELECT id, participant, round, day, kind, immutable, status,
+           created_at, updated_at, first_opened_at, first_draft_saved_at,
+           last_draft_saved_at, submitted_at, proposal_viewed_at
+    FROM activity_lists
+    WHERE participant = ? AND round = ? AND kind = ?
+  `);
+
+  listActivityListsForDayStmt = db.prepare(`
+    SELECT id, participant, round, day, kind, immutable, status,
+           created_at, updated_at, first_opened_at, first_draft_saved_at,
+           last_draft_saved_at, submitted_at, proposal_viewed_at
+    FROM activity_lists
+    WHERE participant = ? AND day = ?
+    ORDER BY round, CASE kind
+      WHEN 'self' THEN 0
+      WHEN 'vlm_proposal' THEN 1
+      ELSE 2
+    END
+  `);
+
+  upsertEditableActivityListStmt = db.prepare(`
+    INSERT INTO activity_lists (
+      participant, round, day, kind, immutable, status,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 0, 'draft', ?, ?)
+    ON CONFLICT (participant, round, kind) DO UPDATE SET
+      updated_at = excluded.updated_at
+    WHERE activity_lists.immutable = 0
+    RETURNING id
+  `);
+
+  insertVlmProposalListStmt = db.prepare(`
+    INSERT OR IGNORE INTO activity_lists (
+      participant, round, day, kind, immutable, status,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, 'vlm_proposal', 1, NULL, ?, ?)
+  `);
+
+  markVlmProposalViewedStmt = db.prepare(`
+    UPDATE activity_lists
+    SET proposal_viewed_at = COALESCE(proposal_viewed_at, ?)
+    WHERE id = ? AND kind = 'vlm_proposal'
+    RETURNING proposal_viewed_at
   `);
 
   listVlmSpanActivitiesStmt = db.prepare(`
-    SELECT start_ms, end_ms, vlm_raw_label, vlm_category
-    FROM activities
-    WHERE participant = ? AND round = ? AND source = 'vlm'
+    SELECT a.start_ms, a.end_ms, a.vlm_raw_label, a.vlm_category
+    FROM activities a
+    JOIN activity_lists l ON l.id = a.activity_list_id
+    WHERE l.participant = ? AND l.round = ? AND l.kind = 'vlm_proposal'
   `);
 
   deleteActivitiesStmt = db.prepare(`
-    DELETE FROM activities WHERE participant = ? AND round = ?
+    DELETE FROM activities WHERE activity_list_id = ?
   `);
 
   insertActivityStmt = db.prepare(`
     INSERT INTO activities (
-      participant, round, position, start_ms, end_ms,
+      activity_list_id, position, start_ms, end_ms,
       raw_label, category_label, source, vlm_raw_label, vlm_category,
       workload_rating, recovery_rating,
       created_at, updated_at
     ) VALUES (
-      @participant, @round, @position, @start_ms, @end_ms,
+      @activity_list_id, @position, @start_ms, @end_ms,
       @raw_label, @category_label, @source, @vlm_raw_label, @vlm_category,
       @workload_rating, @recovery_rating,
       @created_at, @updated_at
@@ -732,24 +1235,76 @@ export function initDb(dbPath: string): void {
     WHERE participant = ? AND chunk_start_ms < ? AND chunk_end_ms > ?
   `);
 
-  // Replace-all write for a round's activities. Draft saves and submissions
-  // share it; submit additionally locks the round and — for the ASSISTED
-  // round only — propagates the labels onto the frames, all atomically.
+  // The original generated proposal is a write-once list. The metadata row's
+  // primary key makes repeated generation a no-op, and this transaction is
+  // the only code path that inserts vlm_proposal items.
+  createVlmProposalTx = db.transaction(
+    (
+      participant: string,
+      round: number,
+      day: string,
+      activities: ActivityWriteInput[],
+      now: number,
+    ): boolean => {
+      const inserted = insertVlmProposalListStmt.run(
+        participant,
+        round,
+        day,
+        now,
+        now,
+      );
+      if (inserted.changes === 0) return false;
+      const proposalList = getActivityListStmt.get(
+        participant,
+        round,
+        "vlm_proposal",
+      ) as ActivityListRow | undefined;
+      if (proposalList === undefined) {
+        throw new Error("created VLM proposal list could not be reloaded");
+      }
+
+      activities.forEach((activity, position) => {
+        insertActivityStmt.run({
+          activity_list_id: proposalList.id,
+          position,
+          start_ms: activity.start_ms,
+          end_ms: activity.end_ms,
+          raw_label: activity.raw_label,
+          category_label: activity.category_label,
+          source: "vlm",
+          vlm_raw_label: activity.raw_label,
+          vlm_category: activity.category_label,
+          workload_rating: null,
+          recovery_rating: null,
+          created_at: now,
+          updated_at: now,
+        });
+      });
+      return true;
+    },
+  );
+
+  // Replace-all write for a round's EDITABLE activities. Draft saves and
+  // submissions share it; submit additionally locks the round and — for the
+  // ASSISTED round only — propagates the labels onto chunks, all atomically.
+  // The immutable vlm_proposal list is never deleted or updated here.
   // Self rounds must never propagate: both rounds cover the same day, so a
   // self-round propagation would overwrite (or pre-empt) the assisted
-  // round's frame-level ground truth.
+  // round's chunk-level ground truth.
   replaceActivitiesTx = db.transaction(
     (
       participant: string,
       round: number,
-      mode: string,
       day: string,
       activities: ActivityWriteInput[],
       submit: boolean,
+      recordDraftSave: boolean,
       now: number,
     ): number | null => {
-      // Snapshot the original VLM proposals before the delete, keyed by span,
-      // so unchanged spans keep their vlm_* provenance across saves.
+      const listKind: ActivityListKind = round === 1 ? "self" : "assisted";
+
+      // Match against the immutable original proposal so unchanged spans keep
+      // their vlm_* provenance even after any number of editable-list saves.
       const existingVlmRows = listVlmSpanActivitiesStmt.all(participant, round) as {
         start_ms: number;
         end_ms: number;
@@ -760,12 +1315,22 @@ export function initDb(dbPath: string): void {
         existingVlmRows.map((row) => [`${row.start_ms}|${row.end_ms}`, row]),
       );
 
-      deleteActivitiesStmt.run(participant, round);
+      const editableList = upsertEditableActivityListStmt.get(
+        participant,
+        round,
+        day,
+        listKind,
+        now,
+        now,
+      ) as { id: number } | undefined;
+      if (editableList === undefined) {
+        throw new Error(`could not create or update ${listKind} activity list`);
+      }
+      deleteActivitiesStmt.run(editableList.id);
       activities.forEach((activity, position) => {
         const matched = vlmBySpan.get(`${activity.start_ms}|${activity.end_ms}`);
         insertActivityStmt.run({
-          participant,
-          round,
+          activity_list_id: editableList.id,
           position,
           start_ms: activity.start_ms,
           end_ms: activity.end_ms,
@@ -781,11 +1346,13 @@ export function initDb(dbPath: string): void {
         });
       });
 
-      insertReconstructionStmt.run(participant, round, mode, day, now);
+      if (recordDraftSave) {
+        markDraftSavedStmt.run(now, now, now, participant, round);
+      }
       if (!submit) return null;
 
-      markSubmittedStmt.run(now, participant, round);
-      if (mode !== "assisted") return now;
+      markSubmittedStmt.run(now, now, participant, round);
+      if (round !== 2) return now;
 
       // Defense in depth: the API validates every span against the day, but
       // the propagation additionally clamps to the day's UTC range so a bug
@@ -862,19 +1429,26 @@ export function initDb(dbPath: string): void {
   );
 }
 
-// Pins a round's mode + study day the first time the participant opens it
+// Pins a round's response-list identity + study day on first open
 // (INSERT OR IGNORE = no-op when a row already exists). Without pinning, the
 // study day would keep deriving from the participant's latest frame day —
 // mutable data: a new frame the next morning (or a frame deletion) could
-// silently shift an already-seen round onto a different day, and an arm
-// change after the evening could flip round 2's mode mid-reconstruction.
-export function pinReconstructionRound(
+// silently shift an already-seen round onto a different day.
+export function pinRoundResponseList(
   participant: string,
   round: number,
-  mode: string,
   day: string,
 ): void {
-  insertReconstructionStmt.run(participant, round, mode, day, Date.now());
+  const now = Date.now();
+  const kind: ActivityListKind = round === 1 ? "self" : "assisted";
+  insertRoundResponseListStmt.run(
+    participant,
+    round,
+    day,
+    kind,
+    now,
+    now,
+  );
 }
 
 export function listSessions(participant: string): SessionRow[] {
@@ -994,14 +1568,8 @@ export function ensureParticipant(username: string): void {
   insertParticipantStmt.run(username, Date.now());
 }
 
-export function setArm(username: string, arm: StudyArm): void {
-  ensureParticipant(username);
-  updateArmStmt.run(arm, Date.now(), username);
-}
-
 // Profile upsert: occupation, work description and the daily schedule —
-// deliberately never touches arm (that is provisioning state, not profile
-// state).
+// deliberately never touches the legacy arm column.
 export function upsertParticipantProfile(
   username: string,
   occupation: string,
@@ -1094,15 +1662,39 @@ export function latestFrameDay(participant: string): string | undefined {
   return days.length > 0 ? days[days.length - 1].day : undefined;
 }
 
-// --- DRM: reconstructions + activities ---------------------------------------
+// --- DRM: response lists + activity children --------------------------------
 
-export function getReconstruction(
+export function getRoundResponseList(
   participant: string,
   round: number,
-): ReconstructionRow | undefined {
-  return getReconstructionStmt.get(participant, round) as
-    | ReconstructionRow
+): ActivityListRow | undefined {
+  return getRoundResponseListStmt.get(participant, round) as
+    | ActivityListRow
     | undefined;
+}
+
+// Records the first successful editor response once. Pinning and exposure are
+// deliberately separate: the response-list row can exist before a response is
+// successfully assembled.
+export function markRoundResponseOpened(
+  participant: string,
+  round: number,
+): void {
+  markFirstOpenedStmt.run(Date.now(), participant, round);
+}
+
+// Atomically returns the stable first-view timestamp for the immutable
+// proposal. The kind predicate prevents any editable/self list from being
+// marked accidentally.
+export function markVlmProposalViewed(activityListId: number): number {
+  const row = markVlmProposalViewedStmt.get(
+    Date.now(),
+    activityListId,
+  ) as { proposal_viewed_at: number } | undefined;
+  if (!row) {
+    throw new Error("VLM proposal activity list not found");
+  }
+  return row.proposal_viewed_at;
 }
 
 export function listActivities(
@@ -1112,25 +1704,84 @@ export function listActivities(
   return listActivitiesStmt.all(participant, round) as ActivityRow[];
 }
 
-// Atomic replace-all save of a round's activities (creates the
-// reconstructions row on first save). With submit=true also locks the round
-// and — assisted mode only — propagates each activity's labels onto the
-// frames in its span; returns the submitted_at timestamp (null for drafts).
+export function getActivityList(
+  participant: string,
+  round: number,
+  kind: ActivityListKind,
+): ActivityListRow | undefined {
+  return getActivityListStmt.get(participant, round, kind) as
+    | ActivityListRow
+    | undefined;
+}
+
+export function listActivitiesByKind(
+  participant: string,
+  round: number,
+  kind: ActivityListKind,
+): ActivityRow[] {
+  return listActivitiesByKindStmt.all(
+    participant,
+    round,
+    kind,
+  ) as ActivityRow[];
+}
+
+// Researcher-facing DB query helper: returns the explicitly identified lists
+// for one participant/day. Round 1 self, immutable VLM proposal, and the
+// editable/final assisted list remain distinguishable after submission.
+export function listStudyActivityLists(
+  participant: string,
+  day: string,
+): ActivityListSnapshot[] {
+  const lists = listActivityListsForDayStmt.all(
+    participant,
+    day,
+  ) as ActivityListRow[];
+  return lists.map((list) => ({
+    ...list,
+    activities: listActivitiesByKind(list.participant, list.round, list.kind),
+  }));
+}
+
+// Stores the original generated VLM proposal exactly once. Returns false when
+// the immutable proposal list already exists; existing items are never
+// replaced, even if chunk labels are later reprocessed.
+export function createVlmProposal(options: {
+  participant: string;
+  round: number;
+  day: string;
+  activities: ActivityWriteInput[];
+}): boolean {
+  return createVlmProposalTx(
+    options.participant,
+    options.round,
+    options.day,
+    options.activities,
+    Date.now(),
+  );
+}
+
+// Atomic replace-all save of a round's activities (creates its response-list
+// parent on first save). With submit=true also locks the round
+// and — round 2 only — propagates each activity's labels onto the
+// chunks in its span; returns the submitted_at timestamp (null for drafts).
 export function replaceActivities(options: {
   participant: string;
   round: number;
-  mode: string;
   day: string;
   activities: ActivityWriteInput[];
   submit: boolean;
+  // True only for a participant's successful draft PUT. Automatic proposal
+  // bootstrap also writes the editable list but is not participant edit time.
+  recordDraftSave?: boolean;
 }): { submittedAt: number | null } {
   const submittedAt = replaceActivitiesTx(
     options.participant,
     options.round,
-    options.mode,
     options.day,
     options.activities,
     options.submit,
+    options.recordDraftSave ?? false,
     Date.now(),
   );
   return { submittedAt };
@@ -1139,7 +1790,7 @@ export function replaceActivities(options: {
 // Reconstructs a per-session CSV from the DB on demand (the DB is the live
 // index now). CaptureDatetime is intentionally dropped (derive it from
 // capture_epoch_ms if needed). NO vlm_* columns: participant-facing output
-// must never carry VLM labels (DRM control-condition anti-leak; see ExportRow).
+// must never carry VLM labels (see ExportRow).
 export function exportFramesCsv(q: ExportQuery): string {
   const rows = exportStmt.all(q) as ExportRow[];
   const header =

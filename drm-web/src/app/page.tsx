@@ -36,7 +36,7 @@ const LandingPage = () => {
     onSuccess: (response) => {
       // Drop every cached response from a previous session BEFORE entering:
       // stale data from another account must never render (anti-leak — a
-      // main-arm user's assisted round in a control participant's browser).
+      // another participant's assisted round in a shared browser).
       queryClient.clear();
       // Token in localStorage for API calls (Authorization header) AND in the
       // blinks_token cookie so <img> requests to /frames/* are authenticated.

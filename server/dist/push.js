@@ -76,7 +76,7 @@ const runSchedulerTick = async () => {
             if ((0, db_1.countFramesOnDay)(participant.username, today) === 0)
                 continue;
             // Fully done for the evening once round 2 is submitted.
-            if ((0, db_1.getReconstruction)(participant.username, 2)?.status === "submitted") {
+            if ((0, db_1.getRoundResponseList)(participant.username, 2)?.status === "submitted") {
                 continue;
             }
             // Mark before sending so a flaky Expo endpoint cannot cause spam.

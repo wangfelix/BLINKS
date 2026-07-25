@@ -35,12 +35,9 @@ const firstUnsubmittedRound = (
   return null;
 };
 
-/** Full label for a step; round 2's mode stays hidden while it is locked. */
 const stepLabel = (roundState: RoundState): string => {
   if (roundState.round === 1) return "Step 1 · From memory";
-  if (roundState.mode === "assisted") return "Step 2 · With photos";
-  if (roundState.mode === "self") return "Step 2 · From memory again";
-  return "Step 2";
+  return "Step 2 · With photos";
 };
 
 const RoundSkeleton = () => (
@@ -216,7 +213,7 @@ export const ActiveRoundView = ({
   }
 
   const isStillWaitingForVlmLabels =
-    reconstruction.mode === "assisted" &&
+    reconstruction.round === 2 &&
     reconstruction.activities.length === 0 &&
     (reconstruction.vlmPendingCount ?? 0) > 0;
   if (isStillWaitingForVlmLabels) {
@@ -248,7 +245,6 @@ export const ActiveRoundView = ({
   return (
     <RoundEditor
       round={round}
-      mode={reconstruction.mode}
       day={reconstruction.day}
       initialActivities={reconstruction.activities}
       frames={reconstruction.frames ?? null}

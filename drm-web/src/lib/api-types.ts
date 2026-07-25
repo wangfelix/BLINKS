@@ -4,9 +4,6 @@
 
 export type CategoryLabel = "work" | "break" | "other";
 
-/** How a round is edited: 'self' = from memory, 'assisted' = frames + VLM. */
-export type RoundMode = "self" | "assisted";
-
 export type ReconstructionStatus = "none" | "draft" | "submitted";
 
 export type ActivitySource = "vlm" | "user";
@@ -22,7 +19,7 @@ export interface LoginResponse {
   username: string;
 }
 
-/** GET /api/profile (the study arm is deliberately not exposed). */
+/** GET /api/profile */
 export interface ProfileResponse {
   username: string;
   occupation: string | null;
@@ -35,8 +32,6 @@ export interface ProfileResponse {
 /** One entry of GET /api/reconstruction/state's rounds array. */
 export interface RoundState {
   round: 1 | 2;
-  /** null while round 2 is still locked (the mode would reveal the arm). */
-  mode: RoundMode | null;
   status: ReconstructionStatus;
   /** Round 2 stays locked until round 1 is submitted (server-enforced). */
   locked: boolean;
@@ -78,13 +73,12 @@ export interface Frame {
 
 export interface RoundResponse {
   round: 1 | 2;
-  mode: RoundMode;
   day: string;
   status: ReconstructionStatus;
   activities: Activity[];
-  /** Present ONLY for mode 'assisted' (anti-leak, enforced server-side). */
+  /** Present ONLY for round 2 (anti-leak, enforced server-side). */
   frames?: Frame[];
-  /** Present ONLY for mode 'assisted': frames still awaiting VLM labels. */
+  /** Present ONLY for round 2: frames still awaiting VLM labels. */
   vlmPendingCount?: number;
 }
 

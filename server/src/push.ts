@@ -22,7 +22,7 @@
 
 import {
   countFramesOnDay,
-  getReconstruction,
+  getRoundResponseList,
   listPushParticipants,
   setLastReminderDay,
 } from "./db";
@@ -85,7 +85,9 @@ const runSchedulerTick = async (): Promise<void> => {
       // No frames today = the camera was not worn; nothing to reconstruct.
       if (countFramesOnDay(participant.username, today) === 0) continue;
       // Fully done for the evening once round 2 is submitted.
-      if (getReconstruction(participant.username, 2)?.status === "submitted") {
+      if (
+        getRoundResponseList(participant.username, 2)?.status === "submitted"
+      ) {
         continue;
       }
 

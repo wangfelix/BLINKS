@@ -19,7 +19,7 @@ import type { EditableActivity } from "@/components/reconstruct/editor-types";
 /**
  * One self-round activity row: the participant types the time span from
  * memory (no frames, no VLM anything — anti-leak) plus label and category.
- * Used by round 1 for everyone and by round 2 in the control arm.
+ * Used by round 1, before any VLM proposal is shown.
  */
 export const SelfActivityRow = ({
   activity,
