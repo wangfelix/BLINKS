@@ -14,6 +14,7 @@ import { AppText } from "@/application/components/app-text";
 import { EmptyState } from "@/application/components/empty-state";
 import { colors, radius, spacing } from "@/application/theme/theme";
 import { FrameListItem } from "@/history/components/frame-list-item";
+import { FullScreenImageViewer } from "@/history/components/full-screen-image-viewer";
 import { useSessionDetailModel } from "@/history/model/use-session-detail-model";
 
 const FLOATING_ACTION_HEIGHT = 52;
@@ -27,6 +28,9 @@ const SessionDetailScreen = () => {
     isRefetching,
     refetch,
     confirmDeleteFrame,
+    previewFrame,
+    openFramePreview,
+    closeFramePreview,
     deletingFrameIndex,
     isSelectionMode,
     selectedFrameIndexes,
@@ -74,6 +78,7 @@ const SessionDetailScreen = () => {
           renderItem={({ item }) => (
             <FrameListItem
               frame={item}
+              onOpen={() => openFramePreview(item)}
               onDelete={() => confirmDeleteFrame(item)}
               isDeleting={deletingFrameIndex === item.frameIndex}
               selectionMode={isSelectionMode}
@@ -89,8 +94,8 @@ const SessionDetailScreen = () => {
             isSelectionMode && {
               paddingBottom:
                 FLOATING_ACTION_HEIGHT +
-                Math.max(insets.bottom, spacing.lg) +
-                spacing.xl,
+                insets.bottom +
+                spacing.xl * 2,
             },
           ]}
           ListEmptyComponent={
@@ -117,7 +122,7 @@ const SessionDetailScreen = () => {
         <View
           style={[
             styles.selectionOverlay,
-            { bottom: Math.max(insets.bottom, spacing.lg) },
+            { bottom: insets.bottom + spacing.xl },
           ]}
         >
           <AppButton
@@ -126,8 +131,18 @@ const SessionDetailScreen = () => {
             onPress={confirmDeleteSelected}
             disabled={selectedCount === 0}
             loading={isDeletingSelection}
+            style={styles.deleteSelectedButton}
           />
         </View>
+      ) : null}
+
+      {previewFrame ? (
+        <FullScreenImageViewer
+          frame={previewFrame}
+          onClose={closeFramePreview}
+          onDelete={() => confirmDeleteFrame(previewFrame)}
+          isDeleting={deletingFrameIndex === previewFrame.frameIndex}
+        />
       ) : null}
     </View>
   );
@@ -162,17 +177,18 @@ const styles = StyleSheet.create({
   emptyListContent: { flexGrow: 1, justifyContent: "center" },
   selectionOverlay: {
     position: "absolute",
-    left: spacing.lg,
-    right: spacing.lg,
+    left: spacing.xl,
+    right: spacing.xl,
     zIndex: 10,
     elevation: 8,
-    borderRadius: radius.md,
+    borderRadius: radius.pill,
     backgroundColor: colors.dangerMuted,
     shadowColor: "#000000",
     shadowOpacity: 0.18,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
   },
+  deleteSelectedButton: { borderRadius: radius.pill },
 });
 
 export default SessionDetailScreen;

@@ -29,6 +29,7 @@ export const useSessionDetailModel = () => {
   // ---- STATE ----
 
   const framesQuery = useQuery(sessionFramesQueryOptions(device, session));
+  const [previewFrame, setPreviewFrame] = useState<SessionFrame | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedFrameIndexes, setSelectedFrameIndexes] = useState<Set<number>>(
     new Set(),
@@ -41,7 +42,10 @@ export const useSessionDetailModel = () => {
   const deleteMutation = useMutation({
     mutationFn: (frame: SessionFrame) =>
       deleteSessionFrame(device, session, frame.frameIndex),
-    onSuccess: () => {
+    onSuccess: (_result, frame) => {
+      setPreviewFrame((current) =>
+        current?.frameIndex === frame.frameIndex ? null : current,
+      );
       void queryClient.invalidateQueries({ queryKey: sessionKeys.all });
     },
     onError: () =>
@@ -82,6 +86,9 @@ export const useSessionDetailModel = () => {
       );
       return next.size === current.size ? current : next;
     });
+    setPreviewFrame((current) =>
+      current && visibleIndexes.has(current.frameIndex) ? current : null,
+    );
   }, [framesQuery.data]);
 
   // ---- ACTIONS ----
@@ -99,6 +106,14 @@ export const useSessionDetailModel = () => {
         },
       ],
     );
+  };
+
+  const openFramePreview = (frame: SessionFrame) => {
+    setPreviewFrame(frame);
+  };
+
+  const closeFramePreview = () => {
+    setPreviewFrame(null);
   };
 
   const enterSelectionMode = () => {
@@ -147,6 +162,9 @@ export const useSessionDetailModel = () => {
     isRefetching: framesQuery.isRefetching,
     refetch: framesQuery.refetch,
     confirmDeleteFrame,
+    previewFrame,
+    openFramePreview,
+    closeFramePreview,
     deletingFrameIndex: deleteMutation.isPending
       ? deleteMutation.variables?.frameIndex
       : null,
