@@ -1,52 +1,36 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2Icon } from "lucide-react";
 
-import { clearStoredToken } from "@/lib/api-client";
 import { useRequireAuth } from "@/lib/use-require-auth";
-import { Button } from "@/components/ui/button";
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { StudyNavbar } from "@/components/study-navbar";
 
 const DoneContent = () => {
-  const router = useRouter();
-  const queryClient = useQueryClient();
-
-  const handleSignOut = () => {
-    clearStoredToken();
-    // Anti-leak on a shared browser: drop all cached participant data.
-    queryClient.clear();
-    router.replace("/");
-  };
-
   return (
-    <main className="flex flex-1 items-center justify-center px-4 py-12">
-      <Card className="w-full max-w-md text-center">
-        <CardHeader className="items-center">
-          <CheckCircle2Icon
-            className="mx-auto size-10 text-primary"
-            aria-hidden
-          />
-          <CardTitle>All done</CardTitle>
-          <CardDescription>
-            Thank you for taking part in the study. You can close this tab now.
-            Please bring the glasses and the study phone back to the lab as
-            arranged.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="link" onClick={handleSignOut}>
-            Sign out
-          </Button>
-        </CardContent>
-      </Card>
+    <main className="flex w-full flex-1 flex-col">
+      <StudyNavbar />
+      <section className="flex flex-1 items-center justify-center px-4 py-12">
+        <Card className="w-full max-w-md text-center">
+          <CardHeader className="items-center">
+            <CheckCircle2Icon
+              className="mx-auto size-10 text-primary"
+              aria-hidden
+            />
+            <CardTitle>All done</CardTitle>
+            <CardDescription>
+              Thank you for taking part in the study. You can close this tab
+              now. Please bring the glasses and the study phone back to the lab
+              as arranged.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </section>
     </main>
   );
 };

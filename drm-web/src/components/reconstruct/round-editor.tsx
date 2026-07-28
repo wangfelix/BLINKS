@@ -12,7 +12,7 @@ import type {
   Frame,
 } from "@/lib/api-types";
 import { ApiError, saveRoundDraft, submitRound } from "@/lib/api-client";
-import { dayTimeToEpochMs, formatDayLabel } from "@/lib/time";
+import { dayTimeToEpochMs, formatDayLabel, formatTimeSpan } from "@/lib/time";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -38,6 +38,8 @@ import {
 } from "@/components/reconstruct/editor-types";
 import { FramePickerDialog } from "@/components/reconstruct/frame-picker-dialog";
 import type { RatedCategory } from "@/components/reconstruct/experience-rating-scale";
+import { PhotoManagementDialog } from "@/components/photos/photo-management-dialog";
+import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
 
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 
@@ -46,6 +48,11 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 type BoundaryDialogState =
   | { mode: "adjust"; localId: string }
   | { mode: "insert"; afterLocalId: string | null }; // null = before the first activity
+
+interface PhotoDialogState {
+  localId: string;
+  initialFrameKey?: string;
+}
 
 /** Everything the FramePickerDialog needs for one adjust/insert interaction. */
 interface FramePickerConfig {
@@ -118,6 +125,7 @@ export const RoundEditor = ({
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [boundaryDialog, setBoundaryDialog] =
     useState<BoundaryDialogState | null>(null);
+  const [photoDialog, setPhotoDialog] = useState<PhotoDialogState | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   // Latest rows for the debounced/unmount saves, without retriggering their
@@ -371,11 +379,30 @@ export const RoundEditor = ({
   };
 
   const framePicker: FramePickerConfig | null =
-    boundaryDialog === null || frames === null || frames.length === 0
+    boundaryDialog === null || frames === null
       ? null
       : boundaryDialog.mode === "adjust"
-        ? buildAdjustTimesPicker(boundaryDialog.localId, frames)
-        : buildInsertActivityPicker(boundaryDialog.afterLocalId, frames);
+        ? buildAdjustTimesPicker(
+            boundaryDialog.localId,
+            frames.filter((frame) => frame.deletedAt === null),
+          )
+        : buildInsertActivityPicker(
+            boundaryDialog.afterLocalId,
+            frames.filter((frame) => frame.deletedAt === null),
+          );
+
+  const photoDialogActivity =
+    photoDialog === null
+      ? undefined
+      : rows.find((row) => row.localId === photoDialog.localId);
+  const photoDialogFrames =
+    photoDialogActivity === undefined || frames === null
+      ? []
+      : frames.filter(
+          (frame) =>
+            frame.captureEpochMs >= (photoDialogActivity.startMs ?? 0) &&
+            frame.captureEpochMs <= (photoDialogActivity.endMs ?? 0),
+        );
 
   // --- Render ------------------------------------------------------------------
 
@@ -436,6 +463,14 @@ export const RoundEditor = ({
                 onDelete={() => deleteRow(row.localId)}
                 onAdjustBoundaries={() =>
                   setBoundaryDialog({ mode: "adjust", localId: row.localId })
+                }
+                onViewPhotos={(initialFrame) =>
+                  setPhotoDialog({
+                    localId: row.localId,
+                    ...(initialFrame === undefined
+                      ? {}
+                      : { initialFrameKey: frameIdentityKey(initialFrame) }),
+                  })
                 }
               />
               <InsertBetweenButton
@@ -538,6 +573,22 @@ export const RoundEditor = ({
           initialEndMs={framePicker.initialEndMs}
           confirmLabel={framePicker.confirmLabel}
           onConfirm={framePicker.onConfirm}
+        />
+      )}
+
+      {photoDialog !== null && photoDialogActivity !== undefined && (
+        <PhotoManagementDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPhotoDialog(null);
+          }}
+          title={`Photos from ${formatTimeSpan(
+            photoDialogActivity.startMs ?? 0,
+            photoDialogActivity.endMs ?? 0,
+          )}`}
+          description="Review every photo captured during this activity. Deleting a photo keeps its timestamp and does not change the activity's time span."
+          frames={photoDialogFrames}
+          initialFrameKey={photoDialog.initialFrameKey}
         />
       )}
     </Column>

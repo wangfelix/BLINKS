@@ -25,6 +25,7 @@ exports.setLastReminderDay = setLastReminderDay;
 exports.listPushParticipants = listPushParticipants;
 exports.aggregateFrameDays = aggregateFrameDays;
 exports.listFramesOnDay = listFramesOnDay;
+exports.listPhotoFramesOnDay = listPhotoFramesOnDay;
 exports.countFramesOnDay = countFramesOnDay;
 exports.latestFrameDay = latestFrameDay;
 exports.getRoundResponseList = getRoundResponseList;
@@ -83,6 +84,7 @@ let updateLastReminderDayStmt;
 let listPushParticipantsStmt;
 let frameDayStatsStmt;
 let framesInRangeStmt;
+let photoFramesInRangeStmt;
 let getRoundResponseListStmt;
 let insertRoundResponseListStmt;
 let markFirstOpenedStmt;
@@ -788,7 +790,8 @@ function initDb(dbPath) {
     // Frames inherit their chunk's VLM output; the label is only surfaced once
     // the chunk reached 'done' (mirrors the old per-frame vlm_status gate).
     framesInRangeStmt = db.prepare(`
-    SELECT f.capture_epoch_ms, f.file_path, f.face_status,
+    SELECT f.device, f.session, f.frame_index, f.capture_epoch_ms,
+           f.file_path, f.face_status,
            c.status AS chunk_status,
            CASE WHEN c.status = 'done' THEN c.vlm_label    ELSE NULL END AS vlm_label,
            CASE WHEN c.status = 'done' THEN c.vlm_category ELSE NULL END AS vlm_category
@@ -798,6 +801,17 @@ function initDb(dbPath) {
     WHERE f.participant = ? AND f.capture_epoch_ms BETWEEN ? AND ?
       AND f.deleted_at IS NULL
     ORDER BY f.capture_epoch_ms
+  `);
+    // Photo management keeps soft-deleted rows visible as timestamped
+    // tombstones. Only frames that completed face anonymization are included:
+    // live rows may expose their image path, while deleted rows have file_path=''
+    // and can therefore expose metadata only.
+    photoFramesInRangeStmt = db.prepare(`
+    SELECT device, session, frame_index, capture_epoch_ms, file_path, deleted_at
+    FROM frames
+    WHERE participant = ? AND capture_epoch_ms BETWEEN ? AND ?
+      AND face_status = 'done'
+    ORDER BY capture_epoch_ms, device, session, frame_index
   `);
     getRoundResponseListStmt = db.prepare(`
     SELECT id, participant, round, day, kind, immutable, status,
@@ -1167,6 +1181,13 @@ function aggregateFrameDays(participant) {
 function listFramesOnDay(participant, day) {
     const { fromMs, toMs } = (0, time_1.dayUtcRange)(day);
     const rows = framesInRangeStmt.all(participant, fromMs, toMs);
+    return rows.filter((row) => (0, time_1.dayKeyFromEpochMs)(row.capture_epoch_ms) === day);
+}
+// Every anonymized frame audit row on one local day, including soft-deleted
+// tombstones in their original chronological position.
+function listPhotoFramesOnDay(participant, day) {
+    const { fromMs, toMs } = (0, time_1.dayUtcRange)(day);
+    const rows = photoFramesInRangeStmt.all(participant, fromMs, toMs);
     return rows.filter((row) => (0, time_1.dayKeyFromEpochMs)(row.capture_epoch_ms) === day);
 }
 function countFramesOnDay(participant, day) {

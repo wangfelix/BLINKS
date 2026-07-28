@@ -156,12 +156,26 @@ export interface DayAggregate {
 // (non-null only once the chunk's VLM pass is done); chunk_status is the
 // chunk lifecycle (null only for legacy rows ingested before chunks existed).
 export interface DayFrameRow {
+  device: string;
+  session: number;
+  frame_index: number;
   capture_epoch_ms: number;
   file_path: string;
   face_status: string;
   chunk_status: string | null;
   vlm_label: string | null;
   vlm_category: string | null;
+}
+
+// Participant-facing frame audit metadata for photo management. Deleted rows
+// deliberately keep their identity + timestamp but have no serving path.
+export interface PhotoFrameRow {
+  device: string;
+  session: number;
+  frame_index: number;
+  capture_epoch_ms: number;
+  file_path: string;
+  deleted_at: number | null;
 }
 
 // --- 5-minute chunks ---------------------------------------------------------
@@ -241,6 +255,7 @@ let updateLastReminderDayStmt: Database.Statement;
 let listPushParticipantsStmt: Database.Statement;
 let frameDayStatsStmt: Database.Statement;
 let framesInRangeStmt: Database.Statement;
+let photoFramesInRangeStmt: Database.Statement;
 let getRoundResponseListStmt: Database.Statement;
 let insertRoundResponseListStmt: Database.Statement;
 let markFirstOpenedStmt: Database.Statement;
@@ -1083,7 +1098,8 @@ export function initDb(dbPath: string): void {
   // Frames inherit their chunk's VLM output; the label is only surfaced once
   // the chunk reached 'done' (mirrors the old per-frame vlm_status gate).
   framesInRangeStmt = db.prepare(`
-    SELECT f.capture_epoch_ms, f.file_path, f.face_status,
+    SELECT f.device, f.session, f.frame_index, f.capture_epoch_ms,
+           f.file_path, f.face_status,
            c.status AS chunk_status,
            CASE WHEN c.status = 'done' THEN c.vlm_label    ELSE NULL END AS vlm_label,
            CASE WHEN c.status = 'done' THEN c.vlm_category ELSE NULL END AS vlm_category
@@ -1093,6 +1109,18 @@ export function initDb(dbPath: string): void {
     WHERE f.participant = ? AND f.capture_epoch_ms BETWEEN ? AND ?
       AND f.deleted_at IS NULL
     ORDER BY f.capture_epoch_ms
+  `);
+
+  // Photo management keeps soft-deleted rows visible as timestamped
+  // tombstones. Only frames that completed face anonymization are included:
+  // live rows may expose their image path, while deleted rows have file_path=''
+  // and can therefore expose metadata only.
+  photoFramesInRangeStmt = db.prepare(`
+    SELECT device, session, frame_index, capture_epoch_ms, file_path, deleted_at
+    FROM frames
+    WHERE participant = ? AND capture_epoch_ms BETWEEN ? AND ?
+      AND face_status = 'done'
+    ORDER BY capture_epoch_ms, device, session, frame_index
   `);
 
   getRoundResponseListStmt = db.prepare(`
@@ -1647,6 +1675,21 @@ export function listFramesOnDay(
 ): DayFrameRow[] {
   const { fromMs, toMs } = dayUtcRange(day);
   const rows = framesInRangeStmt.all(participant, fromMs, toMs) as DayFrameRow[];
+  return rows.filter((row) => dayKeyFromEpochMs(row.capture_epoch_ms) === day);
+}
+
+// Every anonymized frame audit row on one local day, including soft-deleted
+// tombstones in their original chronological position.
+export function listPhotoFramesOnDay(
+  participant: string,
+  day: string,
+): PhotoFrameRow[] {
+  const { fromMs, toMs } = dayUtcRange(day);
+  const rows = photoFramesInRangeStmt.all(
+    participant,
+    fromMs,
+    toMs,
+  ) as PhotoFrameRow[];
   return rows.filter((row) => dayKeyFromEpochMs(row.capture_epoch_ms) === day);
 }
 

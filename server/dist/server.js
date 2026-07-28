@@ -394,6 +394,20 @@ const toActivityJson = (row) => ({
     workloadRating: row.workload_rating,
     recoveryRating: row.recovery_rating,
 });
+const frameIdentityKey = (device, session, frameIndex) => `${device}\u0000${session}\u0000${frameIndex}`;
+const toPhotoFrameJson = (row, vlm = {
+    label: null,
+    category: null,
+}) => ({
+    device: row.device,
+    session: row.session,
+    frameIndex: row.frame_index,
+    captureEpochMs: row.capture_epoch_ms,
+    imageUrl: row.deleted_at === null ? `/frames/${row.file_path}` : null,
+    deletedAt: row.deleted_at,
+    vlmLabel: row.deleted_at === null ? vlm.label : null,
+    vlmCategory: row.deleted_at === null ? vlm.category : null,
+});
 // Hard ceiling well above any real day (a 16 h day at 30 s frames segments
 // into far fewer activities); protects the propagation loop from abuse.
 const MAX_ACTIVITIES_PER_ROUND = 300;
@@ -556,6 +570,22 @@ app.get("/api/reconstruction/state", auth_1.requireAuth, (req, res) => {
         ],
     });
 });
+// Full pinned-day photo audit for the navbar's Manage Photos dialog. Access
+// starts only after Self DRM is submitted so photos cannot contaminate the
+// from-memory round. Soft-deleted rows remain as timestamped tombstones, but
+// their cleared file paths are never returned.
+app.get("/api/photos", auth_1.requireAuth, (req, res) => {
+    const participant = req.participant;
+    const round1 = (0, db_1.getRoundResponseList)(participant, 1);
+    if (round1?.status !== "submitted") {
+        res.status(403).json({ error: "step 1 must be submitted first" });
+        return;
+    }
+    res.json({
+        day: round1.day,
+        frames: (0, db_1.listPhotoFramesOnDay)(participant, round1.day).map((frame) => toPhotoFrameJson(frame)),
+    });
+});
 // Shared guard for round reads and writes. Responds and returns undefined
 // when the round is malformed, there is no study day yet, the evening gate is
 // closed, round 2 is still locked behind round 1 (the fixed-order invariant,
@@ -616,6 +646,10 @@ app.get("/api/reconstruction/round/:round", auth_1.requireAuth, (req, res) => {
     // exposing either there would contaminate the fixed-order design.
     if (round === 2) {
         const dayFrames = (0, db_1.listFramesOnDay)(participant, day);
+        const liveFrameByIdentity = new Map(dayFrames.map((frame) => [
+            frameIdentityKey(frame.device, frame.session, frame.frame_index),
+            frame,
+        ]));
         const servedFrames = dayFrames.filter((f) => f.face_status === "done");
         // Pending = frames whose 5-minute chunk is not terminal yet (filling /
         // ready / processing). Legacy frames without a chunk are frozen, and
@@ -709,12 +743,13 @@ app.get("/api/reconstruction/round/:round", auth_1.requireAuth, (req, res) => {
         }
         payload.status = responseList?.status ?? "none";
         payload.vlmPendingCount = vlmPendingCount;
-        payload.frames = servedFrames.map((frame) => ({
-            captureEpochMs: frame.capture_epoch_ms,
-            imageUrl: `/frames/${frame.file_path}`,
-            vlmLabel: frame.vlm_label,
-            vlmCategory: frame.vlm_category,
-        }));
+        payload.frames = (0, db_1.listPhotoFramesOnDay)(participant, day).map((frame) => {
+            const liveFrame = liveFrameByIdentity.get(frameIdentityKey(frame.device, frame.session, frame.frame_index));
+            return toPhotoFrameJson(frame, {
+                label: liveFrame?.vlm_label ?? null,
+                category: liveFrame?.vlm_category ?? null,
+            });
+        });
     }
     payload.activities = activities.map(toActivityJson);
     // These markers are written only after the successful response payload is

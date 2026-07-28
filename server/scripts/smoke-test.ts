@@ -671,6 +671,7 @@ const main = async (): Promise<void> => {
   // FIXED ORDER, server-enforced: round 2 is inaccessible before round 1 is
   // submitted — reads AND writes.
   await api("/api/reconstruction/round/2", { token, expectStatus: 403 });
+  await api("/api/photos", { token, expectStatus: 403 });
   await api("/api/reconstruction/round/2", {
     method: "PUT",
     token,
@@ -878,12 +879,46 @@ const main = async (): Promise<void> => {
     "round 2 unlocks after round 1 submit",
   );
 
+  // Global photo management unlocks with Step 2 and returns live frames plus
+  // timestamped tombstones for the three earlier soft deletions. Tombstones
+  // retain their database identity but never regain a serving path.
+  const managedPhotos = await api("/api/photos", { token });
+  assert.strictEqual(managedPhotos.day, TODAY);
+  assert.strictEqual(managedPhotos.frames.length, 10);
+  assert.strictEqual(
+    managedPhotos.frames.filter((frame: any) => frame.deletedAt !== null)
+      .length,
+    3,
+  );
+  assert.ok(
+    managedPhotos.frames
+      .filter((frame: any) => frame.deletedAt !== null)
+      .every(
+        (frame: any) =>
+          frame.imageUrl === null &&
+          typeof frame.device === "string" &&
+          Number.isInteger(frame.session) &&
+          Number.isInteger(frame.frameIndex) &&
+          typeof frame.captureEpochMs === "number",
+      ),
+    "deleted photo records expose identity + time but no file path",
+  );
+
   // Assisted round with pending VLM work: frames served, no proposal yet.
   const pendingRound2 = await api("/api/reconstruction/round/2", { token });
   assert.ok(!("mode" in pendingRound2));
   assert.strictEqual(pendingRound2.status, "draft", "pinned on open");
   assert.deepStrictEqual(pendingRound2.activities, []);
-  assert.strictEqual(pendingRound2.frames.length, 7, "assisted round lists frames");
+  assert.strictEqual(
+    pendingRound2.frames.length,
+    10,
+    "assisted round lists live frames and deleted placeholders",
+  );
+  assert.strictEqual(
+    pendingRound2.frames.filter((frame: any) => frame.deletedAt !== null)
+      .length,
+    3,
+  );
   assert.strictEqual(
     pendingRound2.vlmPendingCount,
     7,
@@ -952,9 +987,18 @@ const main = async (): Promise<void> => {
   );
   assert.strictEqual(generated.activities[1].vlmRawLabel, "Deep work");
   assert.strictEqual(generated.activities[1].vlmCategory, "work");
-  assert.strictEqual(generated.frames.length, 7);
+  assert.strictEqual(generated.frames.length, 10);
   assert.strictEqual(generated.frames[0].vlmLabel, "Working at desk");
   assert.strictEqual(generated.frames[0].vlmCategory, "work");
+  assert.ok(
+    generated.frames.every(
+      (frame: any) =>
+        typeof frame.device === "string" &&
+        Number.isInteger(frame.session) &&
+        Number.isInteger(frame.frameIndex),
+    ),
+    "assisted frame payload carries deletion endpoint identity",
+  );
   assert.strictEqual(
     generated.firstDraftSavedAt,
     null,

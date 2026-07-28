@@ -11,8 +11,11 @@
 
 import type {
   ActivityInput,
+  DeleteFramesResponse,
+  Frame,
   LoginResponse,
   OkResponse,
+  PhotoDayResponse,
   ProfileResponse,
   RoundResponse,
   StudyStateResponse,
@@ -112,8 +115,29 @@ export const getProfile = () => apiFetch<ProfileResponse>("/api/profile");
 export const getStudyState = () =>
   apiFetch<StudyStateResponse>("/api/reconstruction/state");
 
+export const getManagedPhotos = () => apiFetch<PhotoDayResponse>("/api/photos");
+
 export const getRound = (round: 1 | 2) =>
   apiFetch<RoundResponse>(`/api/reconstruction/round/${round}`);
+
+export const deletePhoto = (frame: Frame) =>
+  apiFetch<DeleteFramesResponse>(
+    `/api/sessions/${encodeURIComponent(frame.device)}/${frame.session}/frames/${frame.frameIndex}`,
+    { method: "DELETE" },
+  );
+
+export const deletePhotos = (
+  device: string,
+  session: number,
+  frameIndexes: number[],
+) =>
+  apiFetch<DeleteFramesResponse>(
+    `/api/sessions/${encodeURIComponent(device)}/${session}/frames`,
+    {
+      method: "DELETE",
+      body: { frameIndexes },
+    },
+  );
 
 export const saveRoundDraft = (round: 1 | 2, activities: ActivityInput[]) =>
   apiFetch<OkResponse>(`/api/reconstruction/round/${round}`, {

@@ -65,10 +65,22 @@ export interface Activity {
 
 /** Frame of the assisted round (never present for self rounds). */
 export interface Frame {
+  device: string;
+  session: number;
+  frameIndex: number;
   captureEpochMs: number;
-  imageUrl: string; // relative, e.g. /frames/<file_path>; auth via blinks_token cookie
+  // Deleted frames remain as timestamped audit tombstones. Their path is
+  // cleared server-side, so the client receives no image URL.
+  imageUrl: string | null;
+  deletedAt: number | null;
   vlmLabel: string | null;
   vlmCategory: string | null;
+}
+
+/** GET /api/photos, available only after Step 1 is submitted. */
+export interface PhotoDayResponse {
+  day: string;
+  frames: Frame[];
 }
 
 export interface RoundResponse {
@@ -106,6 +118,14 @@ export interface ActivityInput {
 
 export interface OkResponse {
   ok: true;
+}
+
+export interface DeleteFramesResponse {
+  ok: boolean;
+  requestedCount: number;
+  deletedCount: number;
+  alreadyDeletedCount: number;
+  failedFrameIndexes?: number[];
 }
 
 export interface SubmitResponse {

@@ -320,7 +320,7 @@ export const FramePickerDialog = ({
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element -- authenticated cross-origin image; the Next image proxy cannot forward the auth cookie */}
                             <img
-                              src={frameImageSrc(frame.imageUrl)}
+                              src={frameImageSrc(frame.imageUrl!)}
                               alt={`Frame at ${formatTimeOfDay(frame.captureEpochMs)}`}
                               loading="lazy"
                               className="w-full bg-muted object-cover"
