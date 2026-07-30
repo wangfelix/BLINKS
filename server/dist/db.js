@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = void 0;
+exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = exports.RecordingEventConflictError = exports.RECORDING_EVENT_TYPES = void 0;
 exports.chunkStartOf = chunkStartOf;
 exports.initDb = initDb;
 exports.pinRoundResponseList = pinRoundResponseList;
@@ -15,7 +15,10 @@ exports.softDeleteFrameRow = softDeleteFrameRow;
 exports.maxFrameIndex = maxFrameIndex;
 exports.insertFrame = insertFrame;
 exports.closeIdleChunks = closeIdleChunks;
-exports.closeFillingChunks = closeFillingChunks;
+exports.recordRecordingEvent = recordRecordingEvent;
+exports.latestRecordingEvent = latestRecordingEvent;
+exports.listPausedParticipants = listPausedParticipants;
+exports.closeFillingChunksForSession = closeFillingChunksForSession;
 exports.listChunksOnDay = listChunksOnDay;
 exports.getParticipant = getParticipant;
 exports.ensureParticipant = ensureParticipant;
@@ -40,6 +43,16 @@ exports.replaceActivities = replaceActivities;
 exports.exportFramesCsv = exportFramesCsv;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const time_1 = require("./time");
+// --- Recording lifecycle events ---------------------------------------------
+exports.RECORDING_EVENT_TYPES = [
+    "start",
+    "pause",
+    "resume",
+    "end",
+];
+class RecordingEventConflictError extends Error {
+}
+exports.RecordingEventConflictError = RecordingEventConflictError;
 exports.ACTIVITY_LIST_KINDS = [
     "self",
     "vlm_proposal",
@@ -68,13 +81,20 @@ let frameStatusByPathStmt;
 let upsertChunkStmt;
 let closeEarlierChunksStmt;
 let closeIdleChunksStmt;
-let closeParticipantChunksStmt;
+let closeSessionChunksStmt;
 let chunksInRangeStmt;
 let getFrameChunkStmt;
 let decrementChunkStmt;
 let deleteEmptyChunkStmt;
 let insertFrameTx;
 let softDeleteFrameTx;
+// Recording lifecycle event statements
+let getRecordingEventByIdStmt;
+let getRecordingEventBySequenceStmt;
+let insertRecordingEventStmt;
+let latestRecordingEventStmt;
+let listPausedParticipantsStmt;
+let recordRecordingEventTx;
 // DRM statements
 let getParticipantStmt;
 let insertParticipantStmt;
@@ -100,7 +120,6 @@ let insertVlmProposalListStmt;
 let listVlmSpanActivitiesStmt;
 let deleteActivitiesStmt;
 let insertActivityStmt;
-let propagateCorrectionsStmt;
 let createVlmProposalTx;
 let replaceActivitiesTx;
 // Adds a column to the frames table only if it is missing, so an existing
@@ -110,6 +129,20 @@ function migrateAddColumn(column, ddl) {
     const cols = db.prepare(`PRAGMA table_info(frames)`).all();
     if (!cols.some((c) => c.name === column)) {
         db.exec(`ALTER TABLE frames ADD COLUMN ${ddl}`);
+    }
+}
+function tableHasColumn(table, column) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+    return cols.some((candidate) => candidate.name === column);
+}
+function tableExists(table) {
+    return db.prepare(`PRAGMA table_info(${table})`).all().length > 0;
+}
+// Remove retired or derived columns rather than retaining duplicate research
+// data in fresh or upgraded databases.
+function migrateDropColumn(table, column) {
+    if (tableExists(table) && tableHasColumn(table, column)) {
+        db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
     }
 }
 function initDb(dbPath) {
@@ -135,18 +168,6 @@ function initDb(dbPath) {
       device_frame      INTEGER,
       byte_length       INTEGER,
       jpeg_ok           INTEGER,
-      vlm_status        TEXT    NOT NULL DEFAULT 'pending',
-      vlm_model         TEXT,
-      vlm_label         TEXT,
-      vlm_description   TEXT,
-      vlm_descriptor    TEXT,
-      vlm_completed_at  INTEGER,
-      -- DRM: per-frame work|break|other from the VLM worker, plus the labels
-      -- the participant's SUBMITTED reconstruction propagates back onto the
-      -- frames (NULL = never touched by a submitted reconstruction).
-      vlm_category      TEXT,
-      user_corrected_category_label TEXT,
-      user_corrected_activity_label TEXT,
       -- Face anonymization, filled by the separate face-blur worker (Python).
       -- Faces are pixelated in place BEFORE the frame is ever served; the read
       -- API only exposes frames whose face_status='done'.
@@ -161,8 +182,6 @@ function initDb(dbPath) {
     );
     CREATE INDEX IF NOT EXISTS idx_frames_time
       ON frames (participant, capture_epoch_ms);
-    CREATE INDEX IF NOT EXISTS idx_frames_pending
-      ON frames (capture_epoch_ms) WHERE vlm_status = 'pending';
   `);
     // Migrate DBs created before the face_* columns existed (the columns are part
     // of the CREATE above for fresh DBs; ALTER adds them to existing ones). Every
@@ -172,14 +191,12 @@ function initDb(dbPath) {
     migrateAddColumn("face_method", "face_method TEXT");
     migrateAddColumn("face_completed_at", "face_completed_at INTEGER");
     migrateAddColumn("deleted_at", "deleted_at INTEGER");
-    // Recreate these partial indexes after the migration so older databases do
-    // not keep indexing soft-deleted work as pending.
+    // Recreate the face-processing index after the migration so older databases
+    // do not keep indexing soft-deleted work as pending. The retired per-frame
+    // VLM index must be dropped before its source column is removed below.
     db.exec(`
     DROP INDEX IF EXISTS idx_frames_pending;
     DROP INDEX IF EXISTS idx_frames_face_pending;
-    CREATE INDEX idx_frames_pending
-      ON frames (capture_epoch_ms)
-      WHERE vlm_status = 'pending' AND deleted_at IS NULL;
     CREATE INDEX idx_frames_face_pending
       ON frames (capture_epoch_ms)
       WHERE face_status = 'pending' AND deleted_at IS NULL;
@@ -187,19 +204,23 @@ function initDb(dbPath) {
       ON frames (participant, deleted_at)
       WHERE deleted_at IS NOT NULL;
   `);
-    // DRM migration (additive, same pattern as face_*): category + propagated
-    // user-corrected labels on frames, plus participants and activity lists.
-    // NOTE (2026-07 chunk rework): frames.vlm_* and frames.user_corrected_* are
-    // FROZEN legacy columns — kept readable for pre-chunk test data but no
-    // longer written. The VLM output and the propagated corrections now live on
-    // the 5-minute chunks table below.
-    migrateAddColumn("vlm_category", "vlm_category TEXT");
-    migrateAddColumn("user_corrected_category_label", "user_corrected_category_label TEXT");
-    migrateAddColumn("user_corrected_activity_label", "user_corrected_activity_label TEXT");
-    // Chunk rework (additive): every frame knows its clock-aligned 5-minute
-    // window; NULL marks legacy rows ingested before chunks existed (they keep
-    // their frozen per-frame vlm_* data and are excluded from chunk logic).
+    // Every frame knows its clock-aligned 5-minute window. NULL marks a row
+    // ingested before chunking existed; it remains available as frame metadata
+    // but has no current VLM result.
     migrateAddColumn("chunk_start_ms", "chunk_start_ms INTEGER");
+    db.transaction(() => {
+        [
+            "vlm_status",
+            "vlm_model",
+            "vlm_label",
+            "vlm_category",
+            "vlm_description",
+            "vlm_descriptor",
+            "vlm_completed_at",
+            "user_corrected_activity_label",
+            "user_corrected_category_label",
+        ].forEach((column) => migrateDropColumn("frames", column));
+    })();
     db.exec(`
     CREATE INDEX IF NOT EXISTS idx_frames_chunk
       ON frames (participant, chunk_start_ms);
@@ -217,13 +238,7 @@ function initDb(dbPath) {
       vlm_label       TEXT,
       vlm_category    TEXT,               -- work|break|other
       vlm_description TEXT,
-      vlm_descriptor  TEXT,               -- JSON scene-state descriptor
       vlm_completed_at INTEGER,
-      -- Label-quality propagation target (was frames.user_corrected_*): the
-      -- submitted ASSISTED reconstruction stamps its labels onto every chunk
-      -- overlapping each activity's span.
-      user_corrected_category_label TEXT,
-      user_corrected_activity_label TEXT,
       created_at      INTEGER NOT NULL,
       updated_at      INTEGER,
       PRIMARY KEY (participant, chunk_start_ms)
@@ -231,14 +246,35 @@ function initDb(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_chunks_status
       ON chunks (status, chunk_start_ms);
   `);
+    db.transaction(() => {
+        [
+            "vlm_descriptor",
+            "user_corrected_activity_label",
+            "user_corrected_category_label",
+        ].forEach((column) => migrateDropColumn("chunks", column));
+    })();
+    // Raw recording lifecycle events are append-only. Client time records the
+    // participant's tap; server time makes delivery delay and offline retries
+    // auditable. The two uniqueness constraints make retries idempotent.
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS recording_events (
+      participant              TEXT    NOT NULL,
+      event_id                 TEXT    NOT NULL,
+      session                  INTEGER NOT NULL,
+      event_type               TEXT    NOT NULL
+        CHECK (event_type IN ('start', 'pause', 'resume', 'end')),
+      client_epoch_ms          INTEGER NOT NULL,
+      server_received_epoch_ms INTEGER NOT NULL,
+      sequence_number          INTEGER NOT NULL,
+      PRIMARY KEY (participant, event_id),
+      UNIQUE (participant, session, sequence_number)
+    );
+    CREATE INDEX IF NOT EXISTS idx_recording_events_session
+      ON recording_events (participant, session, sequence_number);
+  `);
     // DRM schema discovery. Workflow state used to live in a separate
     // reconstructions table; the final model moves it onto the response-list
     // parent so an opened-but-empty round still has one durable identity.
-    const tableHasColumn = (table, column) => {
-        const cols = db.prepare(`PRAGMA table_info(${table})`).all();
-        return cols.some((c) => c.name === column);
-    };
-    const tableExists = (table) => db.prepare(`PRAGMA table_info(${table})`).all().length > 0;
     if (tableExists("participants") && !tableHasColumn("participants", "arm")) {
         db.exec(`DROP TABLE participants;`);
     }
@@ -667,16 +703,22 @@ function initDb(dbPath) {
     UPDATE chunks SET status = 'ready', updated_at = @now
     WHERE status = 'filling' AND last_frame_received_ms < @cutoff_ms
   `);
-    // The app's explicit End-session signal: every still-filling chunk of the
-    // participant closes immediately (the idle sweep stays as the fallback).
-    closeParticipantChunksStmt = db.prepare(`
+    // The app's explicit End-session event closes only chunks containing frames
+    // from that recording session. A delayed retry from an older session must
+    // never close the participant's newer recording.
+    closeSessionChunksStmt = db.prepare(`
     UPDATE chunks SET status = 'ready', updated_at = @now
     WHERE participant = @participant AND status = 'filling'
+      AND EXISTS (
+        SELECT 1 FROM frames f
+        WHERE f.participant = chunks.participant
+          AND f.chunk_start_ms = chunks.chunk_start_ms
+          AND f.session = @session
+      )
   `);
     chunksInRangeStmt = db.prepare(`
-    SELECT c.chunk_start_ms, c.status, c.vlm_label, c.vlm_category,
-           MIN(f.capture_epoch_ms) AS first_frame_ms,
-           MAX(f.capture_epoch_ms) AS last_frame_ms,
+    SELECT c.chunk_start_ms, c.chunk_end_ms, c.status,
+           c.vlm_label, c.vlm_category,
            COUNT(f.capture_epoch_ms) AS served_frame_count
     FROM chunks c
     LEFT JOIN frames f
@@ -753,6 +795,63 @@ function initDb(dbPath) {
     SELECT face_status FROM frames
     WHERE participant = ? AND file_path = ? AND deleted_at IS NULL
   `);
+    // --- Recording lifecycle event statements --------------------------------
+    getRecordingEventByIdStmt = db.prepare(`
+    SELECT participant, event_id, session, event_type, client_epoch_ms,
+           server_received_epoch_ms, sequence_number
+    FROM recording_events
+    WHERE participant = ? AND event_id = ?
+  `);
+    getRecordingEventBySequenceStmt = db.prepare(`
+    SELECT participant, event_id, session, event_type, client_epoch_ms,
+           server_received_epoch_ms, sequence_number
+    FROM recording_events
+    WHERE participant = ? AND session = ? AND sequence_number = ?
+  `);
+    insertRecordingEventStmt = db.prepare(`
+    INSERT INTO recording_events (
+      participant, event_id, session, event_type, client_epoch_ms,
+      server_received_epoch_ms, sequence_number
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+    latestRecordingEventStmt = db.prepare(`
+    SELECT participant, event_id, session, event_type, client_epoch_ms,
+           server_received_epoch_ms, sequence_number
+    FROM recording_events
+    WHERE participant = ?
+    ORDER BY session DESC, sequence_number DESC
+    LIMIT 1
+  `);
+    listPausedParticipantsStmt = db.prepare(`
+    SELECT participant FROM (
+      SELECT participant, event_type,
+             ROW_NUMBER() OVER (
+               PARTITION BY participant
+               ORDER BY session DESC, sequence_number DESC
+             ) AS recency
+      FROM recording_events
+    )
+    WHERE recency = 1 AND event_type = 'pause'
+    ORDER BY participant
+  `);
+    recordRecordingEventTx = db.transaction((participant, event, serverReceivedEpochMs) => {
+        const byId = getRecordingEventByIdStmt.get(participant, event.event_id);
+        const bySequence = getRecordingEventBySequenceStmt.get(participant, event.session, event.sequence_number);
+        const existing = byId ?? bySequence;
+        if (existing) {
+            const identical = existing.event_id === event.event_id &&
+                existing.session === event.session &&
+                existing.event_type === event.event_type &&
+                existing.client_epoch_ms === event.client_epoch_ms &&
+                existing.sequence_number === event.sequence_number;
+            if (!identical) {
+                throw new RecordingEventConflictError("recording event identity conflicts with an existing event");
+            }
+            return existing;
+        }
+        insertRecordingEventStmt.run(participant, event.event_id, event.session, event.event_type, event.client_epoch_ms, serverReceivedEpochMs, event.sequence_number);
+        return getRecordingEventByIdStmt.get(participant, event.event_id);
+    });
     // --- DRM statements --------------------------------------------------------
     getParticipantStmt = db.prepare(`
     SELECT username, occupation, work_description, wake_time, bed_time, arm,
@@ -788,7 +887,7 @@ function initDb(dbPath) {
     ORDER BY f.capture_epoch_ms
   `);
     // Frames inherit their chunk's VLM output; the label is only surfaced once
-    // the chunk reached 'done' (mirrors the old per-frame vlm_status gate).
+    // the chunk reached 'done'.
     framesInRangeStmt = db.prepare(`
     SELECT f.device, f.session, f.frame_index, f.capture_epoch_ms,
            f.file_path, f.face_status,
@@ -928,15 +1027,6 @@ function initDb(dbPath) {
       @created_at, @updated_at
     )
   `);
-    // Label-quality propagation (contract): a submitted activity stamps its
-    // labels onto every CHUNK overlapping its time span. A chunk straddling two
-    // activities is stamped by both; activities are written in position order,
-    // so the later activity deterministically wins the boundary chunk.
-    propagateCorrectionsStmt = db.prepare(`
-    UPDATE chunks
-    SET user_corrected_category_label = ?, user_corrected_activity_label = ?
-    WHERE participant = ? AND chunk_start_ms < ? AND chunk_end_ms > ?
-  `);
     // The original generated proposal is a write-once list. The metadata row's
     // primary key makes repeated generation a no-op, and this transaction is
     // the only code path that inserts vlm_proposal items.
@@ -968,12 +1058,9 @@ function initDb(dbPath) {
         return true;
     });
     // Replace-all write for a round's EDITABLE activities. Draft saves and
-    // submissions share it; submit additionally locks the round and — for the
-    // ASSISTED round only — propagates the labels onto chunks, all atomically.
-    // The immutable vlm_proposal list is never deleted or updated here.
-    // Self rounds must never propagate: both rounds cover the same day, so a
-    // self-round propagation would overwrite (or pre-empt) the assisted
-    // round's chunk-level ground truth.
+    // submissions share it; submit additionally locks the response list. The
+    // immutable vlm_proposal list is never deleted or updated here. Original
+    // VLM and final participant labels remain separate list-owned observations.
     replaceActivitiesTx = db.transaction((participant, round, day, activities, submit, recordDraftSave, now) => {
         const listKind = round === 1 ? "self" : "assisted";
         // Match against the immutable original proposal so unchanged spans keep
@@ -1009,16 +1096,6 @@ function initDb(dbPath) {
         if (!submit)
             return null;
         markSubmittedStmt.run(now, now, participant, round);
-        if (round !== 2)
-            return now;
-        // Defense in depth: the API validates every span against the day, but
-        // the propagation additionally clamps to the day's UTC range so a bug
-        // upstream can never rewrite chunks outside the pinned study day.
-        const { fromMs, toMs } = (0, time_1.dayUtcRange)(day);
-        for (const activity of activities) {
-            propagateCorrectionsStmt.run(activity.category_label, activity.raw_label, participant, Math.min(activity.end_ms, toMs), // chunk_start_ms < clamped end
-            Math.max(activity.start_ms, fromMs));
-        }
         return now;
     });
     // Ingest one frame atomically with its chunk bookkeeping: attach the frame
@@ -1106,16 +1183,29 @@ function closeIdleChunks(idleMs) {
     const now = Date.now();
     return closeIdleChunksStmt.run({ now, cutoff_ms: now - idleMs }).changes;
 }
-// The app's End-session signal: the participant deliberately stopped
-// recording, so no more frames are coming — every still-filling chunk goes to
-// the VLM immediately instead of waiting for the idle sweep.
-function closeFillingChunks(participant) {
-    return closeParticipantChunksStmt.run({ participant, now: Date.now() })
-        .changes;
+// Records one client-generated lifecycle event idempotently. Reusing an event
+// ID or session sequence with different content is a data-integrity conflict.
+function recordRecordingEvent(participant, event) {
+    return recordRecordingEventTx(participant, event, Date.now());
 }
-// Every chunk of one local day with the real frame bounds of its servable
-// frames, ordered by window start. Windows are clock-aligned, so a chunk
-// never straddles the local-midnight day boundary.
+function latestRecordingEvent(participant) {
+    return latestRecordingEventStmt.get(participant);
+}
+// Restores the current defense-in-depth pause gate after a server restart.
+function listPausedParticipants() {
+    return listPausedParticipantsStmt.all().map((row) => row.participant);
+}
+// The app's latest End-session event proves that no more frames from that
+// session are coming, so its still-filling chunks can go to the VLM now.
+function closeFillingChunksForSession(participant, session) {
+    return closeSessionChunksStmt.run({
+        participant,
+        session,
+        now: Date.now(),
+    }).changes;
+}
+// Every chunk of one local day, ordered by window start. Windows are
+// clock-aligned, so a chunk never straddles the local-midnight day boundary.
 function listChunksOnDay(participant, day) {
     const { fromMs, toMs } = (0, time_1.dayUtcRange)(day);
     const rows = chunksInRangeStmt.all(participant, fromMs, toMs);
@@ -1246,9 +1336,8 @@ function createVlmProposal(options) {
     return createVlmProposalTx(options.participant, options.round, options.day, options.activities, Date.now());
 }
 // Atomic replace-all save of a round's activities (creates its response-list
-// parent on first save). With submit=true also locks the round
-// and — round 2 only — propagates each activity's labels onto the
-// chunks in its span; returns the submitted_at timestamp (null for drafts).
+// parent on first save). With submit=true it also locks the round; returns the
+// submitted_at timestamp (null for drafts).
 function replaceActivities(options) {
     const submittedAt = replaceActivitiesTx(options.participant, options.round, options.day, options.activities, options.submit, options.recordDraftSave ?? false, Date.now());
     return { submittedAt };

@@ -71,8 +71,10 @@ npm run create-user -- participant1 <newpassword> --reset
 ### Tests
 
 ```bash
-npx tsx scripts/test-segmentation.ts    # pure chunk-segmentation tests (12 cases)
+npx tsx scripts/test-segmentation.ts    # pure chunk-segmentation tests (9 cases)
+npx tsx scripts/test-activity-vocabulary.ts  # VLM/API/dropdown enum stays identical
 npx tsx scripts/test-activity-lists.ts  # legacy/natural-key migration + parent FK + three-list immutability
+npx tsx scripts/test-recording-events.ts  # idempotent lifecycle events + pause restoration + session-specific close
 npx tsx scripts/test-reconstruction-timing-migration.ts  # reconstructions -> response-parent workflow/timing migration
 
 # end-to-end smoke test (needs its own throwaway dirs + a matching server):
@@ -85,6 +87,53 @@ RECORDINGS_DIR=/tmp/blinks-smoke/recordings DATA_DIR=/tmp/blinks-smoke/data \
   CAMERA_PORT=3100 DRM_AVAILABLE_FROM_HOUR=0 DISABLE_PUSH=1 node dist/server.js &   # (npm run build first)
 SMOKE_BASE_URL=http://127.0.0.1:3100 RECORDINGS_DIR=/tmp/blinks-smoke/recordings \
   npx tsx scripts/smoke-test.ts
+```
+
+### Inspect recording pauses
+
+The raw start/pause/resume/end observations are append-only. This query shows
+the exact event stream for one participant:
+
+```bash
+sqlite3 recordings/recordings.db "
+  SELECT session, sequence_number, event_type,
+         datetime(client_epoch_ms / 1000, 'unixepoch', 'localtime') AS client_time,
+         datetime(server_received_epoch_ms / 1000, 'unixepoch', 'localtime') AS received_time
+  FROM recording_events
+  WHERE participant = 'participant1'
+  ORDER BY session, sequence_number;
+"
+```
+
+This derives each completed recording-pause interval by pairing a `pause` with
+the immediately following `resume` or `end`. A pause with no following event
+remains visible as incomplete instead of silently inventing an end time.
+
+```bash
+sqlite3 recordings/recordings.db "
+  WITH ordered AS (
+    SELECT participant, session, sequence_number, event_type, client_epoch_ms,
+           LEAD(event_type) OVER (
+             PARTITION BY participant, session ORDER BY sequence_number
+           ) AS next_type,
+           LEAD(client_epoch_ms) OVER (
+             PARTITION BY participant, session ORDER BY sequence_number
+           ) AS next_client_epoch_ms
+    FROM recording_events
+    WHERE participant = 'participant1'
+  )
+  SELECT session,
+         datetime(client_epoch_ms / 1000, 'unixepoch', 'localtime') AS pause_start,
+         CASE WHEN next_type IN ('resume', 'end')
+              THEN datetime(next_client_epoch_ms / 1000, 'unixepoch', 'localtime')
+         END AS pause_end,
+         CASE WHEN next_type IN ('resume', 'end')
+              THEN (next_client_epoch_ms - client_epoch_ms) / 1000.0
+         END AS duration_seconds
+  FROM ordered
+  WHERE event_type = 'pause'
+  ORDER BY session, sequence_number;
+"
 ```
 
 ---

@@ -4,6 +4,25 @@
 
 export type CategoryLabel = "work" | "break" | "other";
 
+export type ActivityLabel =
+  | "computer_or_monitor_use"
+  | "watching_video"
+  | "paper_reading_writing"
+  | "handheld_device_use"
+  | "remote_meeting"
+  | "phone_call"
+  | "in_person_interaction"
+  | "tools_or_materials"
+  | "eating_drinking"
+  | "food_preparation"
+  | "cleaning_household"
+  | "assisting_person_animal"
+  | "personal_care"
+  | "walking_or_movement"
+  | "no_task_engagement"
+  | "other"
+  | "unclear";
+
 export type ReconstructionStatus = "none" | "draft" | "submitted";
 
 export type ActivitySource = "vlm" | "user";
@@ -54,11 +73,11 @@ export interface Activity {
   position: number;
   startMs: number;
   endMs: number;
-  rawLabel: string | null;
+  rawLabel: ActivityLabel | null;
   categoryLabel: CategoryLabel | null;
   source: ActivitySource;
-  vlmRawLabel: string | null;
-  vlmCategory: string | null;
+  vlmRawLabel: ActivityLabel | null;
+  vlmCategory: CategoryLabel | null;
   workloadRating: ExperienceRating | null;
   recoveryRating: ExperienceRating | null;
 }
@@ -73,8 +92,8 @@ export interface Frame {
   // cleared server-side, so the client receives no image URL.
   imageUrl: string | null;
   deletedAt: number | null;
-  vlmLabel: string | null;
-  vlmCategory: string | null;
+  vlmLabel: ActivityLabel | null;
+  vlmCategory: CategoryLabel | null;
 }
 
 /** GET /api/photos, available only after Step 1 is submitted. */
@@ -98,17 +117,16 @@ export interface RoundResponse {
 export interface ActivityInput {
   startMs: number;
   endMs: number;
-  rawLabel: string | null;
+  rawLabel: ActivityLabel | null;
   categoryLabel: CategoryLabel | null;
   source: ActivitySource;
   /**
    * Echo of the original VLM proposal this row derives from (null for
    * user-added rows and everything on self rounds). The server keeps a
    * span-matching fallback, but only the client can carry provenance across
-   * boundary edits — without the echo, editing a time span would silently
-   * drop the row's VLM proposal from the label-quality analysis.
+   * boundary edits for direct row-level auditing.
    */
-  vlmRawLabel: string | null;
+  vlmRawLabel: ActivityLabel | null;
   vlmCategory: CategoryLabel | null;
   /** Required on submit for category 'work' (mental demand, 1-7). */
   workloadRating: ExperienceRating | null;

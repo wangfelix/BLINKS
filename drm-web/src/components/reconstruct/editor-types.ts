@@ -1,10 +1,12 @@
 import type {
   Activity,
+  ActivityLabel,
   ActivityInput,
   ActivitySource,
   CategoryLabel,
   ExperienceRating,
 } from "@/lib/api-types";
+import { isActivityLabel } from "@/lib/activity-vocabulary";
 
 /**
  * Local editing model for one activity row. Self-round rows start with no
@@ -15,12 +17,12 @@ export interface EditableActivity {
   localId: string;
   startMs: number | null;
   endMs: number | null;
-  rawLabel: string;
+  rawLabel: ActivityLabel | null;
   categoryLabel: CategoryLabel | null;
   source: ActivitySource;
   // Original VLM proposal (null for user-added rows); carried through every
   // edit and echoed back on save so provenance survives span changes.
-  vlmRawLabel: string | null;
+  vlmRawLabel: ActivityLabel | null;
   vlmCategory: CategoryLabel | null;
   // Experience ratings (7-point Likert). Both are kept independently so an
   // answer survives the participant flipping the category back and forth;
@@ -39,10 +41,12 @@ export const fromServerActivity = (activity: Activity): EditableActivity => ({
   localId: makeLocalId(),
   startMs: activity.startMs,
   endMs: activity.endMs,
-  rawLabel: activity.rawLabel ?? "",
+  rawLabel: isActivityLabel(activity.rawLabel) ? activity.rawLabel : null,
   categoryLabel: activity.categoryLabel,
   source: activity.source,
-  vlmRawLabel: activity.vlmRawLabel,
+  vlmRawLabel: isActivityLabel(activity.vlmRawLabel)
+    ? activity.vlmRawLabel
+    : null,
   vlmCategory:
     activity.vlmCategory === "work" ||
     activity.vlmCategory === "break" ||
@@ -73,7 +77,7 @@ export const toActivityInputs = (rows: EditableActivity[]): ActivityInput[] =>
     .map((row) => ({
       startMs: row.startMs as number,
       endMs: row.endMs as number,
-      rawLabel: row.rawLabel.trim() === "" ? null : row.rawLabel.trim(),
+      rawLabel: row.rawLabel,
       categoryLabel: row.categoryLabel,
       source: row.source,
       vlmRawLabel: row.vlmRawLabel,
@@ -189,8 +193,8 @@ export const computeRowIssues = (
         messages.push("This activity overlaps the previous one.");
       }
     }
-    if (row.rawLabel.trim() === "") {
-      messages.push("Describe the activity.");
+    if (row.rawLabel === null) {
+      messages.push("Choose an activity.");
     }
     if (row.categoryLabel === null) {
       messages.push("Choose a category.");

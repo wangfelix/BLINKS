@@ -6,6 +6,7 @@ import { PlusIcon } from "lucide-react";
 
 import type {
   Activity,
+  ActivityLabel,
   ActivityInput,
   CategoryLabel,
   ExperienceRating,
@@ -80,7 +81,7 @@ const SAVE_INDICATOR_TEXT: Record<Exclude<SaveState, "idle">, string> = {
 const hasStartedFillingIn = (row: EditableActivity): boolean =>
   row.startMs !== null ||
   row.endMs !== null ||
-  row.rawLabel.trim() !== "" ||
+  row.rawLabel !== null ||
   row.categoryLabel !== null;
 
 const InsertBetweenButton = ({ onClick }: { onClick: () => void }) => (
@@ -227,7 +228,7 @@ export const RoundEditor = ({
         localId: makeLocalId(),
         startMs: null,
         endMs: null,
-        rawLabel: "",
+        rawLabel: null,
         categoryLabel: null,
         source: "user",
         vlmRawLabel: null,
@@ -247,7 +248,7 @@ export const RoundEditor = ({
           localId: makeLocalId(),
           startMs,
           endMs,
-          rawLabel: "",
+          rawLabel: null,
           categoryLabel: null,
           source: "user",
           vlmRawLabel: null,
@@ -365,7 +366,7 @@ export const RoundEditor = ({
     return {
       title: "Insert an activity",
       description:
-        "Pick the first and the last frame of the new activity from the frames not yet assigned to any activity, then describe it in the new row.",
+        "Pick the first and the last frame of the new activity from the frames not yet assigned to any activity, then choose its label in the new row.",
       frames: dayFrames.filter(
         (frame) =>
           frame.captureEpochMs > gapStartMs && frame.captureEpochMs < gapEndMs,
@@ -451,7 +452,7 @@ export const RoundEditor = ({
                 dayFrames={frames ?? []}
                 issue={issueByLocalId.get(row.localId) ?? null}
                 highlightIssues={hasStartedFillingIn(row)}
-                onChangeLabel={(rawLabel) =>
+                onChangeLabel={(rawLabel: ActivityLabel) =>
                   updateRow(row.localId, { rawLabel })
                 }
                 onChangeCategory={(categoryLabel: CategoryLabel) =>
@@ -504,7 +505,9 @@ export const RoundEditor = ({
               onChangeEndTime={(timeOfDay) =>
                 handleSelfTimeChange(row.localId, "endMs", timeOfDay)
               }
-              onChangeLabel={(rawLabel) => updateRow(row.localId, { rawLabel })}
+              onChangeLabel={(rawLabel: ActivityLabel) =>
+                updateRow(row.localId, { rawLabel })
+              }
               onChangeCategory={(categoryLabel: CategoryLabel) =>
                 updateRow(row.localId, { categoryLabel })
               }

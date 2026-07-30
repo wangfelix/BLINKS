@@ -10,6 +10,7 @@ import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
 import { sampleEvenly } from "@/components/reconstruct/editor-types";
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
+import { activityDisplayLabel } from "@/lib/activity-vocabulary";
 
 const THUMBNAIL_COUNT = 5;
 
@@ -62,7 +63,9 @@ const ReadOnlyActivityCard = ({
         <span className="text-sm font-medium tabular-nums">
           {formatTimeSpan(activity.startMs, activity.endMs)}
         </span>
-        <span className="flex-1 text-sm">{activity.rawLabel ?? "—"}</span>
+        <span className="flex-1 text-sm">
+          {activityDisplayLabel(activity.rawLabel) ?? "—"}
+        </span>
         {ratingSummary !== null && (
           <Text variant="nudge" className="tabular-nums">
             {ratingSummary}

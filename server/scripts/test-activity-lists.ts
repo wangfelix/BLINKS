@@ -45,7 +45,29 @@ const createBaseLegacySchema = (
       vlm_description TEXT,
       vlm_descriptor TEXT,
       vlm_completed_at INTEGER,
+      vlm_category TEXT,
+      user_corrected_category_label TEXT,
+      user_corrected_activity_label TEXT,
       PRIMARY KEY (participant, device, session, frame_index)
+    );
+    CREATE TABLE chunks (
+      participant TEXT NOT NULL,
+      chunk_start_ms INTEGER NOT NULL,
+      chunk_end_ms INTEGER NOT NULL,
+      frame_count INTEGER NOT NULL DEFAULT 0,
+      last_frame_received_ms INTEGER,
+      status TEXT NOT NULL DEFAULT 'filling',
+      vlm_model TEXT,
+      vlm_label TEXT,
+      vlm_category TEXT,
+      vlm_description TEXT,
+      vlm_descriptor TEXT,
+      vlm_completed_at INTEGER,
+      user_corrected_category_label TEXT,
+      user_corrected_activity_label TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER,
+      PRIMARY KEY (participant, chunk_start_ms)
     );
     CREATE TABLE participants (
       username TEXT PRIMARY KEY,
@@ -75,6 +97,17 @@ const createBaseLegacySchema = (
       "INSERT INTO participants (username, arm, created_at) VALUES (?, 'main', ?)",
     )
     .run(participant, t0);
+  legacyDb
+    .prepare(
+      "INSERT INTO chunks (" +
+        "participant, chunk_start_ms, chunk_end_ms, frame_count, status, " +
+        "vlm_model, vlm_label, vlm_category, vlm_description, vlm_descriptor, " +
+        "vlm_completed_at, created_at, updated_at" +
+        ") VALUES (?, ?, ?, 1, 'done', 'legacy-model', " +
+        "'computer_or_monitor_use', 'work', 'Visible computer use.', " +
+        "'{\"posture\":\"sitting\"}', ?, ?, ?)",
+    )
+    .run(participant, t0, t0 + 300_000, t0, t0, t0);
   legacyDb
     .prepare(
       "INSERT INTO reconstructions " +
@@ -167,6 +200,70 @@ const runNaturalKeyMigrationTest = (): void => {
   legacyDb.close();
 
   initDb(dbPath);
+  const migratedSchemaDb = new Database(dbPath, { readonly: true });
+  const frameColumns = migratedSchemaDb
+    .prepare("PRAGMA table_info(frames)")
+    .all() as { name: string }[];
+  for (const removed of [
+    "vlm_status",
+    "vlm_model",
+    "vlm_label",
+    "vlm_category",
+    "vlm_description",
+    "vlm_descriptor",
+    "vlm_completed_at",
+    "user_corrected_activity_label",
+    "user_corrected_category_label",
+  ]) {
+    assert.ok(
+      !frameColumns.some((column) => column.name === removed),
+      `frames.${removed} removed during migration`,
+    );
+  }
+  const chunkColumns = migratedSchemaDb
+    .prepare("PRAGMA table_info(chunks)")
+    .all() as { name: string }[];
+  for (const removed of [
+    "vlm_descriptor",
+    "user_corrected_activity_label",
+    "user_corrected_category_label",
+  ]) {
+    assert.ok(
+      !chunkColumns.some((column) => column.name === removed),
+      `chunks.${removed} removed during migration`,
+    );
+  }
+  assert.deepStrictEqual(
+    migratedSchemaDb
+      .prepare(
+        "SELECT vlm_label, vlm_category, vlm_description " +
+          "FROM chunks WHERE participant = ? AND chunk_start_ms = ?",
+      )
+      .get(participant, t0),
+    {
+      vlm_label: "computer_or_monitor_use",
+      vlm_category: "work",
+      vlm_description: "Visible computer use.",
+    },
+    "dropping derived chunk columns preserves the original VLM result",
+  );
+  assert.deepStrictEqual(
+    migratedSchemaDb
+      .prepare("PRAGMA table_info(recording_events)")
+      .all()
+      .map((column: any) => column.name),
+    [
+      "participant",
+      "event_id",
+      "session",
+      "event_type",
+      "client_epoch_ms",
+      "server_received_epoch_ms",
+      "sequence_number",
+    ],
+    "recording event table is created during migration",
+  );
+  migratedSchemaDb.close();
   const assistedList = getActivityList(participant, 2, "assisted");
   const proposalList = getActivityList(participant, 2, "vlm_proposal");
   assert.ok(assistedList?.id && proposalList?.id, "surrogate parent IDs backfilled");

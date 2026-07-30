@@ -2,15 +2,20 @@
 
 import { ImageOffIcon, Trash2Icon } from "lucide-react";
 
-import type { CategoryLabel, ExperienceRating, Frame } from "@/lib/api-types";
+import type {
+  ActivityLabel,
+  CategoryLabel,
+  ExperienceRating,
+  Frame,
+} from "@/lib/api-types";
 import { frameImageSrc } from "@/lib/api-client";
 import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
 import { CategorySelect } from "@/components/reconstruct/category-select";
+import { ActivitySelect } from "@/components/reconstruct/activity-select";
 import {
   ExperienceRatingScale,
   type RatedCategory,
@@ -40,7 +45,7 @@ export const AssistedActivityRow = ({
   dayFrames: Frame[];
   issue: string | null;
   highlightIssues: boolean;
-  onChangeLabel: (rawLabel: string) => void;
+  onChangeLabel: (rawLabel: ActivityLabel) => void;
   onChangeCategory: (category: CategoryLabel) => void;
   onChangeExperienceRating: (
     category: RatedCategory,
@@ -57,7 +62,7 @@ export const AssistedActivityRow = ({
   );
   const thumbnails = sampleEvenly(framesInSpan, THUMBNAIL_COUNT);
   const hasLivePhotos = framesInSpan.some((frame) => frame.deletedAt === null);
-  const isLabelMissing = highlightIssues && activity.rawLabel.trim() === "";
+  const isLabelMissing = highlightIssues && activity.rawLabel === null;
   const isCategoryMissing = highlightIssues && activity.categoryLabel === null;
   const showIssueMessage = highlightIssues && issue !== null;
   const ratedCategory: RatedCategory | null =
@@ -139,14 +144,13 @@ export const AssistedActivityRow = ({
       <Column gap="sm" className="sm:flex-row">
         <Column gap="xs" className="min-w-0 flex-1">
           <Label htmlFor={`${activity.localId}-label`} className="pl-1">
-            Activity Description
+            Activity
           </Label>
-          <Input
+          <ActivitySelect
             id={`${activity.localId}-label`}
             value={activity.rawLabel}
-            placeholder="What were you doing?"
-            aria-invalid={isLabelMissing || undefined}
-            onChange={(event) => onChangeLabel(event.target.value)}
+            invalid={isLabelMissing}
+            onChange={onChangeLabel}
           />
         </Column>
         <Column gap="xs">

@@ -43,14 +43,14 @@ const FRAME_INTERVAL_MS = 5 * 60_000;
 
 // (label from ACTIVITY_VOCABULARY, category, duration in minutes)
 const DAY_TIMELINE: [string, string, number][] = [
-  ["working at computer", "work", 85],
-  ["drinking coffee or tea", "break", 20],
-  ["in a meeting", "work", 70],
-  ["eating a meal", "break", 40],
-  ["working at computer", "work", 125],
-  ["walking outside", "break", 15],
-  ["reading documents", "work", 60],
-  ["household chores", "other", 20],
+  ["computer_or_monitor_use", "work", 85],
+  ["eating_drinking", "break", 20],
+  ["remote_meeting", "work", 70],
+  ["eating_drinking", "break", 40],
+  ["computer_or_monitor_use", "work", 125],
+  ["walking_or_movement", "break", 15],
+  ["paper_reading_writing", "work", 60],
+  ["cleaning_household", "other", 20],
 ];
 
 // 1x1 grey JPEG (valid SOI..EOI), used only when no real frame exists yet.

@@ -14,7 +14,7 @@ const makeRow = (
   localId,
   startMs,
   endMs,
-  rawLabel: localId,
+  rawLabel: "computer_or_monitor_use",
   categoryLabel: "work",
   source: "vlm",
   vlmRawLabel: null,

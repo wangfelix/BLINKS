@@ -1,8 +1,4 @@
-import {
-  notifyRecordingEnded,
-  pauseCaptureOnServer,
-  resumeCaptureOnServer,
-} from "@/capture/api/capture-api";
+import { RecordingEventType } from "@/capture/api/capture-api";
 import { CameraLink, CameraLinkStatus } from "@/capture/ble/camera-link";
 import { AssembledFrame } from "@/capture/ble/frame-assembler";
 import { FrameUploader, UploaderStatus } from "@/capture/relay/frame-uploader";
@@ -10,6 +6,10 @@ import {
   startCaptureForegroundService,
   stopCaptureForegroundService,
 } from "@/capture/service/foreground-service";
+import {
+  flushPendingRecordingEvents,
+  queueRecordingEvent,
+} from "@/capture/storage/recording-event-queue";
 
 export type RecordingPhase = "idle" | "recording" | "paused";
 
@@ -54,6 +54,7 @@ class RecordingSessionStore {
   private readonly listeners = new Set<Listener>();
   private cameraLink: CameraLink | null = null;
   private uploader: FrameUploader | null = null;
+  private nextEventSequence = 0;
 
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
@@ -71,6 +72,10 @@ class RecordingSessionStore {
       sessionId: Math.floor(nowMs / 1000),
       activeSinceMs: nowMs,
     });
+    this.nextEventSequence = 0;
+    await this.recordEvent("start", nowMs).catch((error) =>
+      console.warn("Failed to persist recording start:", error),
+    );
 
     await startCaptureForegroundService().catch((error) =>
       console.warn("Foreground service failed to start:", error),
@@ -94,23 +99,32 @@ class RecordingSessionStore {
         (this.state.activeSinceMs ? nowMs - this.state.activeSinceMs : 0),
       activeSinceMs: null,
     });
-    await this.cameraLink?.setPaused(true);
-    pauseCaptureOnServer().catch((error) =>
-      console.warn("Server pause failed:", error),
+    const eventPromise = this.recordEvent("pause", nowMs).catch((error) =>
+      console.warn("Failed to persist recording pause:", error),
     );
+    await this.cameraLink?.setPaused(true);
+    await eventPromise;
   };
 
   resume = async (): Promise<void> => {
     if (this.state.phase !== "paused") return;
-    this.setState({ phase: "recording", activeSinceMs: Date.now() });
-    await this.cameraLink?.setPaused(false);
-    resumeCaptureOnServer().catch((error) =>
-      console.warn("Server resume failed:", error),
+    const nowMs = Date.now();
+    this.setState({ phase: "recording", activeSinceMs: nowMs });
+    const eventPromise = this.recordEvent("resume", nowMs).catch((error) =>
+      console.warn("Failed to persist recording resume:", error),
     );
+    await this.cameraLink?.setPaused(false);
+    await eventPromise;
   };
 
   end = async (): Promise<void> => {
     if (this.state.phase === "idle") return;
+    // Persist the terminal event immediately, but do not deliver it until the
+    // frame uploader has performed its final best-effort flush. This keeps the
+    // server's session close ordered after every frame the app could send.
+    const eventPromise = this.recordEvent("end", Date.now(), false).catch(
+      (error) => console.warn("Failed to persist recording end:", error),
+    );
     const cameraLink = this.cameraLink;
     const uploader = this.uploader;
     this.cameraLink = null;
@@ -120,12 +134,8 @@ class RecordingSessionStore {
     // stop() flushes the remaining queue into the socket (best effort); after
     // it, no frame of this session can ever reach the server again.
     uploader?.stop();
-    // Deliberate Stop (not Pause): tell the server the recording is over so
-    // the last 5-minute chunk goes to the VLM now. Fire-and-forget — the
-    // server's idle sweep covers the offline case.
-    notifyRecordingEnded().catch((error) =>
-      console.warn("End-of-recording signal failed:", error),
-    );
+    await eventPromise;
+    await flushPendingRecordingEvents();
     await stopCaptureForegroundService().catch(() => {});
     this.setState(idleState);
   };
@@ -157,6 +167,28 @@ class RecordingSessionStore {
       cameraFrameCounter: frame.cameraFrameCounter,
       bytes: frame.bytes,
     });
+  }
+
+  private recordEvent(
+    eventType: RecordingEventType,
+    clientEpochMs: number,
+    deliver = true,
+  ): Promise<void> {
+    if (this.state.sessionId === null) {
+      return Promise.reject(new Error("recording session has no session ID"));
+    }
+    const sequenceNumber = this.nextEventSequence;
+    this.nextEventSequence += 1;
+    return queueRecordingEvent(
+      {
+        eventId: `${this.state.sessionId}-${sequenceNumber}`,
+        session: this.state.sessionId,
+        eventType,
+        clientEpochMs,
+        sequenceNumber,
+      },
+      { deliver },
+    );
   }
 
   private setState(partial: Partial<RecordingSessionState>): void {

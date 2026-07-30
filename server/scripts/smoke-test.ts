@@ -11,8 +11,8 @@ import WebSocket = require("ws");
 //     npx tsx scripts/create-user.ts smokesecond password123
 //   the server running with DRM_AVAILABLE_FROM_HOUR=0 and DISABLE_PUSH=1
 // The test reads RECORDINGS_DIR to reach recordings.db, so it can simulate the
-// face-blur worker (face_status='done') and the VLM worker (vlm_status='done'
-// + labels/categories) without running the Python processes.
+// face-blur worker (face_status='done') and the chunk VLM worker
+// (chunks.status='done' + labels/categories) without running Python.
 // Run via: npx tsx scripts/smoke-test.ts (against a running server)
 //
 // Not covered here: the evening-gate hour branch (the server must run with
@@ -134,23 +134,44 @@ const setChunkResult = (
     assert.strictEqual(changes, 1, `chunk update hit ${chunkStartMs}`);
   });
 
-const getChunkCorrections = (
-  username: string,
-  chunkStartMs: number,
-): { category: string | null; activity: string | null } =>
+const markChunkFailed = (username: string, chunkStartMs: number): void =>
   withDb((db) => {
-    const row = db
+    const changes = db
       .prepare(
-        "SELECT user_corrected_category_label AS category, " +
-          "user_corrected_activity_label AS activity " +
-          "FROM chunks WHERE participant = ? AND chunk_start_ms = ?",
+        "UPDATE chunks SET status = 'failed', vlm_model = 'smoke', " +
+          "vlm_label = NULL, vlm_category = NULL, vlm_completed_at = ? " +
+          "WHERE participant = ? AND chunk_start_ms = ?",
       )
-      .get(username, chunkStartMs) as
-      | { category: string | null; activity: string | null }
-      | undefined;
-    assert.ok(row, `expected a chunk at ${chunkStartMs}`);
-    return row!;
+      .run(Date.now(), username, chunkStartMs).changes;
+    assert.strictEqual(changes, 1, `failed chunk update hit ${chunkStartMs}`);
   });
+
+const getRecordingEvents = (
+  username: string,
+  session: number,
+): {
+  event_id: string;
+  event_type: string;
+  client_epoch_ms: number;
+  server_received_epoch_ms: number;
+  sequence_number: number;
+}[] =>
+  withDb((db) =>
+    db
+      .prepare(
+        "SELECT event_id, event_type, client_epoch_ms, " +
+          "server_received_epoch_ms, sequence_number " +
+          "FROM recording_events WHERE participant = ? AND session = ? " +
+          "ORDER BY sequence_number",
+      )
+      .all(username, session) as {
+      event_id: string;
+      event_type: string;
+      client_epoch_ms: number;
+      server_received_epoch_ms: number;
+      sequence_number: number;
+    }[],
+  );
 
 const getStoredActivityLists = (
   username: string,
@@ -360,6 +381,18 @@ const main = async (): Promise<void> => {
   // the DRM day bucketing below is deterministic
   const session = Math.floor(Date.now() / 1000);
   const baseT = TODAY_NOON;
+  const startedEvent = {
+    eventId: `${session}-0`,
+    session,
+    clientEpochMs: baseT,
+    sequenceNumber: 0,
+  };
+  const started = await api("/api/recording/started", {
+    method: "POST",
+    token,
+    body: startedEvent,
+  });
+  assert.strictEqual(started.paused, false);
   await sendFramesOverWs(token, session, [
     { t: baseT, n: 1 },
     { t: baseT + 30_000, n: 2 },
@@ -529,15 +562,47 @@ const main = async (): Promise<void> => {
     "participant CSV contains only its header and one live frame",
   );
 
-  // pause gate drops ingested frames
-  await api("/api/pause", { method: "POST", token });
+  // Recording events are append-only and idempotent; a pause event also drives
+  // the defense-in-depth ingestion gate.
+  const pauseEvent = {
+    eventId: `${session}-1`,
+    session,
+    clientEpochMs: baseT + 110_000,
+    sequenceNumber: 1,
+  };
+  const paused = await api("/api/pause", {
+    method: "POST",
+    token,
+    body: pauseEvent,
+  });
+  assert.strictEqual(paused.paused, true);
+  await api("/api/pause", {
+    method: "POST",
+    token,
+    body: pauseEvent,
+  });
+  assert.strictEqual(
+    getRecordingEvents(MAIN_USER, session).length,
+    2,
+    "replaying an event does not duplicate it",
+  );
   await sendFramesOverWs(token, session, [{ t: baseT + 120_000, n: 5 }]);
   const whilePaused = await api(
     `/api/sessions/${device}/${session}/frames`,
     { token },
   );
   assert.strictEqual(whilePaused.frames.length, 1, "paused frame dropped");
-  await api("/api/resume", { method: "POST", token });
+  const resumed = await api("/api/resume", {
+    method: "POST",
+    token,
+    body: {
+      eventId: `${session}-2`,
+      session,
+      clientEpochMs: baseT + 130_000,
+      sequenceNumber: 2,
+    },
+  });
+  assert.strictEqual(resumed.paused, false);
 
   // change password: wrong current rejected, then real change + re-login
   await api("/api/change-password", {
@@ -626,10 +691,10 @@ const main = async (): Promise<void> => {
     "push token persisted",
   );
 
-  // Ingest the DRM fixture frames: a second block 20 min after the base
-  // session (i.e. a >10 min capture gap), shaped to exercise the segmentation
-  // generator. Study day = TODAY (the only frame day).
-  const assistedSession = session + 2;
+  // Ingest the DRM fixture frames: a second block 20 min later in the same
+  // recording session, shaped to exercise the segmentation generator without
+  // treating that capture gap as a special boundary. Study day = TODAY.
+  const assistedSession = session;
   const t0 = baseT + 1_200_000;
   await sendFramesOverWs(token, assistedSession, [
     { t: t0, n: 1 },
@@ -638,13 +703,14 @@ const main = async (): Promise<void> => {
     { t: t0 + 151_000, n: 4 },
     { t: t0 + 300_000, n: 5 },
     { t: t0 + 480_000, n: 6 },
+    { t: t0 + 600_000, n: 7 },
   ]);
-  assert.strictEqual(markAllAnonymized(), 6, "face-blur stand-in marked 6 frames");
+  assert.strictEqual(markAllAnonymized(), 7, "face-blur stand-in marked 7 frames");
 
   // state: study day resolved, round 1 open, round 2 locked.
   let state = await api("/api/reconstruction/state", { token });
   assert.strictEqual(state.day, TODAY);
-  assert.strictEqual(state.frameCount, 7, "1 base + 6 fixture frames today");
+  assert.strictEqual(state.frameCount, 8, "1 base + 7 fixture frames today");
   assert.strictEqual(state.available, true, "DRM_AVAILABLE_FROM_HOUR=0");
   assert.deepStrictEqual(
     state.rounds.map((r: any) => [r.round, r.status, r.locked]),
@@ -713,7 +779,7 @@ const main = async (): Promise<void> => {
         {
           startMs: baseT,
           endMs: baseT + 60_000,
-          rawLabel: "x",
+          rawLabel: "computer_or_monitor_use",
           categoryLabel: "work",
           source: "vlm",
         },
@@ -726,7 +792,7 @@ const main = async (): Promise<void> => {
     {
       startMs: baseT - 600_000,
       endMs: baseT + 100_000,
-      rawLabel: "Working from memory",
+      rawLabel: "computer_or_monitor_use",
       categoryLabel: "work",
       source: "user",
       vlmRawLabel: "smuggled", // must be dropped server-side
@@ -736,7 +802,7 @@ const main = async (): Promise<void> => {
     {
       startMs: t0,
       endMs: t0 + 400_000,
-      rawLabel: "Lunch I think",
+      rawLabel: "eating_drinking",
       categoryLabel: "break",
       source: "user",
       recoveryRating: 2,
@@ -761,6 +827,25 @@ const main = async (): Promise<void> => {
     "self rounds never store VLM provenance",
   );
 
+  // Drafts reject labels outside the same closed enum used by the VLM and
+  // participant dropdowns.
+  await api("/api/reconstruction/round/1", {
+    method: "PUT",
+    token,
+    body: {
+      activities: [
+        {
+          startMs: baseT,
+          endMs: baseT + 90_000,
+          rawLabel: "not_in_activity_vocabulary",
+          categoryLabel: "work",
+          source: "user",
+        },
+      ],
+    },
+    expectStatus: 400,
+  });
+
   // submit validation: every activity needs a rawLabel AND a categoryLabel
   await api("/api/reconstruction/round/1/submit", {
     method: "POST",
@@ -770,7 +855,7 @@ const main = async (): Promise<void> => {
         {
           startMs: baseT,
           endMs: baseT + 90_000,
-          rawLabel: "X",
+          rawLabel: "computer_or_monitor_use",
           categoryLabel: null,
           source: "user",
         },
@@ -790,7 +875,7 @@ const main = async (): Promise<void> => {
         {
           startMs: baseT,
           endMs: baseT + 90_000,
-          rawLabel: "X",
+          rawLabel: "computer_or_monitor_use",
           categoryLabel: "work",
           source: "user",
         },
@@ -806,7 +891,7 @@ const main = async (): Promise<void> => {
         {
           startMs: baseT,
           endMs: baseT + 90_000,
-          rawLabel: "X",
+          rawLabel: "computer_or_monitor_use",
           categoryLabel: "work",
           source: "user",
           workloadRating: 8, // 7-point Likert: 1-7 only
@@ -830,6 +915,31 @@ const main = async (): Promise<void> => {
   );
   assert.ok(round1Submit.submittedAt >= round1Submit.lastDraftSavedAt);
 
+  // Global photo management unlocks with Step 2 and returns live frames plus
+  // timestamped tombstones for the three earlier soft deletions. Tombstones
+  // retain their database identity but never regain a serving path.
+  const managedPhotos = await api("/api/photos", { token });
+  assert.strictEqual(managedPhotos.day, TODAY);
+  assert.strictEqual(managedPhotos.frames.length, 11);
+  assert.strictEqual(
+    managedPhotos.frames.filter((frame: any) => frame.deletedAt !== null)
+      .length,
+    3,
+  );
+  assert.ok(
+    managedPhotos.frames
+      .filter((frame: any) => frame.deletedAt !== null)
+      .every(
+        (frame: any) =>
+          frame.imageUrl === null &&
+          typeof frame.device === "string" &&
+          Number.isInteger(frame.session) &&
+          Number.isInteger(frame.frameIndex) &&
+          typeof frame.captureEpochMs === "number",
+      ),
+    "deleted photo records expose identity + time but no file path",
+  );
+
   // Experience ratings round-trip: stored and returned per activity.
   const submittedRound1 = await api("/api/reconstruction/round/1", { token });
   assert.deepStrictEqual(
@@ -845,14 +955,6 @@ const main = async (): Promise<void> => {
   );
   assert.strictEqual(submittedRound1.firstOpenedAt, round1FirstOpenedAt);
   assert.strictEqual(submittedRound1.submittedAt, round1Submit.submittedAt);
-
-  // Round 1 is SELF: submitting must NOT propagate onto the chunks (only the
-  // assisted round is chunk-aligned ground truth).
-  assert.deepStrictEqual(
-    getChunkCorrections(MAIN_USER, baseT),
-    { category: null, activity: null },
-    "self-round submit does not stamp user_corrected_*",
-  );
 
   // submit is final per round
   await api("/api/reconstruction/round/1", {
@@ -879,31 +981,6 @@ const main = async (): Promise<void> => {
     "round 2 unlocks after round 1 submit",
   );
 
-  // Global photo management unlocks with Step 2 and returns live frames plus
-  // timestamped tombstones for the three earlier soft deletions. Tombstones
-  // retain their database identity but never regain a serving path.
-  const managedPhotos = await api("/api/photos", { token });
-  assert.strictEqual(managedPhotos.day, TODAY);
-  assert.strictEqual(managedPhotos.frames.length, 10);
-  assert.strictEqual(
-    managedPhotos.frames.filter((frame: any) => frame.deletedAt !== null)
-      .length,
-    3,
-  );
-  assert.ok(
-    managedPhotos.frames
-      .filter((frame: any) => frame.deletedAt !== null)
-      .every(
-        (frame: any) =>
-          frame.imageUrl === null &&
-          typeof frame.device === "string" &&
-          Number.isInteger(frame.session) &&
-          Number.isInteger(frame.frameIndex) &&
-          typeof frame.captureEpochMs === "number",
-      ),
-    "deleted photo records expose identity + time but no file path",
-  );
-
   // Assisted round with pending VLM work: frames served, no proposal yet.
   const pendingRound2 = await api("/api/reconstruction/round/2", { token });
   assert.ok(!("mode" in pendingRound2));
@@ -911,7 +988,7 @@ const main = async (): Promise<void> => {
   assert.deepStrictEqual(pendingRound2.activities, []);
   assert.strictEqual(
     pendingRound2.frames.length,
-    10,
+    11,
     "assisted round lists live frames and deleted placeholders",
   );
   assert.strictEqual(
@@ -921,8 +998,8 @@ const main = async (): Promise<void> => {
   );
   assert.strictEqual(
     pendingRound2.vlmPendingCount,
-    7,
-    "every frame's chunk still unlabeled -> all 7 pending",
+    8,
+    "every live frame's chunk still unlabeled -> all 8 pending",
   );
   assert.ok(typeof pendingRound2.firstOpenedAt === "number");
   assert.strictEqual(pendingRound2.firstDraftSavedAt, null);
@@ -931,8 +1008,8 @@ const main = async (): Promise<void> => {
     "pending assisted response does not expose or mark the proposal",
   );
 
-  // Ingestion chunk bookkeeping: the 7 live frames span three clock-aligned
-  // 5-minute windows. The two older windows were closed ('ready') by the
+  // Ingestion chunk bookkeeping: the 8 live frames span four clock-aligned
+  // 5-minute windows. The three older windows were closed ('ready') by the
   // arrival of later-window frames; the newest stays 'filling' until the
   // idle sweep. The baseT window also proves the frame-delete decrement
   // (4 ingested, 3 soft-deleted -> 1).
@@ -941,32 +1018,91 @@ const main = async (): Promise<void> => {
     [
       [baseT, 1, "ready"],
       [t0, 4, "ready"],
-      [t0 + 300_000, 2, "filling"],
+      [t0 + 300_000, 2, "ready"],
+      [t0 + 600_000, 1, "filling"],
     ],
     "frames grouped into 5-minute chunks, earlier windows closed",
   );
 
-  // The app's End-session signal (Stop, not Pause) closes the still-filling
-  // trailing chunk immediately — no waiting for the idle sweep.
-  const ended = await api("/api/recording/ended", { method: "POST", token });
+  // Ending while paused closes the pause, clears the ingestion gate, and
+  // closes the session's still-filling trailing chunk immediately.
+  await api("/api/pause", {
+    method: "POST",
+    token,
+    body: {
+      eventId: `${session}-3`,
+      session,
+      clientEpochMs: t0 + 700_000,
+      sequenceNumber: 3,
+    },
+  });
+  const ended = await api("/api/recording/ended", {
+    method: "POST",
+    token,
+    body: {
+      eventId: `${session}-4`,
+      session,
+      clientEpochMs: t0 + 710_000,
+      sequenceNumber: 4,
+    },
+  });
   assert.strictEqual(ended.ok, true);
+  assert.strictEqual(ended.paused, false, "end clears a current pause");
   assert.strictEqual(ended.closedChunks, 1, "trailing chunk closed on end");
   assert.deepStrictEqual(
     getChunks(MAIN_USER).map((c) => c.status),
-    ["ready", "ready", "ready"],
+    ["ready", "ready", "ready", "ready"],
     "every chunk inferable after the end-of-recording signal",
   );
-  await api("/api/recording/ended", { method: "POST", expectStatus: 401 });
+  assert.deepStrictEqual(
+    getRecordingEvents(MAIN_USER, session).map((event) => [
+      event.event_type,
+      event.sequence_number,
+    ]),
+    [
+      ["start", 0],
+      ["pause", 1],
+      ["resume", 2],
+      ["pause", 3],
+      ["end", 4],
+    ],
+    "recording lifecycle retains pause count and timing order",
+  );
+  assert.ok(
+    getRecordingEvents(MAIN_USER, session).every(
+      (event) =>
+        Number.isInteger(event.client_epoch_ms) &&
+        Number.isInteger(event.server_received_epoch_ms),
+    ),
+    "client and server event timestamps are stored",
+  );
+  await api("/api/recording/ended", {
+    method: "POST",
+    body: {
+      eventId: `${session}-4`,
+      session,
+      clientEpochMs: t0 + 710_000,
+      sequenceNumber: 4,
+    },
+    expectStatus: 401,
+  });
 
   // VLM worker stand-in: one label per CHUNK — frames inherit it.
-  setChunkResult(MAIN_USER, baseT, "Working at desk", "work");
-  setChunkResult(MAIN_USER, t0, "Deep work", "work");
-  setChunkResult(MAIN_USER, t0 + 300_000, "Reading paper", "work");
+  setChunkResult(MAIN_USER, baseT, "no_task_engagement", "other");
+  setChunkResult(MAIN_USER, t0, "computer_or_monitor_use", "work");
+  setChunkResult(MAIN_USER, t0 + 300_000, "paper_reading_writing", "work");
+  markChunkFailed(MAIN_USER, t0 + 600_000);
+  assert.strictEqual(
+    getChunks(MAIN_USER).filter((chunkRow) => chunkRow.status === "failed")
+      .length,
+    1,
+    "failed VLM chunks remain countable for the failure-rate analysis",
+  );
 
   // assisted round now auto-generates + persists the initial segmentation:
-  //   block 1 (base session): lone short segment survives
-  //   block 2: two chunks with different labels -> two activities, with
-  //   activity bounds at real frame times (not window edges)
+  // Every proposal row uses complete clock-aligned 5-minute windows. The
+  // capture gap between baseT and t0 receives no special boundary logic; the
+  // different classifications still keep those chunks as separate rows.
   const generated = await api("/api/reconstruction/round/2", { token });
   assert.strictEqual(generated.status, "draft", "generation persisted as draft");
   assert.strictEqual(generated.vlmPendingCount, 0);
@@ -979,26 +1115,31 @@ const main = async (): Promise<void> => {
       a.source,
     ]),
     [
-      [baseT, baseT, "Working at desk", "work", "vlm"],
-      [t0, t0 + 151_000, "Deep work", "work", "vlm"],
-      [t0 + 300_000, t0 + 480_000, "Reading paper", "work", "vlm"],
+      [baseT, baseT + 300_000, "no_task_engagement", "other", "vlm"],
+      [t0, t0 + 300_000, "computer_or_monitor_use", "work", "vlm"],
+      [t0 + 300_000, t0 + 600_000, "paper_reading_writing", "work", "vlm"],
+      [t0 + 600_000, t0 + 900_000, null, null, "vlm"],
     ],
-    "chunk labels group into activities and split at the capture gap",
+    "chunk labels use full five-minute windows",
   );
-  assert.strictEqual(generated.activities[1].vlmRawLabel, "Deep work");
+  assert.strictEqual(
+    generated.activities[1].vlmRawLabel,
+    "computer_or_monitor_use",
+  );
   assert.strictEqual(generated.activities[1].vlmCategory, "work");
-  assert.strictEqual(generated.frames.length, 10);
-  assert.strictEqual(generated.frames[0].vlmLabel, "Working at desk");
-  assert.strictEqual(generated.frames[0].vlmCategory, "work");
+  assert.strictEqual(generated.frames.length, 11);
   assert.ok(
     generated.frames.every(
       (frame: any) =>
         typeof frame.device === "string" &&
         Number.isInteger(frame.session) &&
-        Number.isInteger(frame.frameIndex),
+        Number.isInteger(frame.frameIndex) &&
+        frame.deletedAt !== undefined,
     ),
-    "assisted frame payload carries deletion endpoint identity",
+    "assisted frame payload carries stable photo identity and deletion state",
   );
+  assert.strictEqual(generated.frames[0].vlmLabel, "no_task_engagement");
+  assert.strictEqual(generated.frames[0].vlmCategory, "other");
   assert.strictEqual(
     generated.firstDraftSavedAt,
     null,
@@ -1054,7 +1195,7 @@ const main = async (): Promise<void> => {
   // An emptied draft still self-heals, but now by copying the immutable
   // snapshot rather than re-running segmentation. Changing a chunk label
   // after generation must not change the restored proposal.
-  setChunkResult(MAIN_USER, t0, "Changed after proposal", "other");
+  setChunkResult(MAIN_USER, t0, "other", "other");
   const round2FirstSave = await api("/api/reconstruction/round/2", {
     method: "PUT",
     token,
@@ -1066,10 +1207,10 @@ const main = async (): Promise<void> => {
     round2FirstSave.firstDraftSavedAt,
   );
   const regenerated = await api("/api/reconstruction/round/2", { token });
-  assert.strictEqual(regenerated.activities.length, 3, "draft restored");
+  assert.strictEqual(regenerated.activities.length, 4, "draft restored");
   assert.strictEqual(
     regenerated.activities[1].rawLabel,
-    "Deep work",
+    "computer_or_monitor_use",
     "restore uses the original snapshot, not current chunk labels",
   );
   assert.deepStrictEqual(
@@ -1081,39 +1222,47 @@ const main = async (): Promise<void> => {
   );
 
   // draft PUT (replace-all): edit a label, insert a user activity; identical
-  // spans keep their original VLM proposal for the label-quality analysis
+  // spans keep their original VLM proposal provenance
   const editedActivities = [
     {
       startMs: baseT,
-      endMs: baseT + 90_000,
-      rawLabel: "Working at desk",
-      categoryLabel: "work",
+      endMs: baseT + 300_000,
+      rawLabel: "no_task_engagement",
+      categoryLabel: "other",
       source: "vlm",
-      workloadRating: 3,
     },
     {
       startMs: t0,
       endMs: t0 + 151_000,
-      rawLabel: "Focused work", // participant corrected the label
+      rawLabel: "handheld_device_use", // participant corrected the label
       categoryLabel: "work",
       source: "vlm",
+      vlmRawLabel: "computer_or_monitor_use",
+      vlmCategory: "work",
       workloadRating: 5,
     },
     {
       startMs: t0 + 152_000,
       endMs: t0 + 299_000,
-      rawLabel: "Stretch break",
+      rawLabel: "walking_or_movement",
       categoryLabel: "break",
       source: "user", // participant inserted this one from memory
       recoveryRating: 4,
     },
     {
       startMs: t0 + 300_000,
-      endMs: t0 + 480_000,
-      rawLabel: "Reading paper",
+      endMs: t0 + 600_000,
+      rawLabel: "paper_reading_writing",
       categoryLabel: "work",
       source: "vlm",
       workloadRating: 2,
+    },
+    {
+      startMs: t0 + 600_000,
+      endMs: t0 + 900_000,
+      rawLabel: "other",
+      categoryLabel: "other",
+      source: "vlm",
     },
   ];
   const round2EditedSave = await api("/api/reconstruction/round/2", {
@@ -1131,16 +1280,16 @@ const main = async (): Promise<void> => {
   );
   const draft = await api("/api/reconstruction/round/2", { token });
   assert.strictEqual(draft.status, "draft");
-  assert.strictEqual(draft.activities.length, 4);
+  assert.strictEqual(draft.activities.length, 5);
   assert.deepStrictEqual(
     draft.activities.map((a: any) => a.position),
-    [0, 1, 2, 3],
+    [0, 1, 2, 3, 4],
     "positions assigned from array order",
   );
-  assert.strictEqual(draft.activities[1].rawLabel, "Focused work");
+  assert.strictEqual(draft.activities[1].rawLabel, "handheld_device_use");
   assert.strictEqual(
     draft.activities[1].vlmRawLabel,
-    "Deep work",
+    "computer_or_monitor_use",
     "identical span keeps the original VLM proposal",
   );
   assert.strictEqual(draft.activities[2].source, "user");
@@ -1161,7 +1310,7 @@ const main = async (): Promise<void> => {
       ? {
           ...activity,
           endMs: t0 + 120_000, // span changed
-          vlmRawLabel: "Deep work",
+          vlmRawLabel: "computer_or_monitor_use",
           vlmCategory: "work",
         }
       : activity,
@@ -1174,7 +1323,7 @@ const main = async (): Promise<void> => {
   const afterBoundaryEdit = await api("/api/reconstruction/round/2", { token });
   assert.strictEqual(
     afterBoundaryEdit.activities[1].vlmRawLabel,
-    "Deep work",
+    "computer_or_monitor_use",
     "echoed VLM provenance survives a span edit",
   );
 
@@ -1185,8 +1334,8 @@ const main = async (): Promise<void> => {
     token,
     body: {
       activities: [
-        { startMs: t0, endMs: t0 + 100_000, rawLabel: "a", categoryLabel: "work", source: "user" },
-        { startMs: t0 + 50_000, endMs: t0 + 150_000, rawLabel: "b", categoryLabel: "work", source: "user" },
+        { startMs: t0, endMs: t0 + 100_000, rawLabel: "computer_or_monitor_use", categoryLabel: "work", source: "user" },
+        { startMs: t0 + 50_000, endMs: t0 + 150_000, rawLabel: "paper_reading_writing", categoryLabel: "work", source: "user" },
       ],
     },
     expectStatus: 400,
@@ -1199,7 +1348,7 @@ const main = async (): Promise<void> => {
         {
           startMs: TODAY_NOON + 86_400_000, // tomorrow: outside the study day
           endMs: TODAY_NOON + 86_460_000,
-          rawLabel: "a",
+          rawLabel: "computer_or_monitor_use",
           categoryLabel: "work",
           source: "user",
         },
@@ -1226,7 +1375,7 @@ const main = async (): Promise<void> => {
     "export.csv carries no VLM columns",
   );
 
-  // submit round 2: atomic save + lock + propagation onto the frames
+  // submit round 2: atomic save + lock; proposal and assisted lists remain separately queryable
   const round2Submit = await api("/api/reconstruction/round/2/submit", {
     method: "POST",
     token,
@@ -1250,8 +1399,8 @@ const main = async (): Promise<void> => {
     ]),
     [
       [1, "self", 0, "submitted", 2],
-      [2, "assisted", 0, "submitted", 4],
-      [2, "vlm_proposal", 1, null, 3],
+      [2, "assisted", 0, "submitted", 5],
+      [2, "vlm_proposal", 1, null, 4],
     ],
     "list kind, workflow status, and three-list identity stay distinct",
   );
@@ -1268,25 +1417,6 @@ const main = async (): Promise<void> => {
     token,
     body: { activities: editedActivities },
     expectStatus: 409,
-  });
-
-  // propagation (ASSISTED round only): chunks overlapping each span carry the
-  // submitted labels. The t0 chunk straddles "Focused work" AND the
-  // user-inserted "Stretch break"; activities stamp in position order, so the
-  // later one deterministically wins the boundary chunk. Round 1's differing
-  // self labels ("Working from memory") must NOT appear anywhere.
-  assert.deepStrictEqual(getChunkCorrections(MAIN_USER, baseT), {
-    category: "work",
-    activity: "Working at desk",
-  });
-  assert.deepStrictEqual(
-    getChunkCorrections(MAIN_USER, t0),
-    { category: "break", activity: "Stretch break" },
-    "boundary chunk stamped by the later overlapping activity",
-  );
-  assert.deepStrictEqual(getChunkCorrections(MAIN_USER, t0 + 300_000), {
-    category: "work",
-    activity: "Reading paper",
   });
 
   // =========================================================================
@@ -1310,13 +1440,13 @@ const main = async (): Promise<void> => {
     "BBCCDDEEFF00",
   );
   assert.strictEqual(markAllAnonymized(), 2, "second participant frames anonymized");
-  setChunkResult(SECOND_USER, s0, "Cooking dinner", "other");
+  setChunkResult(SECOND_USER, s0, "food_preparation", "other");
 
   const secondActivities = [
     {
       startMs: s0,
       endMs: s0 + 60_000,
-      rawLabel: "Cooking",
+      rawLabel: "food_preparation",
       categoryLabel: "other",
       source: "user",
     },
@@ -1355,18 +1485,13 @@ const main = async (): Promise<void> => {
   );
   assert.strictEqual(secondRound2.vlmPendingCount, 0);
   assert.strictEqual(secondRound2.vlmProposal.kind, "vlm_proposal");
-  assert.strictEqual(secondRound2.activities[0].rawLabel, "Cooking dinner");
+  assert.strictEqual(secondRound2.activities[0].rawLabel, "food_preparation");
 
   await api("/api/reconstruction/round/2/submit", {
     method: "POST",
     token: secondToken,
     body: { activities: secondActivities },
   });
-  assert.deepStrictEqual(
-    getChunkCorrections(SECOND_USER, s0),
-    { category: "other", activity: "Cooking" },
-    "every participant's round-2 response propagates corrections",
-  );
 
   console.log("SMOKE TEST PASSED");
 };

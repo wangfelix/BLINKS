@@ -1,5 +1,5 @@
 # BLINKS VLM worker dependencies.
 # The KIT SCC AI toolbox is OpenAI-compatible, so the official openai client
 # talks to it directly (same pattern as the sibling KARMA project).
-openai>=1.0.0
+openai>=1.40.0
 python-dotenv>=1.0.0

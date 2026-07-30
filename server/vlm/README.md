@@ -3,12 +3,10 @@
 Labels **5-minute chunks**: the Node server groups frames into clock-aligned
 5-minute windows at ingestion (`chunks` table in `recordings.db`), and this
 worker sends each completed chunk's frames to a Vision Language Model in ONE
-multi-image call, writing a per-chunk **scene-state descriptor** + label +
-description onto the chunk row. Frames inherit their chunk's label everywhere
-downstream (segmentation, the assisted round). This is the context layer the
-biosignal study aligns against and the source of change-point-detection
-features. (`frames.vlm_*` is frozen legacy from the per-frame era — readable,
-never written.)
+multi-image call, writing a closed activity enum, `work | break | other`
+category, and visible-evidence description onto the chunk row. Frames inherit
+their chunk's label everywhere downstream (segmentation, the assisted round);
+the frame table does not duplicate VLM output.
 
 For the **DRM subproject** it additionally classifies every chunk into
 `work | break | other` (`vlm_category`) and picks the activity label from a
@@ -72,6 +70,12 @@ via `EnvironmentFile=` instead (see below).
 .venv/bin/python vlm_worker.py --max 50   # stop after 50 chunks (testing)
 ```
 
+Offline output-contract test (does not need the API client or a key):
+
+```bash
+python3 -m unittest test_vlm_contract.py
+```
+
 The worker reads `recordings.db` and the JPEGs written by the Node server, so it
 must run on the same host. It only claims chunks whose frames are all through
 the face-blur worker.
@@ -121,33 +125,28 @@ time-based reclaim.
 
 - `status`: `ready → processing → done` (or `failed` after retries)
 - `vlm_model`: the model name, so every pass is traceable
-- `vlm_label`: the model's `"activity"` — the closest entry from
-  `ACTIVITY_VOCABULARY` (in `vlm_worker.py`), or a concise 2-4 word label the
-  model coins when nothing in the list fits
+- `vlm_label`: the model's `"activity"` — exactly one of the 17 closed enum
+  keys in `ACTIVITY_VOCABULARY` (`vlm_worker.py`). `other` covers a visible
+  activity outside the vocabulary; `unclear` means the images are
+  insufficient.
 - `vlm_category`: `work | break | other` (DRM subproject). Anything the model
-  returns outside those three values is coerced to `other`. Semantics: `work` =
-  the participant's own occupation work (their occupation + work description
-  provide the context); `break` = intentional restorative pause ("erholsame
-  Pause": coffee, resting, deliberate walk, socializing to recover); `other` =
-  neither work nor restorative (chores, answering the door, errands, possibly
-  cooking).
-- `vlm_description`: one short sentence about the window
-- `vlm_descriptor`: JSON of the scene-state dimensions (the dominant state
-  across the window) —
-  `posture, movement, screen_engagement, object_manipulation, proximity, social_interaction`
+  returns outside those three values fails local validation and is retried.
+  Semantics: `work` = the participant's own occupation work (their occupation
+  + work description provide the context); `break` = intentional restorative
+  pause ("erholsame Pause": coffee, resting, deliberate walk, socializing to
+  recover); `other` = neither work nor restorative (chores, personal
+  administration, travel, or other non-restorative activity).
+- `vlm_description`: one short sentence citing visible evidence only
 
 The **Node server owns the `chunks` migration** (`server/src/db.ts` `initDb`).
 If the table is missing (server not yet deployed/restarted with the chunk
 rework), the worker refuses to start with a clear message instead of failing
 every chunk.
 
-The descriptor enums (`DESCRIPTOR_ENUMS`) and the activity vocabulary
-(`ACTIVITY_VOCABULARY`) in `vlm_worker.py` are a **v1 starting point** —
-**review and extend the activity vocabulary before the study** (it drives label
-consistency across participants and days) and refine the descriptor taxonomy as
-needed. They are deliberately small closed vocabularies so the output is stable
-enough for downstream analysis, with graceful escapes (`unknown` for descriptor
-dimensions, a coined label for activities).
+The activity vocabulary is a closed, study-specific observational taxonomy.
+Purpose is deliberately excluded from the activity enum and inferred only in
+the independent category. JSON-schema constrained decoding plus local
+validation rejects off-vocabulary activity/category output.
 
 ## Occupation context
 
@@ -168,9 +167,10 @@ want them re-classified with context.
   at once, switch to a time-based reclaim instead, or they will fight over the
   same chunks.
 - **`failed` chunks** never get a label (their frames stay served, since they
-  are already anonymized). Periodically requeue them — `UPDATE chunks SET
-  status='ready' WHERE status='failed'` — once the cause (transient API
-  outage, etc.) is gone.
+  are already anonymized). They remain countable through `chunks.status` and
+  bootstrap as blank activity rows in the assisted reconstruction. Periodically
+  requeue them — `UPDATE chunks SET status='ready' WHERE status='failed'` —
+  once the cause (transient API outage, etc.) is gone.
 - Reachability: the toolbox must be reachable from the host. On the KIT VM both
   are inside KIT, so it should resolve directly; verify with a quick `--once` run.
 

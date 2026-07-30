@@ -12,6 +12,7 @@ const url_1 = require("url");
 const auth_1 = require("./auth");
 const auth_db_1 = require("./auth-db");
 const db_1 = require("./db");
+const activity_vocabulary_1 = require("./activity-vocabulary");
 const segmentation_1 = require("./segmentation");
 const push_1 = require("./push");
 const time_1 = require("./time");
@@ -38,7 +39,6 @@ const time_1 = require("./time");
 const PORT = Number(process.env.CAMERA_PORT ?? 3000);
 const RECORDINGS_DIR = process.env.RECORDINGS_DIR ?? path_1.default.join(__dirname, "..", "recordings");
 const DATA_DIR = process.env.DATA_DIR ?? path_1.default.join(__dirname, "..", "data");
-const PAUSED_PATH = path_1.default.join(RECORDINGS_DIR, "paused.json");
 const MAX_BATCH_DELETE_FRAMES = 500;
 // DRM: where the reconstruction website lives (linked from the app + pushes),
 // and the local hour from which TODAY's reconstruction opens (past days are
@@ -76,27 +76,8 @@ if (DRM_DEV_MODE) {
 // The app pauses the camera directly over BLE; this server-side state is the
 // defense-in-depth gate that drops any frame still in flight (or raced around
 // the BLE control write) so a paused participant's images never reach disk.
-let pausedParticipants = new Set();
-function loadPaused() {
-    try {
-        if (fs_1.default.existsSync(PAUSED_PATH)) {
-            const arr = JSON.parse(fs_1.default.readFileSync(PAUSED_PATH, "utf8"));
-            pausedParticipants = new Set(arr);
-        }
-    }
-    catch (err) {
-        console.error("Failed to load paused.json:", err);
-    }
-}
-function persistPaused() {
-    try {
-        fs_1.default.writeFileSync(PAUSED_PATH, JSON.stringify(Array.from(pausedParticipants), null, 2));
-    }
-    catch (err) {
-        console.error("Failed to persist paused.json:", err);
-    }
-}
-loadPaused();
+// It is rebuilt from the latest append-only recording event on server start.
+const pausedParticipants = new Set((0, db_1.listPausedParticipants)());
 const app = (0, express_1.default)();
 app.use(express_1.default.json());
 app.get("/health", (_req, res) => {
@@ -409,18 +390,16 @@ const toPhotoFrameJson = (row, vlm = {
     vlmCategory: row.deleted_at === null ? vlm.category : null,
 });
 // Hard ceiling well above any real day (a 16 h day at 30 s frames segments
-// into far fewer activities); protects the propagation loop from abuse.
+// into far fewer activities); bounds participant-controlled writes.
 const MAX_ACTIVITIES_PER_ROUND = 300;
 // Validates the replace-all activities body shared by draft PUT and submit.
-// requireLabels (submit) additionally demands a non-empty rawLabel AND a
+// requireLabels (submit) additionally demands a supported activity enum AND a
 // categoryLabel on every activity, plus the category's experience rating
 // (work -> workloadRating, break -> recoveryRating; both 7-point Likert).
-// Every span must lie within the pinned study day and spans must not
-// overlap — the round-2 submit propagation stamps user_corrected_* onto
-// frames by time range, so an out-of-day span could otherwise rewrite frames
-// outside the study day. On round 1 every activity must be user-sourced
-// and carries no VLM provenance (there is no VLM proposal the participant
-// could have seen).
+// Every span must lie within the pinned study day and spans must not overlap,
+// preserving one unambiguous ordered reconstruction. On round 1 every
+// activity must be user-sourced and carries no VLM provenance (there is no
+// VLM proposal the participant could have seen).
 const parseActivityInputs = (body, day, requireLabels, round) => {
     const list = body?.activities;
     if (!Array.isArray(list))
@@ -439,15 +418,22 @@ const parseActivityInputs = (body, day, requireLabels, round) => {
             endMs < startMs) {
             return { error: `activity ${index}: invalid startMs/endMs` };
         }
+        // Spans are half-open. A final 23:55-00:00 chunk therefore belongs fully
+        // to the pinned day even though its exclusive end is next-day midnight.
+        const lastIncludedMs = endMs > startMs ? endMs - 1 : endMs;
         if ((0, time_1.dayKeyFromEpochMs)(startMs) !== day ||
-            (0, time_1.dayKeyFromEpochMs)(endMs) !== day) {
+            (0, time_1.dayKeyFromEpochMs)(lastIncludedMs) !== day) {
             return { error: `activity ${index}: span must lie within ${day}` };
         }
-        if (rawLabel !== null && rawLabel !== undefined && typeof rawLabel !== "string") {
-            return { error: `activity ${index}: rawLabel must be a string or null` };
+        if (rawLabel !== null &&
+            rawLabel !== undefined &&
+            !activity_vocabulary_1.ACTIVITY_LABEL_SET.has(rawLabel)) {
+            return {
+                error: `activity ${index}: rawLabel must be a supported activity enum or null`,
+            };
         }
-        const trimmedLabel = typeof rawLabel === "string" && rawLabel.trim().length > 0
-            ? rawLabel.trim()
+        const activityLabel = typeof rawLabel === "string" && activity_vocabulary_1.ACTIVITY_LABEL_SET.has(rawLabel)
+            ? rawLabel
             : null;
         if (categoryLabel !== null &&
             categoryLabel !== undefined &&
@@ -462,7 +448,7 @@ const parseActivityInputs = (body, day, requireLabels, round) => {
         if (round === 1 && source !== "user") {
             return { error: `activity ${index}: source must be 'user' on a self round` };
         }
-        if (requireLabels && trimmedLabel === null) {
+        if (requireLabels && activityLabel === null) {
             return { error: `activity ${index}: rawLabel is required to submit` };
         }
         if (requireLabels && (categoryLabel === null || categoryLabel === undefined)) {
@@ -498,12 +484,12 @@ const parseActivityInputs = (body, day, requireLabels, round) => {
         }
         // VLM-proposal provenance, echoed by the web client so it survives span
         // edits (the DB-side exact-span fallback only covers unchanged spans).
-        // Client-supplied, but it can only distort the participant's own
-        // label-quality bookkeeping; the frame-level vlm_* columns stay VLM-owned.
-        // Self rounds never carry provenance (no proposal was ever shown).
+        // Client-supplied, but it cannot alter the immutable proposal list or the
+        // VLM-owned chunk output. Self rounds never carry provenance because no
+        // proposal was shown.
         const vlmRawLabel = round === 2 &&
             typeof entry.vlmRawLabel === "string" &&
-            entry.vlmRawLabel.length > 0
+            activity_vocabulary_1.ACTIVITY_LABEL_SET.has(entry.vlmRawLabel)
             ? entry.vlmRawLabel
             : null;
         const vlmCategory = round === 2 && CATEGORY_LABELS.has(entry.vlmCategory)
@@ -512,7 +498,7 @@ const parseActivityInputs = (body, day, requireLabels, round) => {
         activities.push({
             start_ms: startMs,
             end_ms: endMs,
-            raw_label: trimmedLabel,
+            raw_label: activityLabel,
             category_label: categoryLabel ?? null,
             source,
             vlm_raw_label: vlmRawLabel,
@@ -650,7 +636,6 @@ app.get("/api/reconstruction/round/:round", auth_1.requireAuth, (req, res) => {
             frameIdentityKey(frame.device, frame.session, frame.frame_index),
             frame,
         ]));
-        const servedFrames = dayFrames.filter((f) => f.face_status === "done");
         // Pending = frames whose 5-minute chunk is not terminal yet (filling /
         // ready / processing). Legacy frames without a chunk are frozen, and
         // face_status='failed' frames can never feed a chunk's VLM input — do
@@ -666,27 +651,28 @@ app.get("/api/reconstruction/round/:round", auth_1.requireAuth, (req, res) => {
         // Draft saves replace only (2). If the participant empties that draft,
         // reload restores it from (1) without re-running segmentation.
         let proposalList = (0, db_1.getActivityList)(participant, round, "vlm_proposal");
+        const dayChunks = (0, db_1.listChunksOnDay)(participant, day);
         if (proposalList === undefined &&
             vlmPendingCount === 0 &&
-            servedFrames.length > 0) {
-            // Segmentation runs on the day's CHUNKS: consecutive same-label
-            // windows group into one activity, with activity bounds at the real
-            // first/last frame times inside the grouped windows. Failed or
-            // unlabeled chunks come in as null/null (segmentDay merges them into
-            // a labeled neighbor); chunks with no servable frame are skipped.
-            const dayChunks = (0, db_1.listChunksOnDay)(participant, day);
-            const segments = (0, segmentation_1.segmentDay)(dayChunks
-                .filter((chunk) => chunk.first_frame_ms !== null && chunk.last_frame_ms !== null)
-                .map((chunk) => ({
-                firstFrameMs: chunk.first_frame_ms,
-                lastFrameMs: chunk.last_frame_ms,
-                vlmLabel: chunk.status === "done" ? chunk.vlm_label : null,
-                vlmCategory: chunk.status === "done" &&
+            dayChunks.length > 0) {
+            // Segmentation runs on the day's clock-aligned 5-minute CHUNKS.
+            // Consecutive windows merge only when both their closed activity enum
+            // and category match. Failed/unlabelled chunks each stay as a blank
+            // proposal row so the participant can classify them; chunks with no
+            // servable frame still appear, without exposing the failed image.
+            const segments = (0, segmentation_1.segmentDay)(dayChunks.map((chunk) => {
+                const hasValidResult = chunk.status === "done" &&
+                    chunk.vlm_label !== null &&
+                    activity_vocabulary_1.ACTIVITY_LABEL_SET.has(chunk.vlm_label) &&
                     chunk.vlm_category !== null &&
-                    CATEGORY_LABELS.has(chunk.vlm_category)
-                    ? chunk.vlm_category
-                    : null,
-            })));
+                    CATEGORY_LABELS.has(chunk.vlm_category);
+                return {
+                    chunkStartMs: chunk.chunk_start_ms,
+                    chunkEndMs: chunk.chunk_end_ms,
+                    vlmLabel: hasValidResult ? chunk.vlm_label : null,
+                    vlmCategory: hasValidResult ? chunk.vlm_category : null,
+                };
+            }));
             const proposalActivities = segments.map((segment) => ({
                 start_ms: segment.startMs,
                 end_ms: segment.endMs,
@@ -788,9 +774,8 @@ app.put("/api/reconstruction/round/:round", auth_1.requireAuth, (req, res) => {
     const responseList = (0, db_1.getRoundResponseList)(req.participant, guard.round);
     res.json({ ok: true, ...roundTimingJson(responseList) });
 });
-// Atomic save + lock; the ASSISTED round additionally propagates the labels
-// onto every chunk overlapping each activity's span (chunk-level
-// label-quality ground truth). Submitting round 1 unlocks round 2.
+// Atomic save + lock. Original VLM and final participant labels remain in
+// their separately identified lists. Submitting round 1 unlocks round 2.
 app.post("/api/reconstruction/round/:round/submit", auth_1.requireAuth, (req, res) => {
     const guard = guardRound(req, res, true);
     if (!guard)
@@ -815,32 +800,85 @@ app.post("/api/reconstruction/round/:round/submit", auth_1.requireAuth, (req, re
         ...roundTimingJson(responseList),
     });
 });
-// --- Pause / resume (participant from token) --------------------------------
-app.post("/api/pause", auth_1.requireAuth, (req, res) => {
-    pausedParticipants.add(req.participant);
-    persistPaused();
-    console.log(`Paused participant ${req.participant}`);
-    res.json({ ok: true, paused: true });
-});
-app.post("/api/resume", auth_1.requireAuth, (req, res) => {
-    pausedParticipants.delete(req.participant);
-    persistPaused();
-    console.log(`Resumed participant ${req.participant}`);
-    res.json({ ok: true, paused: false });
-});
-// The app's explicit End-session signal (Stop, not Pause): the day's
-// recording is over, so the trailing still-filling 5-minute chunk can go to
-// the VLM immediately instead of waiting for the idle sweep. The sweep stays
-// as the fallback for crashes / lost connectivity, and any frame that still
-// straggles in lands in its (now 'ready') chunk before the VLM worker samples
-// the frames at claim time.
-app.post("/api/recording/ended", auth_1.requireAuth, (req, res) => {
-    const closedChunks = (0, db_1.closeFillingChunks)(req.participant);
-    if (closedChunks > 0) {
-        console.log(`Recording ended: ${req.participant} — closed ${closedChunks} chunk(s) for VLM`);
+function parseRecordingEvent(body, eventType) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return { error: "recording event body is required" };
     }
-    res.json({ ok: true, closedChunks });
-});
+    const payload = body;
+    if (typeof payload.eventId !== "string" ||
+        payload.eventId.length < 1 ||
+        payload.eventId.length > 96 ||
+        !/^[a-zA-Z0-9._:-]+$/.test(payload.eventId)) {
+        return { error: "eventId must be 1-96 safe identifier characters" };
+    }
+    if (!Number.isSafeInteger(payload.session) ||
+        payload.session <= 0) {
+        return { error: "session must be a positive integer" };
+    }
+    if (!Number.isSafeInteger(payload.clientEpochMs) ||
+        payload.clientEpochMs <= 0) {
+        return { error: "clientEpochMs must be a positive integer" };
+    }
+    if (!Number.isSafeInteger(payload.sequenceNumber) ||
+        payload.sequenceNumber < 0) {
+        return { error: "sequenceNumber must be a non-negative integer" };
+    }
+    return {
+        event: {
+            event_id: payload.eventId,
+            session: payload.session,
+            event_type: eventType,
+            client_epoch_ms: payload.clientEpochMs,
+            sequence_number: payload.sequenceNumber,
+        },
+    };
+}
+function syncPauseGate(participant) {
+    const latest = (0, db_1.latestRecordingEvent)(participant);
+    const paused = latest?.event_type === "pause";
+    if (paused) {
+        pausedParticipants.add(participant);
+    }
+    else {
+        pausedParticipants.delete(participant);
+    }
+    return { paused, latestEventId: latest?.event_id ?? null };
+}
+function handleRecordingEvent(req, res, eventType) {
+    const { event, error } = parseRecordingEvent(req.body, eventType);
+    if (!event) {
+        res.status(400).json({ error });
+        return;
+    }
+    const participant = req.participant;
+    try {
+        const stored = (0, db_1.recordRecordingEvent)(participant, event);
+        const { paused, latestEventId } = syncPauseGate(participant);
+        const isLatestEvent = latestEventId === stored.event_id;
+        const closedChunks = eventType === "end" && isLatestEvent
+            ? (0, db_1.closeFillingChunksForSession)(participant, stored.session)
+            : 0;
+        console.log(`Recording ${eventType}: ${participant}/${stored.session} #${stored.sequence_number}`);
+        res.json({
+            ok: true,
+            eventId: stored.event_id,
+            serverReceivedEpochMs: stored.server_received_epoch_ms,
+            paused,
+            ...(eventType === "end" ? { closedChunks } : {}),
+        });
+    }
+    catch (eventError) {
+        if (eventError instanceof db_1.RecordingEventConflictError) {
+            res.status(409).json({ error: eventError.message });
+            return;
+        }
+        throw eventError;
+    }
+}
+app.post("/api/recording/started", auth_1.requireAuth, (req, res) => handleRecordingEvent(req, res, "start"));
+app.post("/api/pause", auth_1.requireAuth, (req, res) => handleRecordingEvent(req, res, "pause"));
+app.post("/api/resume", auth_1.requireAuth, (req, res) => handleRecordingEvent(req, res, "resume"));
+app.post("/api/recording/ended", auth_1.requireAuth, (req, res) => handleRecordingEvent(req, res, "end"));
 // --- WebSocket ingestion (the phone is the client) ---------------------------
 const server = http_1.default.createServer(app);
 const wss = new ws_1.WebSocketServer({ server });

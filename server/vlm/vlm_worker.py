@@ -18,8 +18,8 @@ frames, assembled by the Node server at ingestion:
                                       |
                                       v
         [this worker]  chunk ready->processing->done|failed
-                       writes vlm_label/category/description/descriptor
-                       onto the CHUNK row (frames.vlm_* is frozen legacy)
+                       writes vlm_label/category/description
+                       only onto the CHUNK row
 
 Readiness gate (columns, not locks): a chunk is only claimed when
   - chunks.status = 'ready' (the server closed the window), AND
@@ -29,9 +29,9 @@ failed the blur is marked 'failed' without an API call.
 
 Per chunk the model receives up to VLM_CHUNK_MAX_FRAMES face-anonymized frames
 (evenly sampled across the window, chronological order) and returns ONE
-label/category/descriptor for the window:
-  - "activity": closest entry from ACTIVITY_VOCABULARY (or a coined concise
-    label if nothing fits)                       -> chunks.vlm_label
+activity/category/description for the window:
+  - "activity": one exact key from ACTIVITY_VOCABULARY
+                                                  -> chunks.vlm_label
   - "category": 'work' | 'break' | 'other'      -> chunks.vlm_category
 Classification is conditioned on the participant's occupation + work
 description (participants table, owned by the Node server).
@@ -128,94 +128,71 @@ BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "8"))
 
 CHUNK_WINDOW_MS = 5 * 60 * 1000  # keep in sync with server/src/db.ts
 
-# --- Activity vocabulary (v1) ------------------------------------------------
-# RESEARCHER NOTE: review and extend this list BEFORE the study. It is the
-# closed(ish) vocabulary the VLM picks the per-chunk "activity" from (the model
-# may coin a concise 2-4 word label when nothing here fits, so gaps degrade
-# gracefully, but a curated list keeps labels consistent across participants
-# and days). Short lowercase noun phrases only.
-ACTIVITY_VOCABULARY = [
-    # computer work
-    "computer work",
-    "email or messaging",
-    "browsing the web",
-    "coding or data analysis",
-    "preparing slides or documents",
-    # meetings
-    "in-person meeting",
-    "video meeting",
-    "presentation or lecture",
-    # calls
-    "phone call",
-    # reading / writing
-    "reading printed material",
-    "reading on a screen",
-    "writing by hand",
-    # eating / drinking
-    "eating a meal",
-    "snacking",
-    "drinking coffee or tea",
-    # resting
-    "resting with eyes open",
-    "napping or lying down",
-    "sitting and relaxing",
-    # walking / exercise
-    "walking indoors",
-    "walking outdoors",
-    "exercising or stretching",
-    # socializing
-    "casual conversation",
-    "coffee break with others",
-    "social gathering",
-    # phone / entertainment
-    "using phone",
-    "watching tv or videos",
-    "playing games",
-    "listening to music or podcast",
-    # cooking
-    "cooking or preparing food",
-    "setting or clearing the table",
-    # chores / errands
-    "cleaning or tidying",
-    "laundry or dishes",
-    "shopping or errands",
-    "answering the door",
-    "organizing belongings",
-    # hygiene / dressing
-    "personal hygiene",
-    "getting dressed",
-    # commuting
-    "commuting by car",
-    "commuting by public transport",
-    "cycling",
-    # childcare / pets
-    "childcare",
-    "caring for pets",
-    # unclear or transition
-    "transitioning between activities",
-    "unclear activity",
-]
-
-# The three-way DRM category. Anything the model returns outside this set is
-# coerced to 'other' (never fails a chunk over a category typo).
-VLM_CATEGORIES = ("work", "break", "other")
-
-# --- Scene-state descriptor schema (v1) -------------------------------------
-# Each dimension is a small closed vocabulary so the output is consistent
-# enough to feed change-point detection downstream. With chunk-level inference
-# the descriptor captures the DOMINANT state across the window; "unknown" is
-# always allowed so a dark / ambiguous window degrades gracefully.
-DESCRIPTOR_ENUMS = {
-    "posture": ["sitting", "standing", "walking", "lying", "unknown"],
-    "movement": ["still", "fidgeting", "walking", "unknown"],
-    "screen_engagement": ["none", "looking_at_screen", "actively_using_screen", "unknown"],
-    "object_manipulation": [
-        "none", "writing", "typing", "using_phone", "handling_object",
-        "eating_drinking", "unknown",
-    ],
-    "proximity": ["alone", "one_person_nearby", "group_nearby", "unknown"],
-    "social_interaction": ["none", "listening", "conversing", "presenting", "unknown"],
+# --- Activity vocabulary -----------------------------------------------------
+# Closed, visually grounded activity enum. Keep the keys synchronized with
+# server/src/activity-vocabulary.ts and drm-web/src/lib/activity-vocabulary.ts.
+# Intent belongs only in the independent work|break|other category.
+ACTIVITY_DEFINITIONS = {
+    "computer_or_monitor_use": (
+        "Attention directed to a computer, laptop, tablet used as a workstation, "
+        "or monitor, with visible keyboard, mouse, touch, or screen interaction."
+    ),
+    "watching_video": (
+        "A television or video interface is visibly the sustained focus, with "
+        "little active input. Do not infer this from posture alone."
+    ),
+    "paper_reading_writing": (
+        "Reading a book or printed document, or handwriting on paper with a pen "
+        "or pencil, with no screen as the focus."
+    ),
+    "handheld_device_use": (
+        "A phone or other handheld device is held and visibly occupies attention."
+    ),
+    "remote_meeting": (
+        "A video-conferencing interface or remote participants are visibly present "
+        "on a screen. Do not infer a meeting from a headset alone."
+    ),
+    "phone_call": (
+        "A phone is held to the ear, a visible call interface is active, or a "
+        "headset is used without another visually dominant task."
+    ),
+    "in_person_interaction": (
+        "Another person is physically present and repeatedly oriented toward or "
+        "interacting with the wearer."
+    ),
+    "tools_or_materials": (
+        "Hands manipulate tools, equipment, components, or materials, unless a "
+        "more specific food, cleaning, assistance, or personal-care label applies."
+    ),
+    "eating_drinking": "Food or drink is visibly being consumed.",
+    "food_preparation": (
+        "Food or drink is being prepared, assembled, cooked, or served."
+    ),
+    "cleaning_household": (
+        "Visible cleaning, tidying, laundry, dishes, or household maintenance."
+    ),
+    "assisting_person_animal": (
+        "Visible physical assistance or attentive handling of another person or animal."
+    ),
+    "personal_care": "Visible washing, grooming, dressing, or other personal care.",
+    "walking_or_movement": (
+        "Walking, cycling, exercise-like motion, or another sustained body movement."
+    ),
+    "no_task_engagement": (
+        "No specific task, object interaction, or social interaction is visibly evident."
+    ),
+    "other": (
+        "The scene is legible, but the visible activity is outside this vocabulary."
+    ),
+    "unclear": (
+        "The frames are too dark, obscured, blurred, sparse, or otherwise "
+        "uninformative to determine the activity."
+    ),
 }
+ACTIVITY_VOCABULARY = tuple(ACTIVITY_DEFINITIONS)
+
+# The three-way DRM category. Off-enum output fails validation and is retried.
+VLM_CATEGORIES = ("work", "break", "other")
 
 SYSTEM_PROMPT = (
     "You analyze short sequences of frames from a body-worn (first-person) "
@@ -223,7 +200,9 @@ SYSTEM_PROMPT = (
     "chronological order and together span about five minutes. Faces in the "
     "images are intentionally pixelated for privacy; describe the scene and "
     "activity, never attempt to identify people. Judge the sequence as a "
-    "whole: describe the DOMINANT activity of the window, not any single frame."
+    "whole: classify the DOMINANT activity of the window, not any single frame. "
+    "The activity field describes visible behavior only. Purpose and restorative "
+    "intent belong exclusively in the separate category field."
 )
 
 
@@ -231,10 +210,10 @@ def _build_user_prompt(
     occupation: str | None, work_description: str | None, frame_count: int
 ) -> str:
     """The per-participant user prompt (occupation context varies per participant)."""
-    enums = "\n".join(
-        f'  "{k}": one of {v}' for k, v in DESCRIPTOR_ENUMS.items()
+    definitions = "\n".join(
+        f'- "{key}": {definition}'
+        for key, definition in ACTIVITY_DEFINITIONS.items()
     )
-    vocabulary = "; ".join(ACTIVITY_VOCABULARY)
     occupation = (occupation or "").strip()
     work_description = (work_description or "").strip()
     if occupation:
@@ -247,23 +226,23 @@ def _build_user_prompt(
         f"{occupation_context}\n\n"
         f"You see {frame_count} frames in chronological order spanning a "
         "5-minute window of the wearer's day. Judge the window as a whole and "
-        "return STRICT JSON only (no prose, no code fences) with exactly "
-        "these keys:\n"
-        '  "label": a 2-5 word summary of the dominant activity (string)\n'
-        '  "description": one short sentence about the window (string)\n'
-        '  "activity": the single closest activity from this list: '
-        f"{vocabulary}. "
-        "If nothing in the list fits, coin a concise 2-4 word label instead.\n"
+        "return the requested structured classification.\n\n"
+        "Activity definitions:\n"
+        f"{definitions}\n\n"
+        "Choose the most specific visibly supported activity. A specific label "
+        "such as remote_meeting, phone_call, eating_drinking, or food_preparation "
+        "takes precedence over a broader device or material-handling label. Base "
+        "dominance on what is most consistently visible across the sequence. Do "
+        "not infer activity from posture, location, clothing, or occupation alone.\n\n"
         '  "category": one of ["work", "break", "other"]. '
         '"work" = the wearer\'s own occupation work (their occupation and work '
         "description above provide the context for what counts as work). "
         '"break" = an intentional restorative pause ("erholsame Pause": coffee, '
         "resting, a deliberate walk, socializing to recover). "
-        '"other" = neither work nor restorative (chores, answering the door, '
-        "errands, possibly cooking).\n"
-        f"{enums}\n"
-        "Pick the single value that best describes the dominant state across "
-        'the window; use "unknown" only when the window is genuinely ambiguous.'
+        '"other" = neither work nor restorative (chores, personal administration, '
+        "travel, or other non-restorative activity).\n"
+        '  "description": one short sentence citing visible evidence only. '
+        'Do not write purpose claims such as "taking a break" in the description.'
     )
 
 
@@ -296,26 +275,46 @@ def _extract_json_object(text: str) -> dict:
 
 
 def _normalize(raw: dict) -> dict:
-    """Coerce the model's JSON into our fixed shape (activity, category, description, dims)."""
-    label = str(raw.get("label", "")).strip()[:200]
-    description = str(raw.get("description", "")).strip()[:1000]
-    # "activity" is what goes into vlm_label; fall back to the generic scene
-    # summary if the model omitted it, so a chunk never ends up label-less.
-    activity = str(raw.get("activity", "")).strip()[:200] or label
-    category = str(raw.get("category", "")).strip().lower()
+    """Validate the model's JSON against the closed activity/category contract."""
+    activity = raw.get("activity")
+    if activity not in ACTIVITY_VOCABULARY:
+        raise ValueError(f"off-vocabulary activity: {activity!r}")
+    category = raw.get("category")
     if category not in VLM_CATEGORIES:
-        category = "other"
-    descriptor = {}
-    for key, allowed in DESCRIPTOR_ENUMS.items():
-        value = str(raw.get(key, "unknown")).strip().lower()
-        descriptor[key] = value if value in allowed else "unknown"
+        raise ValueError(f"invalid category: {category!r}")
+    description = raw.get("description")
+    if not isinstance(description, str):
+        raise ValueError("description must be a string")
     return {
-        "label": label,
-        "description": description,
+        "description": description.strip()[:1000],
         "activity": activity,
         "category": category,
-        "descriptor": descriptor,
     }
+
+
+VLM_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "vlm_chunk_classification",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "activity": {
+                    "type": "string",
+                    "enum": list(ACTIVITY_VOCABULARY),
+                },
+                "category": {
+                    "type": "string",
+                    "enum": list(VLM_CATEGORIES),
+                },
+                "description": {"type": "string"},
+            },
+            "required": ["activity", "category", "description"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 def sample_evenly(items: list, max_count: int) -> list:
@@ -348,6 +347,7 @@ def infer(client: OpenAI, images: list[bytes], user_prompt: str) -> dict:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": content},
         ],
+        response_format=VLM_RESPONSE_FORMAT,
     )
     text = response.choices[0].message.content or ""
     return _normalize(_extract_json_object(text))
@@ -500,8 +500,7 @@ def _write_result(conn: sqlite3.Connection, row: sqlite3.Row, result: dict) -> N
         """
         UPDATE chunks
         SET status = 'done', vlm_model = ?, vlm_label = ?, vlm_category = ?,
-            vlm_description = ?, vlm_descriptor = ?, vlm_completed_at = ?,
-            updated_at = ?
+            vlm_description = ?, vlm_completed_at = ?, updated_at = ?
         WHERE participant = ? AND chunk_start_ms = ?
         """,
         (
@@ -509,7 +508,6 @@ def _write_result(conn: sqlite3.Connection, row: sqlite3.Row, result: dict) -> N
             result["activity"],
             result["category"],
             result["description"],
-            json.dumps(result["descriptor"], separators=(",", ":")),
             int(time.time() * 1000),
             int(time.time() * 1000),
             row["participant"], row["chunk_start_ms"],

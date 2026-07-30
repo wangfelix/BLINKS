@@ -1,30 +1,21 @@
-// Unit tests for the CHUNK-BASED initial day segmentation (segmentation.ts,
-// reworked 2026-07-19). Pure function, no DB.
+// Unit tests for the chunk-based initial day segmentation.
 //
 //   npx tsx scripts/test-segmentation.ts
 
 import assert = require("assert");
 
-import {
-  GAP_SPLIT_MS,
-  SegmentationChunk,
-  segmentDay,
-} from "../src/segmentation";
+import { SegmentationChunk, segmentDay } from "../src/segmentation";
 
 const WINDOW = 5 * 60 * 1000;
 const BASE = 1_800_000_000_000; // any 5-min-aligned epoch
 
-// Chunk in window `index`, with real frames from `firstOffset` after the
-// window start to `lastOffset` (defaults: frames spanning most of the window).
 const chunk = (
   index: number,
   label: string | null,
   category: string | null,
-  firstOffset = 0,
-  lastOffset = WINDOW - 30_000,
 ): SegmentationChunk => ({
-  firstFrameMs: BASE + index * WINDOW + firstOffset,
-  lastFrameMs: BASE + index * WINDOW + lastOffset,
+  chunkStartMs: BASE + index * WINDOW,
+  chunkEndMs: BASE + (index + 1) * WINDOW,
   vlmLabel: label,
   vlmCategory: category,
 });
@@ -53,116 +44,88 @@ const check = (name: string, actual: unknown, expected: unknown): void => {
 check("empty day yields no activities", spans([]), []);
 
 check(
-  "consecutive same-label chunks group into one activity with real frame bounds",
+  "same activity and category merge on full chunk boundaries",
   spans([
-    chunk(0, "computer work", "work", 90_000), // session starts mid-window
-    chunk(1, "computer work", "work"),
-    chunk(2, "computer work", "work", 0, 60_000), // session ends early
+    chunk(0, "computer_or_monitor_use", "work"),
+    chunk(1, "computer_or_monitor_use", "work"),
+    chunk(2, "computer_or_monitor_use", "work"),
   ]),
-  [[90_000, 2 * WINDOW + 60_000, "computer work", "work"]],
+  [[0, 3 * WINDOW, "computer_or_monitor_use", "work"]],
 );
 
 check(
-  "a label change between chunks starts a new activity",
+  "an activity change starts a new activity",
   spans([
-    chunk(0, "computer work", "work"),
-    chunk(1, "eating a meal", "break"),
+    chunk(0, "computer_or_monitor_use", "work"),
+    chunk(1, "eating_drinking", "break"),
   ]),
   [
-    [0, WINDOW - 30_000, "computer work", "work"],
-    [WINDOW, 2 * WINDOW - 30_000, "eating a meal", "break"],
+    [0, WINDOW, "computer_or_monitor_use", "work"],
+    [WINDOW, 2 * WINDOW, "eating_drinking", "break"],
   ],
 );
 
 check(
-  "same label but different category stays two activities",
-  spans([chunk(0, "cooking", "work"), chunk(1, "cooking", "other")]),
+  "same activity with a different category stays separate",
+  spans([
+    chunk(0, "computer_or_monitor_use", "work"),
+    chunk(1, "computer_or_monitor_use", "break"),
+  ]),
   [
-    [0, WINDOW - 30_000, "cooking", "work"],
-    [WINDOW, 2 * WINDOW - 30_000, "cooking", "other"],
+    [0, WINDOW, "computer_or_monitor_use", "work"],
+    [WINDOW, 2 * WINDOW, "computer_or_monitor_use", "break"],
   ],
 );
 
 check(
-  "noisy labels normalize into one group (display keeps the first form)",
+  "defensive case and whitespace normalization still groups",
   spans([
-    chunk(0, "Coffee  break", "break"),
-    chunk(1, " coffee break ", "break"),
+    chunk(0, "Computer_Or_Monitor_Use", "work"),
+    chunk(1, " computer_or_monitor_use ", "work"),
   ]),
-  [[0, 2 * WINDOW - 30_000, "Coffee break", "break"]],
+  [[0, 2 * WINDOW, "Computer_Or_Monitor_Use", "work"]],
 );
 
 check(
-  "a missing window with a short real gap does not split",
+  "a capture gap does not split matching classifications",
   spans([
-    chunk(0, "computer work", "work"), // frames end 4:30 into window 0
-    chunk(2, "computer work", "work"), // next frames 5:30 later (<= 10 min)
+    chunk(0, "computer_or_monitor_use", "work"),
+    chunk(4, "computer_or_monitor_use", "work"),
   ]),
-  [[0, 2 * WINDOW + WINDOW - 30_000, "computer work", "work"]],
+  [[0, 5 * WINDOW, "computer_or_monitor_use", "work"]],
 );
 
 check(
-  "a capture gap over 10 minutes splits even with the same label",
+  "a failed chunk stays blank and prevents surrounding chunks from merging",
   spans([
-    chunk(0, "computer work", "work", 0, 60_000),
-    chunk(3, "computer work", "work", 60_000), // 14 min between real frames
-  ]),
-  [
-    [0, 60_000, "computer work", "work"],
-    [3 * WINDOW + 60_000, 4 * WINDOW - 30_000, "computer work", "work"],
-  ],
-);
-
-check(
-  "an unlabeled chunk inside one activity merges away (bounds joined)",
-  spans([
-    chunk(0, "computer work", "work"),
-    chunk(1, null, null), // VLM failed
-    chunk(2, "computer work", "work"),
-  ]),
-  [[0, 3 * WINDOW - 30_000, "computer work", "work"]],
-);
-
-check(
-  "an unlabeled chunk between different activities joins the previous one",
-  spans([
-    chunk(0, "computer work", "work"),
+    chunk(0, "computer_or_monitor_use", "work"),
     chunk(1, null, null),
-    chunk(2, "eating a meal", "break"),
+    chunk(2, "computer_or_monitor_use", "work"),
   ]),
   [
-    [0, 2 * WINDOW - 30_000, "computer work", "work"],
-    [2 * WINDOW, 3 * WINDOW - 30_000, "eating a meal", "break"],
+    [0, WINDOW, "computer_or_monitor_use", "work"],
+    [WINDOW, 2 * WINDOW, null, null],
+    [2 * WINDOW, 3 * WINDOW, "computer_or_monitor_use", "work"],
   ],
 );
 
 check(
-  "a leading unlabeled chunk merges into the following labeled one",
-  spans([chunk(0, null, null), chunk(1, "computer work", "work")]),
-  [[0, 2 * WINDOW - 30_000, "computer work", "work"]],
-);
-
-check(
-  "an entirely unlabeled block stays one null-label activity",
+  "each consecutive failed chunk remains its own blank activity",
   spans([chunk(0, null, null), chunk(1, null, null)]),
-  [[0, 2 * WINDOW - 30_000, null, null]],
+  [
+    [0, WINDOW, null, null],
+    [WINDOW, 2 * WINDOW, null, null],
+  ],
 );
 
 check(
-  "a gap of exactly GAP_SPLIT_MS does not split (strictly-greater rule)",
-  spans([
-    chunk(0, "a", "work", 0, 0),
-    {
-      ...chunk(0, "a", "work"),
-      firstFrameMs: BASE + GAP_SPLIT_MS,
-      lastFrameMs: BASE + GAP_SPLIT_MS,
-    },
-  ]),
-  [[0, GAP_SPLIT_MS, "a", "work"]],
+  "a partial result is treated as an unlabelled failed activity",
+  spans([chunk(0, "computer_or_monitor_use", null)]),
+  [[0, WINDOW, null, null]],
 );
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
 }
-console.log(`\nSEGMENTATION TESTS PASSED (12 cases)`);
+console.log(`\nSEGMENTATION TESTS PASSED (9 cases)`);
