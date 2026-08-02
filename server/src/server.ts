@@ -55,6 +55,7 @@ import {
   upsertParticipantProfile,
 } from "./db";
 import { ACTIVITY_LABEL_SET } from "./activity-vocabulary";
+import { injectIncorrectAnnotations } from "./incorrect-annotation-injection";
 import { segmentDay } from "./segmentation";
 import { startPushScheduler } from "./push";
 import {
@@ -530,24 +531,21 @@ const toActivityJson = (row: ActivityRow) => ({
   rawLabel: row.raw_label,
   categoryLabel: row.category_label,
   source: row.source,
-  vlmRawLabel: row.vlm_raw_label,
-  vlmCategory: row.vlm_category,
+  proposalActivityId: row.proposal_activity_id,
   workloadRating: row.workload_rating,
   recoveryRating: row.recovery_rating,
+  // This flag is an analysis/manipulation detail. It reaches the browser only
+  // in explicit developer mode so the study UI cannot reveal affected rows.
+  ...(DRM_DEV_MODE
+    ? {
+        isIncorrectAnnotationInjected:
+          row.is_incorrect_annotation_injected === 1,
+      }
+    : {}),
 });
-
-const frameIdentityKey = (
-  device: string,
-  session: number,
-  frameIndex: number,
-): string => `${device}\u0000${session}\u0000${frameIndex}`;
 
 const toPhotoFrameJson = (
   row: ReturnType<typeof listPhotoFramesOnDay>[number],
-  vlm: { label: string | null; category: string | null } = {
-    label: null,
-    category: null,
-  },
 ) => ({
   device: row.device,
   session: row.session,
@@ -555,9 +553,52 @@ const toPhotoFrameJson = (
   captureEpochMs: row.capture_epoch_ms,
   imageUrl: row.deleted_at === null ? `/frames/${row.file_path}` : null,
   deletedAt: row.deleted_at,
-  vlmLabel: row.deleted_at === null ? vlm.label : null,
-  vlmCategory: row.deleted_at === null ? vlm.category : null,
 });
+
+const parseStoredProbabilities = (
+  value: string | null,
+  allowedLabels: ReadonlySet<string>,
+): Record<string, number> | null => {
+  if (value === null) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return null;
+    }
+    const entries = Object.entries(parsed);
+    if (
+      entries.length !== allowedLabels.size ||
+      entries.some(
+        ([label, score]) =>
+          !allowedLabels.has(label) ||
+          typeof score !== "number" ||
+          !Number.isFinite(score) ||
+          score < 0 ||
+          score > 1,
+      )
+    ) {
+      return null;
+    }
+    return Object.fromEntries(entries);
+  } catch {
+    return null;
+  }
+};
+
+const recordingEndedForFrames = (
+  participant: string,
+  dayFrames: ReturnType<typeof listFramesOnDay>,
+): boolean => {
+  const latestEvent = latestRecordingEvent(participant);
+  return (
+    latestEvent?.event_type === "end" &&
+    dayFrames.some((frame) => frame.session === latestEvent.session)
+  );
+};
 
 // Hard ceiling well above any real day (a 16 h day at 30 s frames segments
 // into far fewer activities); bounds participant-controlled writes.
@@ -591,8 +632,7 @@ const parseActivityInputs = (
       rawLabel?: unknown;
       categoryLabel?: unknown;
       source?: unknown;
-      vlmRawLabel?: unknown;
-      vlmCategory?: unknown;
+      proposalActivityId?: unknown;
       workloadRating?: unknown;
       recoveryRating?: unknown;
     };
@@ -678,20 +718,15 @@ const parseActivityInputs = (
         error: `activity ${index}: recoveryRating (1-7) is required to submit a break activity`,
       };
     }
-    // VLM-proposal provenance, echoed by the web client so it survives span
-    // edits (the DB-side exact-span fallback only covers unchanged spans).
-    // Client-supplied, but it cannot alter the immutable proposal list or the
-    // VLM-owned chunk output. Self rounds never carry provenance because no
-    // proposal was shown.
-    const vlmRawLabel =
+    // Opaque link to the immutable proposal row. The DB verifies that it
+    // belongs to this participant/round and derives all hidden VLM and
+    // intervention provenance from that row; the client never supplies it.
+    const proposalActivityId =
       round === 2 &&
-      typeof entry.vlmRawLabel === "string" &&
-      ACTIVITY_LABEL_SET.has(entry.vlmRawLabel)
-        ? entry.vlmRawLabel
-        : null;
-    const vlmCategory =
-      round === 2 && CATEGORY_LABELS.has(entry.vlmCategory as string)
-        ? (entry.vlmCategory as string)
+      source === "vlm" &&
+      Number.isSafeInteger(entry.proposalActivityId) &&
+      (entry.proposalActivityId as number) > 0
+        ? (entry.proposalActivityId as number)
         : null;
     activities.push({
       start_ms: startMs,
@@ -699,8 +734,7 @@ const parseActivityInputs = (
       raw_label: activityLabel,
       category_label: (categoryLabel as string | null | undefined) ?? null,
       source,
-      vlm_raw_label: vlmRawLabel,
-      vlm_category: vlmCategory,
+      proposal_activity_id: proposalActivityId,
       workload_rating: workload.rating ?? null,
       recovery_rating: recovery.rating ?? null,
     });
@@ -867,27 +901,27 @@ app.get(
     // exposing either there would contaminate the fixed-order design.
     if (round === 2) {
       const dayFrames = listFramesOnDay(participant, day);
-      const liveFrameByIdentity = new Map(
-        dayFrames.map((frame) => [
-          frameIdentityKey(
-            frame.device,
-            frame.session,
-            frame.frame_index,
-          ),
-          frame,
-        ]),
-      );
+      const dayChunks = listChunksOnDay(participant, day);
+      const recordingEnded =
+        DRM_DEV_MODE || recordingEndedForFrames(participant, dayFrames);
       // Pending = frames whose 5-minute chunk is not terminal yet (filling /
       // ready / processing). Legacy frames without a chunk are frozen, and
       // face_status='failed' frames can never feed a chunk's VLM input — do
       // not let either hold the round in "still processing" forever.
-      const vlmPendingCount = dayFrames.filter(
+      const pendingFrameCount = dayFrames.filter(
         (f) =>
           f.chunk_status !== null &&
           f.chunk_status !== "done" &&
           f.chunk_status !== "failed" &&
           f.face_status !== "failed",
       ).length;
+      const nonTerminalChunkCount = dayChunks.filter(
+        (chunk) => chunk.status !== "done" && chunk.status !== "failed",
+      ).length;
+      const vlmPendingCount = Math.max(
+        pendingFrameCount,
+        nonTerminalChunkCount,
+      );
 
       // The assisted round bootstraps from two distinct lists:
       //   1. an immutable original VLM proposal, generated exactly once after
@@ -900,9 +934,9 @@ app.get(
         round,
         "vlm_proposal",
       );
-      const dayChunks = listChunksOnDay(participant, day);
       if (
         proposalList === undefined &&
+        recordingEnded &&
         vlmPendingCount === 0 &&
         dayChunks.length > 0
       ) {
@@ -924,17 +958,50 @@ app.get(
               chunkEndMs: chunk.chunk_end_ms,
               vlmLabel: hasValidResult ? chunk.vlm_label : null,
               vlmCategory: hasValidResult ? chunk.vlm_category : null,
+              vlmActivityConfidence: hasValidResult
+                ? chunk.vlm_activity_confidence
+                : null,
+              vlmActivityConfidences: hasValidResult
+                ? parseStoredProbabilities(
+                    chunk.vlm_activity_confidences_json,
+                    ACTIVITY_LABEL_SET,
+                  )
+                : null,
+              vlmCategoryConfidence: hasValidResult
+                ? chunk.vlm_category_confidence
+                : null,
+              vlmCategoryConfidences: hasValidResult
+                ? parseStoredProbabilities(
+                    chunk.vlm_category_confidences_json,
+                    CATEGORY_LABELS,
+                  )
+                : null,
             };
           }),
         );
-        const proposalActivities = segments.map((segment) => ({
+        const preparedActivities = injectIncorrectAnnotations(segments);
+        const proposalActivities = preparedActivities.map((segment) => ({
           start_ms: segment.startMs,
           end_ms: segment.endMs,
           raw_label: segment.rawLabel,
           category_label: segment.categoryLabel,
           source: "vlm" as const,
-          vlm_raw_label: segment.rawLabel,
-          vlm_category: segment.categoryLabel,
+          vlm_mean_activity_confidence:
+            segment.vlmMeanActivityConfidence,
+          vlm_mean_activity_confidences_json:
+            segment.vlmMeanActivityConfidences === null
+              ? null
+              : JSON.stringify(segment.vlmMeanActivityConfidences),
+          vlm_mean_category_confidence:
+            segment.vlmMeanCategoryConfidence,
+          vlm_mean_category_confidences_json:
+            segment.vlmMeanCategoryConfidences === null
+              ? null
+              : JSON.stringify(segment.vlmMeanCategoryConfidences),
+          presented_raw_label: segment.presentedRawLabel,
+          presented_category_label: segment.presentedCategoryLabel,
+          is_incorrect_annotation_injected:
+            segment.isIncorrectAnnotationInjected,
         }));
         const created = createVlmProposal({
           participant,
@@ -968,11 +1035,12 @@ app.get(
           activities: proposalActivities.map((activity) => ({
             start_ms: activity.start_ms,
             end_ms: activity.end_ms,
-            raw_label: activity.raw_label,
-            category_label: activity.category_label,
+            raw_label:
+              activity.presented_raw_label ?? activity.raw_label,
+            category_label:
+              activity.presented_category_label ?? activity.category_label,
             source: "vlm",
-            vlm_raw_label: activity.raw_label,
-            vlm_category: activity.category_label,
+            proposal_activity_id: activity.id,
           })),
         });
         responseList = getRoundResponseList(participant, round);
@@ -989,26 +1057,17 @@ app.get(
           kind: proposalList.kind,
           immutable: proposalList.immutable === 1,
           proposalViewedAt: proposalList.proposal_viewed_at,
-          activities: listActivitiesByKind(
-            participant,
-            round,
-            "vlm_proposal",
-          ).map(toActivityJson),
         };
         payload.vlmProposal = proposalPayload;
       }
 
       payload.status = responseList?.status ?? "none";
       payload.vlmPendingCount = vlmPendingCount;
-      payload.frames = listPhotoFramesOnDay(participant, day).map((frame) => {
-        const liveFrame = liveFrameByIdentity.get(
-          frameIdentityKey(frame.device, frame.session, frame.frame_index),
-        );
-        return toPhotoFrameJson(frame, {
-          label: liveFrame?.vlm_label ?? null,
-          category: liveFrame?.vlm_category ?? null,
-        });
-      });
+      payload.recordingEnded =
+        recordingEnded || proposalList !== undefined;
+      payload.frames = listPhotoFramesOnDay(participant, day).map(
+        toPhotoFrameJson,
+      );
     }
 
     payload.activities = activities.map(toActivityJson);

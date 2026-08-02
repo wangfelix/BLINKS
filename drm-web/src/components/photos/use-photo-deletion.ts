@@ -41,8 +41,6 @@ const markFramesDeleted = (
           ...frame,
           imageUrl: null,
           deletedAt,
-          vlmLabel: null,
-          vlmCategory: null,
         }
       : frame,
   );

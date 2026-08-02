@@ -20,10 +20,11 @@ export interface EditableActivity {
   rawLabel: ActivityLabel | null;
   categoryLabel: CategoryLabel | null;
   source: ActivitySource;
-  // Original VLM proposal (null for user-added rows); carried through every
-  // edit and echoed back on save so provenance survives span changes.
-  vlmRawLabel: ActivityLabel | null;
-  vlmCategory: CategoryLabel | null;
+  // Opaque immutable-proposal link (null for user-added rows), carried through
+  // edits so the server can preserve hidden provenance without exposing it.
+  proposalActivityId: number | null;
+  // The server exposes this only in DRM_DEV_MODE for visual verification.
+  isIncorrectAnnotationInjected: boolean;
   // Experience ratings (7-point Likert). Both are kept independently so an
   // answer survives the participant flipping the category back and forth;
   // only the one matching the final category is required to submit.
@@ -44,15 +45,9 @@ export const fromServerActivity = (activity: Activity): EditableActivity => ({
   rawLabel: isActivityLabel(activity.rawLabel) ? activity.rawLabel : null,
   categoryLabel: activity.categoryLabel,
   source: activity.source,
-  vlmRawLabel: isActivityLabel(activity.vlmRawLabel)
-    ? activity.vlmRawLabel
-    : null,
-  vlmCategory:
-    activity.vlmCategory === "work" ||
-    activity.vlmCategory === "break" ||
-    activity.vlmCategory === "other"
-      ? activity.vlmCategory
-      : null,
+  proposalActivityId: activity.proposalActivityId,
+  isIncorrectAnnotationInjected:
+    activity.isIncorrectAnnotationInjected === true,
   workloadRating: activity.workloadRating,
   recoveryRating: activity.recoveryRating,
 });
@@ -80,8 +75,7 @@ export const toActivityInputs = (rows: EditableActivity[]): ActivityInput[] =>
       rawLabel: row.rawLabel,
       categoryLabel: row.categoryLabel,
       source: row.source,
-      vlmRawLabel: row.vlmRawLabel,
-      vlmCategory: row.vlmCategory,
+      proposalActivityId: row.proposalActivityId,
       workloadRating: row.workloadRating,
       recoveryRating: row.recoveryRating,
     }));

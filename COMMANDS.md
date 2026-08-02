@@ -71,11 +71,19 @@ npm run create-user -- participant1 <newpassword> --reset
 ### Tests
 
 ```bash
-npx tsx scripts/test-segmentation.ts    # pure chunk-segmentation tests (9 cases)
+npx tsx scripts/test-segmentation.ts    # chunk segmentation + mean-probability tests (10 cases)
+npx tsx scripts/test-incorrect-annotation-injection.ts  # 10%, 0.8 threshold, fallback, alternatives
 npx tsx scripts/test-activity-vocabulary.ts  # VLM/API/dropdown enum stays identical
 npx tsx scripts/test-activity-lists.ts  # legacy/natural-key migration + parent FK + three-list immutability
 npx tsx scripts/test-recording-events.ts  # idempotent lifecycle events + pause restoration + session-specific close
 npx tsx scripts/test-reconstruction-timing-migration.ts  # reconstructions -> response-parent workflow/timing migration
+
+# inspect/backfill probability columns on legacy demo rows only (also maps
+# old democtl free-text fixture labels to the current closed enum):
+npm run backfill-demo-probabilities
+npm run backfill-demo-probabilities -- --apply
+# Rewrite existing seed vectors too (fixture data only):
+npm run backfill-demo-probabilities -- --apply --force
 
 # end-to-end smoke test (needs its own throwaway dirs + a matching server):
 rm -rf /tmp/blinks-smoke && mkdir -p /tmp/blinks-smoke/{recordings,data}
@@ -313,9 +321,10 @@ the web app in the evening (or with `DRM_AVAILABLE_FROM_HOUR=0`, any time).
 sqlite3 recordings/recordings.db \
   "SELECT status, COUNT(*) FROM chunks WHERE participant='<user>' GROUP BY status"
 
-# the labeled 5-minute timeline of a participant:
+# the labeled 5-minute timeline and both argmax probabilities:
 sqlite3 recordings/recordings.db \
-  "SELECT datetime(chunk_start_ms/1000,'unixepoch','localtime'), vlm_label, vlm_category \
+  "SELECT datetime(chunk_start_ms/1000,'unixepoch','localtime'), vlm_label, vlm_category, \
+          vlm_activity_confidence, vlm_category_confidence \
    FROM chunks WHERE participant='<user>' ORDER BY chunk_start_ms"
 
 # participant profiles (the legacy arm column may still exist but is ignored):
@@ -326,6 +335,16 @@ sqlite3 recordings/recordings.db \
 sqlite3 recordings/recordings.db \
   "SELECT id, participant, round, kind, day, status, submitted_at, proposal_viewed_at \
    FROM activity_lists ORDER BY participant, round, kind"
+
+# genuine, presented, and final assisted annotations for intervention analysis:
+sqlite3 recordings/recordings.db \
+  "SELECT l.kind, a.position, a.raw_label, a.category_label, \
+          a.vlm_raw_label, a.vlm_category, a.presented_raw_label, \
+          a.presented_category_label, a.vlm_mean_activity_confidence, \
+          a.vlm_mean_category_confidence, \
+          a.is_incorrect_annotation_injected \
+   FROM activities a JOIN activity_lists l ON l.id=a.activity_list_id \
+   WHERE l.participant='<user>' AND l.round=2 ORDER BY l.kind, a.position"
 
 # unlock a submitted round for a participant (researcher-only escape hatch):
 sqlite3 recordings/recordings.db \

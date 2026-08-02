@@ -122,15 +122,15 @@ let deleteActivitiesStmt;
 let insertActivityStmt;
 let createVlmProposalTx;
 let replaceActivitiesTx;
-// Adds a column to the frames table only if it is missing, so an existing
-// recordings.db (written before the column was introduced) is upgraded in
-// place without losing rows. Must be called after the table exists.
-function migrateAddColumn(column, ddl) {
-    const cols = db.prepare(`PRAGMA table_info(frames)`).all();
+// Adds a column only if it is missing, so an existing recordings.db is
+// upgraded in place without losing rows. Must be called after the table exists.
+function migrateAddTableColumn(table, column, ddl) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all();
     if (!cols.some((c) => c.name === column)) {
-        db.exec(`ALTER TABLE frames ADD COLUMN ${ddl}`);
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
     }
 }
+const migrateAddFrameColumn = (column, ddl) => migrateAddTableColumn("frames", column, ddl);
 function tableHasColumn(table, column) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all();
     return cols.some((candidate) => candidate.name === column);
@@ -186,11 +186,11 @@ function initDb(dbPath) {
     // Migrate DBs created before the face_* columns existed (the columns are part
     // of the CREATE above for fresh DBs; ALTER adds them to existing ones). Every
     // pre-existing row gets face_status='pending', so the worker backfills them.
-    migrateAddColumn("face_status", "face_status TEXT NOT NULL DEFAULT 'pending'");
-    migrateAddColumn("face_count", "face_count INTEGER");
-    migrateAddColumn("face_method", "face_method TEXT");
-    migrateAddColumn("face_completed_at", "face_completed_at INTEGER");
-    migrateAddColumn("deleted_at", "deleted_at INTEGER");
+    migrateAddFrameColumn("face_status", "face_status TEXT NOT NULL DEFAULT 'pending'");
+    migrateAddFrameColumn("face_count", "face_count INTEGER");
+    migrateAddFrameColumn("face_method", "face_method TEXT");
+    migrateAddFrameColumn("face_completed_at", "face_completed_at INTEGER");
+    migrateAddFrameColumn("deleted_at", "deleted_at INTEGER");
     // Recreate the face-processing index after the migration so older databases
     // do not keep indexing soft-deleted work as pending. The retired per-frame
     // VLM index must be dropped before its source column is removed below.
@@ -207,7 +207,7 @@ function initDb(dbPath) {
     // Every frame knows its clock-aligned 5-minute window. NULL marks a row
     // ingested before chunking existed; it remains available as frame metadata
     // but has no current VLM result.
-    migrateAddColumn("chunk_start_ms", "chunk_start_ms INTEGER");
+    migrateAddFrameColumn("chunk_start_ms", "chunk_start_ms INTEGER");
     db.transaction(() => {
         [
             "vlm_status",
@@ -237,7 +237,12 @@ function initDb(dbPath) {
       vlm_model       TEXT,
       vlm_label       TEXT,
       vlm_category    TEXT,               -- work|break|other
-      vlm_description TEXT,
+      -- Black-box VLM self-report: argmax scalar plus each normalized
+      -- probability distribution serialized as JSON for exploratory analysis.
+      vlm_activity_confidence REAL,
+      vlm_activity_confidences_json TEXT,
+      vlm_category_confidence REAL,
+      vlm_category_confidences_json TEXT,
       vlm_completed_at INTEGER,
       created_at      INTEGER NOT NULL,
       updated_at      INTEGER,
@@ -246,8 +251,13 @@ function initDb(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_chunks_status
       ON chunks (status, chunk_start_ms);
   `);
+    migrateAddTableColumn("chunks", "vlm_activity_confidence", "vlm_activity_confidence REAL");
+    migrateAddTableColumn("chunks", "vlm_activity_confidences_json", "vlm_activity_confidences_json TEXT");
+    migrateAddTableColumn("chunks", "vlm_category_confidence", "vlm_category_confidence REAL");
+    migrateAddTableColumn("chunks", "vlm_category_confidences_json", "vlm_category_confidences_json TEXT");
     db.transaction(() => {
         [
+            "vlm_description",
             "vlm_descriptor",
             "user_corrected_activity_label",
             "user_corrected_category_label",
@@ -337,6 +347,7 @@ function initDb(dbPath) {
     CREATE TABLE activities (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       activity_list_id INTEGER NOT NULL,
+      proposal_activity_id INTEGER,
       position         INTEGER NOT NULL,
       start_ms         INTEGER NOT NULL,
       end_ms           INTEGER NOT NULL,
@@ -345,12 +356,26 @@ function initDb(dbPath) {
       source           TEXT NOT NULL,
       vlm_raw_label    TEXT,
       vlm_category     TEXT,
+      vlm_mean_activity_confidence REAL
+        CHECK (vlm_mean_activity_confidence IS NULL OR
+               vlm_mean_activity_confidence BETWEEN 0 AND 1),
+      vlm_mean_activity_confidences_json TEXT,
+      vlm_mean_category_confidence REAL
+        CHECK (vlm_mean_category_confidence IS NULL OR
+               vlm_mean_category_confidence BETWEEN 0 AND 1),
+      vlm_mean_category_confidences_json TEXT,
+      presented_raw_label TEXT,
+      presented_category_label TEXT,
+      is_incorrect_annotation_injected INTEGER NOT NULL DEFAULT 0
+        CHECK (is_incorrect_annotation_injected IN (0, 1)),
       workload_rating INTEGER,
       recovery_rating INTEGER,
       created_at       INTEGER NOT NULL,
       updated_at       INTEGER,
       FOREIGN KEY (activity_list_id)
-        REFERENCES activity_lists(id) ON DELETE CASCADE
+        REFERENCES activity_lists(id) ON DELETE CASCADE,
+      FOREIGN KEY (proposal_activity_id)
+        REFERENCES activities(id) ON DELETE SET NULL
     )
   `;
     const activityListsExist = tableExists("activity_lists");
@@ -360,15 +385,33 @@ function initDb(dbPath) {
         : undefined;
     const parentHasId = parentIdColumn?.pk === 1;
     const childHasForeignKey = activitiesExist && tableHasColumn("activities", "activity_list_id");
+    const childForeignKeys = activitiesExist
+        ? db.prepare(`PRAGMA foreign_key_list(activities)`).all()
+        : [];
     const childHasParentForeignKey = childHasForeignKey &&
-        db.prepare(`PRAGMA foreign_key_list(activities)`).all().some((foreignKey) => foreignKey.table === "activity_lists" &&
+        childForeignKeys.some((foreignKey) => foreignKey.table === "activity_lists" &&
             foreignKey.from === "activity_list_id" &&
             foreignKey.to === "id" &&
             foreignKey.on_delete.toUpperCase() === "CASCADE");
+    const childHasProposalForeignKey = childForeignKeys.some((foreignKey) => foreignKey.table === "activities" &&
+        foreignKey.from === "proposal_activity_id" &&
+        foreignKey.to === "id" &&
+        foreignKey.on_delete.toUpperCase() === "SET NULL");
     const childHasRedundantIdentity = activitiesExist &&
         (tableHasColumn("activities", "participant") ||
             tableHasColumn("activities", "round") ||
             tableHasColumn("activities", "list_kind"));
+    const childHasInterventionContract = activitiesExist &&
+        [
+            "proposal_activity_id",
+            "vlm_mean_activity_confidence",
+            "vlm_mean_activity_confidences_json",
+            "vlm_mean_category_confidence",
+            "vlm_mean_category_confidences_json",
+            "presented_raw_label",
+            "presented_category_label",
+            "is_incorrect_annotation_injected",
+        ].every((column) => tableHasColumn("activities", column));
     const parentHasFinalWorkflow = activityListsExist &&
         [
             "status",
@@ -387,6 +430,8 @@ function initDb(dbPath) {
         !parentHasFinalWorkflow ||
         !childHasForeignKey ||
         !childHasParentForeignKey ||
+        !childHasInterventionContract ||
+        !childHasProposalForeignKey ||
         childHasRedundantIdentity) {
         // SQLite cannot add a primary key or foreign key with ALTER TABLE. Rebuild
         // both tables transactionally, preserving IDs where they already exist.
@@ -415,6 +460,20 @@ function initDb(dbPath) {
         const childHasWorkload = activitiesExist && tableHasColumn("activities", "workload_rating");
         const childHasRecovery = activitiesExist && tableHasColumn("activities", "recovery_rating");
         const childHasUpdatedAt = activitiesExist && tableHasColumn("activities", "updated_at");
+        const childHasProposalActivityId = activitiesExist && tableHasColumn("activities", "proposal_activity_id");
+        const childHasMeanConfidence = activitiesExist &&
+            tableHasColumn("activities", "vlm_mean_activity_confidence");
+        const childHasMeanConfidencesJson = activitiesExist &&
+            tableHasColumn("activities", "vlm_mean_activity_confidences_json");
+        const childHasMeanCategoryConfidence = activitiesExist &&
+            tableHasColumn("activities", "vlm_mean_category_confidence");
+        const childHasMeanCategoryConfidencesJson = activitiesExist &&
+            tableHasColumn("activities", "vlm_mean_category_confidences_json");
+        const childHasPresentedRawLabel = activitiesExist && tableHasColumn("activities", "presented_raw_label");
+        const childHasPresentedCategoryLabel = activitiesExist &&
+            tableHasColumn("activities", "presented_category_label");
+        const childHasInjectedMarker = activitiesExist &&
+            tableHasColumn("activities", "is_incorrect_annotation_injected");
         const legacyActivityCount = activitiesExist
             ? db.prepare(`SELECT COUNT(*) AS count FROM activities`).get().count
             : 0;
@@ -443,6 +502,7 @@ function initDb(dbPath) {
         DROP INDEX IF EXISTS idx_activities_round;
         DROP INDEX IF EXISTS idx_activities_list_position;
         DROP INDEX IF EXISTS idx_activities_parent;
+        DROP INDEX IF EXISTS idx_activities_proposal_origin;
         DROP INDEX IF EXISTS idx_activity_lists_day;
         DROP INDEX IF EXISTS idx_activity_lists_response;
       `);
@@ -569,6 +629,30 @@ function initDb(dbPath) {
                     ? "a.recovery_rating"
                     : "NULL";
                 const updatedAtValue = childHasUpdatedAt ? "a.updated_at" : "a.created_at";
+                const proposalActivityIdValue = childHasProposalActivityId
+                    ? "a.proposal_activity_id"
+                    : "NULL";
+                const meanConfidenceValue = childHasMeanConfidence
+                    ? "a.vlm_mean_activity_confidence"
+                    : "NULL";
+                const meanConfidencesJsonValue = childHasMeanConfidencesJson
+                    ? "a.vlm_mean_activity_confidences_json"
+                    : "NULL";
+                const meanCategoryConfidenceValue = childHasMeanCategoryConfidence
+                    ? "a.vlm_mean_category_confidence"
+                    : "NULL";
+                const meanCategoryConfidencesJsonValue = childHasMeanCategoryConfidencesJson
+                    ? "a.vlm_mean_category_confidences_json"
+                    : "NULL";
+                const presentedRawLabelValue = childHasPresentedRawLabel
+                    ? "a.presented_raw_label"
+                    : "CASE WHEN a.source = 'vlm' THEN a.raw_label ELSE NULL END";
+                const presentedCategoryLabelValue = childHasPresentedCategoryLabel
+                    ? "a.presented_category_label"
+                    : "CASE WHEN a.source = 'vlm' THEN a.category_label ELSE NULL END";
+                const injectedMarkerValue = childHasInjectedMarker
+                    ? "a.is_incorrect_annotation_injected"
+                    : "0";
                 let relationshipJoin;
                 let activityListIdValue;
                 if (childHasForeignKey) {
@@ -604,17 +688,33 @@ function initDb(dbPath) {
                 }
                 db.exec(`
           INSERT INTO activities (
-            id, activity_list_id, position, start_ms, end_ms,
+            id, activity_list_id, proposal_activity_id,
+            position, start_ms, end_ms,
             raw_label, category_label, source, vlm_raw_label, vlm_category,
+            vlm_mean_activity_confidence,
+            vlm_mean_activity_confidences_json,
+            vlm_mean_category_confidence,
+            vlm_mean_category_confidences_json,
+            presented_raw_label, presented_category_label,
+            is_incorrect_annotation_injected,
             workload_rating, recovery_rating, created_at, updated_at
           )
-          SELECT a.id, ${activityListIdValue}, a.position, a.start_ms, a.end_ms,
+          SELECT a.id, ${activityListIdValue}, ${proposalActivityIdValue},
+                 a.position, a.start_ms, a.end_ms,
                  a.raw_label, a.category_label, a.source,
                  a.vlm_raw_label, a.vlm_category,
+                 ${meanConfidenceValue}, ${meanConfidencesJsonValue},
+                 ${meanCategoryConfidenceValue},
+                 ${meanCategoryConfidencesJsonValue},
+                 ${presentedRawLabelValue}, ${presentedCategoryLabelValue},
+                 ${injectedMarkerValue},
                  ${workloadValue}, ${recoveryValue},
                  a.created_at, ${updatedAtValue}
           FROM activities_legacy a
           ${relationshipJoin}
+          ORDER BY
+            CASE WHEN ${proposalActivityIdValue} IS NULL THEN 0 ELSE 1 END,
+            a.id
         `);
             }
             const migratedActivityCount = db.prepare(`SELECT COUNT(*) AS count FROM activities`).get().count;
@@ -653,6 +753,9 @@ function initDb(dbPath) {
       ON activities (activity_list_id, position);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_activities_list_position
       ON activities (activity_list_id, position);
+    CREATE INDEX IF NOT EXISTS idx_activities_proposal_origin
+      ON activities (proposal_activity_id)
+      WHERE proposal_activity_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_activity_lists_day
       ON activity_lists (participant, day, round, kind);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_lists_response
@@ -719,6 +822,10 @@ function initDb(dbPath) {
     chunksInRangeStmt = db.prepare(`
     SELECT c.chunk_start_ms, c.chunk_end_ms, c.status,
            c.vlm_label, c.vlm_category,
+           c.vlm_activity_confidence,
+           c.vlm_activity_confidences_json,
+           c.vlm_category_confidence,
+           c.vlm_category_confidences_json,
            COUNT(f.capture_epoch_ms) AS served_frame_count
     FROM chunks c
     LEFT JOIN frames f
@@ -945,9 +1052,16 @@ function initDb(dbPath) {
     WHERE participant = ? AND round = ? AND kind != 'vlm_proposal'
   `);
     listActivitiesStmt = db.prepare(`
-    SELECT a.id, a.activity_list_id, a.position, a.start_ms, a.end_ms,
+    SELECT a.id, a.activity_list_id, a.proposal_activity_id,
+           a.position, a.start_ms, a.end_ms,
            a.raw_label, a.category_label, a.source,
            a.vlm_raw_label, a.vlm_category,
+           a.vlm_mean_activity_confidence,
+           a.vlm_mean_activity_confidences_json,
+           a.vlm_mean_category_confidence,
+           a.vlm_mean_category_confidences_json,
+           a.presented_raw_label, a.presented_category_label,
+           a.is_incorrect_annotation_injected,
            a.workload_rating, a.recovery_rating
     FROM activities a
     JOIN activity_lists l ON l.id = a.activity_list_id
@@ -955,9 +1069,16 @@ function initDb(dbPath) {
     ORDER BY a.position
   `);
     listActivitiesByKindStmt = db.prepare(`
-    SELECT a.id, a.activity_list_id, a.position, a.start_ms, a.end_ms,
+    SELECT a.id, a.activity_list_id, a.proposal_activity_id,
+           a.position, a.start_ms, a.end_ms,
            a.raw_label, a.category_label, a.source,
            a.vlm_raw_label, a.vlm_category,
+           a.vlm_mean_activity_confidence,
+           a.vlm_mean_activity_confidences_json,
+           a.vlm_mean_category_confidence,
+           a.vlm_mean_category_confidences_json,
+           a.presented_raw_label, a.presented_category_label,
+           a.is_incorrect_annotation_injected,
            a.workload_rating, a.recovery_rating
     FROM activities a
     JOIN activity_lists l ON l.id = a.activity_list_id
@@ -1006,7 +1127,15 @@ function initDb(dbPath) {
     RETURNING proposal_viewed_at
   `);
     listVlmSpanActivitiesStmt = db.prepare(`
-    SELECT a.start_ms, a.end_ms, a.vlm_raw_label, a.vlm_category
+    SELECT a.id, a.start_ms, a.end_ms,
+           a.raw_label, a.category_label,
+           a.vlm_raw_label, a.vlm_category,
+           a.vlm_mean_activity_confidence,
+           a.vlm_mean_activity_confidences_json,
+           a.vlm_mean_category_confidence,
+           a.vlm_mean_category_confidences_json,
+           a.presented_raw_label, a.presented_category_label,
+           a.is_incorrect_annotation_injected
     FROM activities a
     JOIN activity_lists l ON l.id = a.activity_list_id
     WHERE l.participant = ? AND l.round = ? AND l.kind = 'vlm_proposal'
@@ -1016,13 +1145,21 @@ function initDb(dbPath) {
   `);
     insertActivityStmt = db.prepare(`
     INSERT INTO activities (
-      activity_list_id, position, start_ms, end_ms,
+      activity_list_id, proposal_activity_id, position, start_ms, end_ms,
       raw_label, category_label, source, vlm_raw_label, vlm_category,
+      vlm_mean_activity_confidence, vlm_mean_activity_confidences_json,
+      vlm_mean_category_confidence, vlm_mean_category_confidences_json,
+      presented_raw_label, presented_category_label,
+      is_incorrect_annotation_injected,
       workload_rating, recovery_rating,
       created_at, updated_at
     ) VALUES (
-      @activity_list_id, @position, @start_ms, @end_ms,
+      @activity_list_id, @proposal_activity_id, @position, @start_ms, @end_ms,
       @raw_label, @category_label, @source, @vlm_raw_label, @vlm_category,
+      @vlm_mean_activity_confidence, @vlm_mean_activity_confidences_json,
+      @vlm_mean_category_confidence, @vlm_mean_category_confidences_json,
+      @presented_raw_label, @presented_category_label,
+      @is_incorrect_annotation_injected,
       @workload_rating, @recovery_rating,
       @created_at, @updated_at
     )
@@ -1041,6 +1178,7 @@ function initDb(dbPath) {
         activities.forEach((activity, position) => {
             insertActivityStmt.run({
                 activity_list_id: proposalList.id,
+                proposal_activity_id: null,
                 position,
                 start_ms: activity.start_ms,
                 end_ms: activity.end_ms,
@@ -1049,6 +1187,13 @@ function initDb(dbPath) {
                 source: "vlm",
                 vlm_raw_label: activity.raw_label,
                 vlm_category: activity.category_label,
+                vlm_mean_activity_confidence: activity.vlm_mean_activity_confidence ?? null,
+                vlm_mean_activity_confidences_json: activity.vlm_mean_activity_confidences_json ?? null,
+                vlm_mean_category_confidence: activity.vlm_mean_category_confidence ?? null,
+                vlm_mean_category_confidences_json: activity.vlm_mean_category_confidences_json ?? null,
+                presented_raw_label: activity.presented_raw_label ?? activity.raw_label,
+                presented_category_label: activity.presented_category_label ?? activity.category_label,
+                is_incorrect_annotation_injected: activity.is_incorrect_annotation_injected === true ? 1 : 0,
                 workload_rating: null,
                 recovery_rating: null,
                 created_at: now,
@@ -1064,26 +1209,42 @@ function initDb(dbPath) {
     replaceActivitiesTx = db.transaction((participant, round, day, activities, submit, recordDraftSave, now) => {
         const listKind = round === 1 ? "self" : "assisted";
         // Match against the immutable original proposal so unchanged spans keep
-        // their vlm_* provenance even after any number of editable-list saves.
+        // their VLM/intervention provenance after any number of replace-all
+        // saves. proposal_activity_id is the stable path across boundary edits;
+        // exact-span matching keeps older clients/backfilled rows compatible.
         const existingVlmRows = listVlmSpanActivitiesStmt.all(participant, round);
         const vlmBySpan = new Map(existingVlmRows.map((row) => [`${row.start_ms}|${row.end_ms}`, row]));
+        const vlmById = new Map(existingVlmRows.map((row) => [row.id, row]));
         const editableList = upsertEditableActivityListStmt.get(participant, round, day, listKind, now, now);
         if (editableList === undefined) {
             throw new Error(`could not create or update ${listKind} activity list`);
         }
         deleteActivitiesStmt.run(editableList.id);
         activities.forEach((activity, position) => {
-            const matched = vlmBySpan.get(`${activity.start_ms}|${activity.end_ms}`);
+            const matched = (activity.source !== "vlm" || activity.proposal_activity_id == null
+                ? undefined
+                : vlmById.get(activity.proposal_activity_id)) ??
+                (activity.source === "vlm"
+                    ? vlmBySpan.get(`${activity.start_ms}|${activity.end_ms}`)
+                    : undefined);
             insertActivityStmt.run({
                 activity_list_id: editableList.id,
+                proposal_activity_id: matched?.id ?? null,
                 position,
                 start_ms: activity.start_ms,
                 end_ms: activity.end_ms,
                 raw_label: activity.raw_label,
                 category_label: activity.category_label,
                 source: activity.source,
-                vlm_raw_label: activity.vlm_raw_label ?? matched?.vlm_raw_label ?? null,
-                vlm_category: activity.vlm_category ?? matched?.vlm_category ?? null,
+                vlm_raw_label: matched?.vlm_raw_label ?? matched?.raw_label ?? null,
+                vlm_category: matched?.vlm_category ?? matched?.category_label ?? null,
+                vlm_mean_activity_confidence: matched?.vlm_mean_activity_confidence ?? null,
+                vlm_mean_activity_confidences_json: matched?.vlm_mean_activity_confidences_json ?? null,
+                vlm_mean_category_confidence: matched?.vlm_mean_category_confidence ?? null,
+                vlm_mean_category_confidences_json: matched?.vlm_mean_category_confidences_json ?? null,
+                presented_raw_label: matched?.presented_raw_label ?? null,
+                presented_category_label: matched?.presented_category_label ?? null,
+                is_incorrect_annotation_injected: matched?.is_incorrect_annotation_injected ?? 0,
                 workload_rating: activity.workload_rating ?? null,
                 recovery_rating: activity.recovery_rating ?? null,
                 created_at: now,

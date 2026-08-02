@@ -9,6 +9,7 @@ import type {
   Frame,
 } from "@/lib/api-types";
 import { frameImageSrc } from "@/lib/api-client";
+import { cn } from "@/lib/utils";
 import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -75,7 +76,14 @@ export const AssistedActivityRow = ({
       : activity.recoveryRating;
 
   return (
-    <Column gap="md" className="rounded-xl border bg-card p-4 shadow-xs">
+    <Column
+      gap="md"
+      className={cn(
+        "rounded-xl border bg-card p-4 shadow-xs",
+        activity.isIncorrectAnnotationInjected &&
+          "border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/20",
+      )}
+    >
       <Row gap="sm" align="center" justify="between">
         <span className="text-sm font-medium tabular-nums">
           {formatTimeSpan(startMs, endMs)}

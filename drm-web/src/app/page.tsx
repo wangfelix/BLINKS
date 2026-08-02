@@ -73,6 +73,15 @@ const LandingPage = () => {
           </Text>
         </Column>
 
+        <Alert>
+          <AlertTitle>Important for Step 2</AlertTitle>
+          <AlertDescription>
+            Some of the activity labels and activity types shown in Step 2 are
+            deliberately incorrect. Review the activities and correct anything
+            that does not match your day.
+          </AlertDescription>
+        </Alert>
+
         <Card>
           <CardHeader>
             <CardTitle>Participant sign-in</CardTitle>

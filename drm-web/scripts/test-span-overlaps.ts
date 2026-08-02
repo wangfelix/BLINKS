@@ -17,8 +17,8 @@ const makeRow = (
   rawLabel: "computer_or_monitor_use",
   categoryLabel: "work",
   source: "vlm",
-  vlmRawLabel: null,
-  vlmCategory: null,
+  proposalActivityId: null,
+  isIncorrectAnnotationInjected: false,
   workloadRating: null,
   recoveryRating: null,
 });

@@ -212,6 +212,33 @@ export const ActiveRoundView = ({
     );
   }
 
+  const isWaitingForRecordingEnd =
+    reconstruction.round === 2 &&
+    reconstruction.activities.length === 0 &&
+    reconstruction.recordingEnded === false;
+  if (isWaitingForRecordingEnd) {
+    return (
+      <Alert>
+        <AlertTitle>Please end the recording first</AlertTitle>
+        <AlertDescription>
+          <Text variant="inherit">
+            End today&apos;s recording in the BLINKS phone app. Your assisted
+            activity list will be prepared after the final photos are processed.
+          </Text>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            onClick={() => void roundQuery.refetch()}
+          >
+            <RefreshCwIcon />
+            Refresh
+          </Button>
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
   const isStillWaitingForVlmLabels =
     reconstruction.round === 2 &&
     reconstruction.activities.length === 0 &&

@@ -76,8 +76,10 @@ export interface Activity {
   rawLabel: ActivityLabel | null;
   categoryLabel: CategoryLabel | null;
   source: ActivitySource;
-  vlmRawLabel: ActivityLabel | null;
-  vlmCategory: CategoryLabel | null;
+  /** Opaque link to the immutable proposal row; null for participant-added rows. */
+  proposalActivityId: number | null;
+  /** Returned only when the server runs with DRM_DEV_MODE=1. */
+  isIncorrectAnnotationInjected?: boolean;
   workloadRating: ExperienceRating | null;
   recoveryRating: ExperienceRating | null;
 }
@@ -92,8 +94,6 @@ export interface Frame {
   // cleared server-side, so the client receives no image URL.
   imageUrl: string | null;
   deletedAt: number | null;
-  vlmLabel: ActivityLabel | null;
-  vlmCategory: CategoryLabel | null;
 }
 
 /** GET /api/photos, available only after Step 1 is submitted. */
@@ -111,6 +111,8 @@ export interface RoundResponse {
   frames?: Frame[];
   /** Present ONLY for round 2: frames still awaiting VLM labels. */
   vlmPendingCount?: number;
+  /** Present ONLY for round 2: true after the app's end-session event. */
+  recordingEnded?: boolean;
 }
 
 /** Payload row for PUT /api/reconstruction/round/:round and POST .../submit. */
@@ -120,14 +122,8 @@ export interface ActivityInput {
   rawLabel: ActivityLabel | null;
   categoryLabel: CategoryLabel | null;
   source: ActivitySource;
-  /**
-   * Echo of the original VLM proposal this row derives from (null for
-   * user-added rows and everything on self rounds). The server keeps a
-   * span-matching fallback, but only the client can carry provenance across
-   * boundary edits for direct row-level auditing.
-   */
-  vlmRawLabel: ActivityLabel | null;
-  vlmCategory: CategoryLabel | null;
+  /** Opaque immutable-proposal link carried across boundary edits. */
+  proposalActivityId: number | null;
   /** Required on submit for category 'work' (mental demand, 1-7). */
   workloadRating: ExperienceRating | null;
   /** Required on submit for category 'break' (mental recovery, 1-7). */

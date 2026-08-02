@@ -4,7 +4,13 @@ import Database = require("better-sqlite3");
 
 import { hashPassword } from "../src/auth";
 import { getUser, initAuthDb, insertUser, updatePasswordHash } from "../src/auth-db";
-import { chunkStartOf, initDb, insertFrame } from "../src/db";
+import { ACTIVITY_LABELS } from "../src/activity-vocabulary";
+import {
+  chunkStartOf,
+  initDb,
+  insertFrame,
+  recordRecordingEvent,
+} from "../src/db";
 
 // Seeds a fully clickable demo state for testing drm-web locally:
 //
@@ -40,6 +46,31 @@ const USERS: { username: string; device: string }[] = [
   { username: "demo2", device: "DEMOCAM00002" },
 ];
 const FRAME_INTERVAL_MS = 5 * 60_000;
+const SEEDED_ACTIVITY_CONFIDENCE = 0.9;
+const CATEGORY_LABELS = ["work", "break", "other"] as const;
+const confidenceScores = (selectedLabel: string): string => {
+  const remainder =
+    (1 - SEEDED_ACTIVITY_CONFIDENCE) / (ACTIVITY_LABELS.length - 1);
+  return JSON.stringify(
+    Object.fromEntries(
+      ACTIVITY_LABELS.map((label) => [
+        label,
+        label === selectedLabel ? SEEDED_ACTIVITY_CONFIDENCE : remainder,
+      ]),
+    ),
+  );
+};
+const categoryConfidenceScores = (selectedLabel: string): string =>
+  JSON.stringify(
+    Object.fromEntries(
+      CATEGORY_LABELS.map((label) => [
+        label,
+        label === selectedLabel
+          ? SEEDED_ACTIVITY_CONFIDENCE
+          : (1 - SEEDED_ACTIVITY_CONFIDENCE) / (CATEGORY_LABELS.length - 1),
+      ]),
+    ),
+  );
 
 // (label from ACTIVITY_VOCABULARY, category, duration in minutes)
 const DAY_TIMELINE: [string, string, number][] = [
@@ -123,6 +154,10 @@ const main = async (): Promise<void> => {
     const markChunkDone = db.prepare(
       `UPDATE chunks SET
          status = 'done', vlm_model = 'seed', vlm_label = ?, vlm_category = ?,
+         vlm_activity_confidence = ?,
+         vlm_activity_confidences_json = ?,
+         vlm_category_confidence = ?,
+         vlm_category_confidences_json = ?,
          vlm_completed_at = ?, updated_at = ?
        WHERE participant = ? AND chunk_start_ms = ?`,
     );
@@ -166,7 +201,12 @@ const main = async (): Promise<void> => {
            SELECT id FROM activity_lists WHERE participant = ?
          )`,
       ).run(user.username);
-      for (const table of ["frames", "chunks", "activity_lists"]) {
+      for (const table of [
+        "frames",
+        "chunks",
+        "activity_lists",
+        "recording_events",
+      ]) {
         db.prepare(`DELETE FROM ${table} WHERE participant = ?`).run(
           user.username,
         );
@@ -214,6 +254,10 @@ const main = async (): Promise<void> => {
           markChunkDone.run(
             label,
             category,
+            SEEDED_ACTIVITY_CONFIDENCE,
+            confidenceScores(label),
+            SEEDED_ACTIVITY_CONFIDENCE,
+            categoryConfidenceScores(category),
             Date.now(),
             Date.now(),
             user.username,
@@ -221,6 +265,20 @@ const main = async (): Promise<void> => {
           );
         }
       }
+      recordRecordingEvent(user.username, {
+        event_id: `${session}-seed-start`,
+        session,
+        event_type: "start",
+        client_epoch_ms: dayStartMs,
+        sequence_number: 0,
+      });
+      recordRecordingEvent(user.username, {
+        event_id: `${session}-seed-end`,
+        session,
+        event_type: "end",
+        client_epoch_ms: cursorMs,
+        sequence_number: 1,
+      });
       console.log(
         `Seeded ${user.username}: ${frameIndex} frames on ${today}.`,
       );

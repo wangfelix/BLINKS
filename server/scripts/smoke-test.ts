@@ -3,6 +3,7 @@ import fs = require("fs");
 import path = require("path");
 import Database = require("better-sqlite3");
 import WebSocket = require("ws");
+import { ACTIVITY_LABELS } from "../src/activity-vocabulary";
 
 // End-to-end smoke test against a locally running server. Expects:
 //   RECORDINGS_DIR/DATA_DIR pointing at a throwaway directory
@@ -25,6 +26,35 @@ const RECORDINGS_DIR = process.env.RECORDINGS_DIR;
 const MAIN_USER = "smoketester";
 const SECOND_USER = "smokesecond";
 const PASSWORD = "password123";
+const CATEGORY_LABELS = ["work", "break", "other"] as const;
+const confidenceScores = (
+  selectedLabel: string,
+  selectedScore: number,
+): string => {
+  const remainder = (1 - selectedScore) / (ACTIVITY_LABELS.length - 1);
+  return JSON.stringify(
+    Object.fromEntries(
+      ACTIVITY_LABELS.map((label) => [
+        label,
+        label === selectedLabel ? selectedScore : remainder,
+      ]),
+    ),
+  );
+};
+const categoryConfidenceScores = (
+  selectedLabel: string,
+  selectedScore: number,
+): string => {
+  const remainder = (1 - selectedScore) / (CATEGORY_LABELS.length - 1);
+  return JSON.stringify(
+    Object.fromEntries(
+      CATEGORY_LABELS.map((label) => [
+        label,
+        label === selectedLabel ? selectedScore : remainder,
+      ]),
+    ),
+  );
+};
 
 // --- Study-day helpers (mirror server/src/time.ts; Europe/Berlin default) ----
 
@@ -122,15 +152,28 @@ const setChunkResult = (
   chunkStartMs: number,
   label: string,
   category: string,
+  confidence = 0.9,
 ): void =>
   withDb((db) => {
     const changes = db
       .prepare(
         "UPDATE chunks SET status = 'done', vlm_model = 'smoke', " +
-          "vlm_label = ?, vlm_category = ?, vlm_completed_at = ? " +
+          "vlm_label = ?, vlm_category = ?, vlm_activity_confidence = ?, " +
+          "vlm_activity_confidences_json = ?, vlm_category_confidence = ?, " +
+          "vlm_category_confidences_json = ?, vlm_completed_at = ? " +
           "WHERE participant = ? AND chunk_start_ms = ?",
       )
-      .run(label, category, Date.now(), username, chunkStartMs).changes;
+      .run(
+        label,
+        category,
+        confidence,
+        confidenceScores(label, confidence),
+        confidence,
+        categoryConfidenceScores(category, confidence),
+        Date.now(),
+        username,
+        chunkStartMs,
+      ).changes;
     assert.strictEqual(changes, 1, `chunk update hit ${chunkStartMs}`);
   });
 
@@ -189,6 +232,16 @@ const getStoredActivityLists = (
     raw_label: string | null;
     category_label: string | null;
     source: string;
+    proposal_activity_id: number | null;
+    vlm_raw_label: string | null;
+    vlm_category: string | null;
+    vlm_mean_activity_confidence: number | null;
+    vlm_mean_activity_confidences_json: string | null;
+    vlm_mean_category_confidence: number | null;
+    vlm_mean_category_confidences_json: string | null;
+    presented_raw_label: string | null;
+    presented_category_label: string | null;
+    is_incorrect_annotation_injected: number;
   }[];
 }[] =>
   withDb((db) => {
@@ -207,7 +260,12 @@ const getStoredActivityLists = (
       proposal_viewed_at: number | null;
     }[];
     const items = db.prepare(
-      "SELECT position, start_ms, end_ms, raw_label, category_label, source " +
+      "SELECT position, start_ms, end_ms, raw_label, category_label, source, " +
+        "proposal_activity_id, vlm_raw_label, vlm_category, " +
+        "vlm_mean_activity_confidence, vlm_mean_activity_confidences_json, " +
+        "vlm_mean_category_confidence, vlm_mean_category_confidences_json, " +
+        "presented_raw_label, presented_category_label, " +
+        "is_incorrect_annotation_injected " +
         "FROM activities WHERE activity_list_id = ? " +
         "ORDER BY position",
     );
@@ -220,6 +278,16 @@ const getStoredActivityLists = (
         raw_label: string | null;
         category_label: string | null;
         source: string;
+        proposal_activity_id: number | null;
+        vlm_raw_label: string | null;
+        vlm_category: string | null;
+        vlm_mean_activity_confidence: number | null;
+        vlm_mean_activity_confidences_json: string | null;
+        vlm_mean_category_confidence: number | null;
+        vlm_mean_category_confidences_json: string | null;
+        presented_raw_label: string | null;
+        presented_category_label: string | null;
+        is_incorrect_annotation_injected: number;
       }[],
     }));
   });
@@ -787,7 +855,7 @@ const main = async (): Promise<void> => {
     },
     expectStatus: 400,
   });
-  // ...and strip any client-smuggled VLM provenance.
+  // ...and ignore any client-smuggled hidden VLM provenance.
   const round1Activities = [
     {
       startMs: baseT - 600_000,
@@ -821,10 +889,9 @@ const main = async (): Promise<void> => {
   );
   const round1Draft = await api("/api/reconstruction/round/1", { token });
   assert.strictEqual(round1Draft.activities.length, 2);
-  assert.strictEqual(
-    round1Draft.activities[0].vlmRawLabel,
-    null,
-    "self rounds never store VLM provenance",
+  assert.ok(
+    !("vlmRawLabel" in round1Draft.activities[0]),
+    "participant responses never expose hidden VLM provenance",
   );
 
   // Drafts reject labels outside the same closed enum used by the VLM and
@@ -1007,6 +1074,11 @@ const main = async (): Promise<void> => {
     !("vlmProposal" in pendingRound2),
     "pending assisted response does not expose or mark the proposal",
   );
+  assert.strictEqual(
+    pendingRound2.recordingEnded,
+    false,
+    "proposal creation waits for the app's end-session event",
+  );
 
   // Ingestion chunk bookkeeping: the 8 live frames span four clock-aligned
   // 5-minute windows. The three older windows were closed ('ready') by the
@@ -1088,9 +1160,15 @@ const main = async (): Promise<void> => {
   });
 
   // VLM worker stand-in: one label per CHUNK — frames inherit it.
-  setChunkResult(MAIN_USER, baseT, "no_task_engagement", "other");
-  setChunkResult(MAIN_USER, t0, "computer_or_monitor_use", "work");
-  setChunkResult(MAIN_USER, t0 + 300_000, "paper_reading_writing", "work");
+  setChunkResult(MAIN_USER, baseT, "no_task_engagement", "other", 0.81);
+  setChunkResult(MAIN_USER, t0, "computer_or_monitor_use", "work", 0.95);
+  setChunkResult(
+    MAIN_USER,
+    t0 + 300_000,
+    "paper_reading_writing",
+    "work",
+    0.9,
+  );
   markChunkFailed(MAIN_USER, t0 + 600_000);
   assert.strictEqual(
     getChunks(MAIN_USER).filter((chunkRow) => chunkRow.status === "failed")
@@ -1106,27 +1184,47 @@ const main = async (): Promise<void> => {
   const generated = await api("/api/reconstruction/round/2", { token });
   assert.strictEqual(generated.status, "draft", "generation persisted as draft");
   assert.strictEqual(generated.vlmPendingCount, 0);
+  assert.strictEqual(generated.recordingEnded, true);
   assert.deepStrictEqual(
-    generated.activities.map((a: any) => [
-      a.startMs,
-      a.endMs,
-      a.rawLabel,
-      a.categoryLabel,
-      a.source,
-    ]),
+    generated.activities.map((a: any) => [a.startMs, a.endMs, a.source]),
     [
-      [baseT, baseT + 300_000, "no_task_engagement", "other", "vlm"],
-      [t0, t0 + 300_000, "computer_or_monitor_use", "work", "vlm"],
-      [t0 + 300_000, t0 + 600_000, "paper_reading_writing", "work", "vlm"],
-      [t0 + 600_000, t0 + 900_000, null, null, "vlm"],
+      [baseT, baseT + 300_000, "vlm"],
+      [t0, t0 + 300_000, "vlm"],
+      [t0 + 300_000, t0 + 600_000, "vlm"],
+      [t0 + 600_000, t0 + 900_000, "vlm"],
     ],
     "chunk labels use full five-minute windows",
   );
   assert.strictEqual(
-    generated.activities[1].vlmRawLabel,
-    "computer_or_monitor_use",
+    generated.activities[0].rawLabel,
+    "no_task_engagement",
+    "lower-confidence eligible rows remain unchanged",
   );
-  assert.strictEqual(generated.activities[1].vlmCategory, "work");
+  assert.notStrictEqual(
+    generated.activities[1].rawLabel,
+    "computer_or_monitor_use",
+    "highest-confidence row receives a different presented activity label",
+  );
+  assert.notStrictEqual(
+    generated.activities[1].categoryLabel,
+    "work",
+    "highest-confidence row receives a different presented category",
+  );
+  assert.strictEqual(
+    generated.activities[2].rawLabel,
+    "paper_reading_writing",
+  );
+  assert.strictEqual(generated.activities[3].rawLabel, null);
+  assert.ok(
+    generated.activities.every(
+      (activity: any) =>
+        Number.isSafeInteger(activity.proposalActivityId) &&
+        !("vlmRawLabel" in activity) &&
+        !("vlmCategory" in activity) &&
+        !("isIncorrectAnnotationInjected" in activity),
+    ),
+    "production API carries only opaque proposal IDs, not hidden manipulation data",
+  );
   assert.strictEqual(generated.frames.length, 11);
   assert.ok(
     generated.frames.every(
@@ -1138,8 +1236,13 @@ const main = async (): Promise<void> => {
     ),
     "assisted frame payload carries stable photo identity and deletion state",
   );
-  assert.strictEqual(generated.frames[0].vlmLabel, "no_task_engagement");
-  assert.strictEqual(generated.frames[0].vlmCategory, "other");
+  assert.ok(
+    generated.frames.every(
+      (frame: any) =>
+        !("vlmLabel" in frame) && !("vlmCategory" in frame),
+    ),
+    "assisted photo payload does not reveal genuine chunk labels",
+  );
   assert.strictEqual(
     generated.firstDraftSavedAt,
     null,
@@ -1148,20 +1251,9 @@ const main = async (): Promise<void> => {
   assert.strictEqual(generated.vlmProposal.kind, "vlm_proposal");
   assert.strictEqual(generated.vlmProposal.immutable, true);
   assert.ok(typeof generated.vlmProposal.proposalViewedAt === "number");
-  assert.deepStrictEqual(
-    generated.vlmProposal.activities.map((activity: any) => [
-      activity.startMs,
-      activity.endMs,
-      activity.rawLabel,
-      activity.categoryLabel,
-    ]),
-    generated.activities.map((activity: any) => [
-      activity.startMs,
-      activity.endMs,
-      activity.rawLabel,
-      activity.categoryLabel,
-    ]),
-    "ready response exposes the immutable proposal separately from the editable list",
+  assert.ok(
+    !("activities" in generated.vlmProposal),
+    "immutable genuine proposal contents remain server-side",
   );
 
   const generatedLists = getStoredActivityLists(MAIN_USER);
@@ -1178,18 +1270,84 @@ const main = async (): Promise<void> => {
   );
   assert.deepStrictEqual(
     originalProposal!.items.map((item) => [
-      item.start_ms,
-      item.end_ms,
       item.raw_label,
       item.category_label,
+      item.vlm_raw_label,
+      item.vlm_category,
+      item.vlm_mean_activity_confidence,
+      item.vlm_mean_category_confidence,
+      item.is_incorrect_annotation_injected,
     ]),
-    generated.activities.map((activity: any) => [
-      activity.startMs,
-      activity.endMs,
-      activity.rawLabel,
-      activity.categoryLabel,
-    ]),
-    "original proposal snapshot exactly matches the generated editable list",
+    [
+      [
+        "no_task_engagement",
+        "other",
+        "no_task_engagement",
+        "other",
+        0.81,
+        0.81,
+        0,
+      ],
+      [
+        "computer_or_monitor_use",
+        "work",
+        "computer_or_monitor_use",
+        "work",
+        0.95,
+        0.95,
+        1,
+      ],
+      [
+        "paper_reading_writing",
+        "work",
+        "paper_reading_writing",
+        "work",
+        0.9,
+        0.9,
+        0,
+      ],
+      [null, null, null, null, null, null, 0],
+    ],
+    "immutable proposal keeps genuine labels, confidence means, and injection flag",
+  );
+  const injectedProposalActivity = originalProposal!.items[1];
+  assert.notStrictEqual(
+    injectedProposalActivity.presented_raw_label,
+    injectedProposalActivity.raw_label,
+  );
+  assert.notStrictEqual(
+    injectedProposalActivity.presented_category_label,
+    injectedProposalActivity.category_label,
+  );
+  assert.strictEqual(
+    Object.keys(
+      JSON.parse(
+        injectedProposalActivity.vlm_mean_activity_confidences_json!,
+      ),
+    ).length,
+    17,
+    "full mean confidence vector is retained for analysis",
+  );
+  assert.deepStrictEqual(
+    Object.keys(
+      JSON.parse(
+        injectedProposalActivity.vlm_mean_category_confidences_json!,
+      ),
+    ).sort(),
+    [...CATEGORY_LABELS].sort(),
+    "full mean category probability vector is retained for analysis",
+  );
+  const initialAssisted = generatedLists.find(
+    (list) => list.round === 2 && list.kind === "assisted",
+  )!;
+  assert.strictEqual(
+    initialAssisted.items[1].raw_label,
+    injectedProposalActivity.presented_raw_label,
+  );
+  assert.strictEqual(
+    initialAssisted.items[1].vlm_raw_label,
+    injectedProposalActivity.raw_label,
+    "only the assisted row may differ from its genuine VLM provenance",
   );
 
   // An emptied draft still self-heals, but now by copying the immutable
@@ -1210,7 +1368,7 @@ const main = async (): Promise<void> => {
   assert.strictEqual(regenerated.activities.length, 4, "draft restored");
   assert.strictEqual(
     regenerated.activities[1].rawLabel,
-    "computer_or_monitor_use",
+    generated.activities[1].rawLabel,
     "restore uses the original snapshot, not current chunk labels",
   );
   assert.deepStrictEqual(
@@ -1230,6 +1388,7 @@ const main = async (): Promise<void> => {
       rawLabel: "no_task_engagement",
       categoryLabel: "other",
       source: "vlm",
+      proposalActivityId: generated.activities[0].proposalActivityId,
     },
     {
       startMs: t0,
@@ -1237,8 +1396,7 @@ const main = async (): Promise<void> => {
       rawLabel: "handheld_device_use", // participant corrected the label
       categoryLabel: "work",
       source: "vlm",
-      vlmRawLabel: "computer_or_monitor_use",
-      vlmCategory: "work",
+      proposalActivityId: generated.activities[1].proposalActivityId,
       workloadRating: 5,
     },
     {
@@ -1247,6 +1405,7 @@ const main = async (): Promise<void> => {
       rawLabel: "walking_or_movement",
       categoryLabel: "break",
       source: "user", // participant inserted this one from memory
+      proposalActivityId: null,
       recoveryRating: 4,
     },
     {
@@ -1255,6 +1414,7 @@ const main = async (): Promise<void> => {
       rawLabel: "paper_reading_writing",
       categoryLabel: "work",
       source: "vlm",
+      proposalActivityId: generated.activities[2].proposalActivityId,
       workloadRating: 2,
     },
     {
@@ -1263,6 +1423,7 @@ const main = async (): Promise<void> => {
       rawLabel: "other",
       categoryLabel: "other",
       source: "vlm",
+      proposalActivityId: generated.activities[3].proposalActivityId,
     },
   ];
   const round2EditedSave = await api("/api/reconstruction/round/2", {
@@ -1288,12 +1449,12 @@ const main = async (): Promise<void> => {
   );
   assert.strictEqual(draft.activities[1].rawLabel, "handheld_device_use");
   assert.strictEqual(
-    draft.activities[1].vlmRawLabel,
-    "computer_or_monitor_use",
-    "identical span keeps the original VLM proposal",
+    draft.activities[1].proposalActivityId,
+    generated.activities[1].proposalActivityId,
+    "editable row keeps its opaque immutable-proposal link",
   );
   assert.strictEqual(draft.activities[2].source, "user");
-  assert.strictEqual(draft.activities[2].vlmRawLabel, null);
+  assert.strictEqual(draft.activities[2].proposalActivityId, null);
   assert.deepStrictEqual(
     getStoredActivityLists(MAIN_USER).find(
       (list) => list.round === 2 && list.kind === "vlm_proposal",
@@ -1302,16 +1463,13 @@ const main = async (): Promise<void> => {
     "draft edits leave the complete proposal snapshot untouched",
   );
 
-  // provenance echo: a boundary edit changes the span (so the DB-side exact
-  // span match fails), but the client echoes the original VLM proposal and it
-  // survives the save
+  // Opaque proposal link: a boundary edit changes the span (so the DB-side
+  // exact-span fallback fails), but provenance still survives the save.
   const boundaryEdited = editedActivities.map((activity, index) =>
     index === 1
       ? {
           ...activity,
           endMs: t0 + 120_000, // span changed
-          vlmRawLabel: "computer_or_monitor_use",
-          vlmCategory: "work",
         }
       : activity,
   );
@@ -1322,9 +1480,9 @@ const main = async (): Promise<void> => {
   });
   const afterBoundaryEdit = await api("/api/reconstruction/round/2", { token });
   assert.strictEqual(
-    afterBoundaryEdit.activities[1].vlmRawLabel,
-    "computer_or_monitor_use",
-    "echoed VLM provenance survives a span edit",
+    afterBoundaryEdit.activities[1].proposalActivityId,
+    generated.activities[1].proposalActivityId,
+    "opaque proposal provenance survives a span edit",
   );
 
   // write validation: overlapping spans and spans outside the study day are
@@ -1430,6 +1588,16 @@ const main = async (): Promise<void> => {
 
   const secondSession = session + 3;
   const s0 = TODAY_NOON + 3_600_000; // 13:00 local
+  await api("/api/recording/started", {
+    method: "POST",
+    token: secondToken,
+    body: {
+      eventId: `${secondSession}-0`,
+      session: secondSession,
+      clientEpochMs: s0,
+      sequenceNumber: 0,
+    },
+  });
   await sendFramesOverWs(
     secondToken,
     secondSession,
@@ -1441,6 +1609,16 @@ const main = async (): Promise<void> => {
   );
   assert.strictEqual(markAllAnonymized(), 2, "second participant frames anonymized");
   setChunkResult(SECOND_USER, s0, "food_preparation", "other");
+  await api("/api/recording/ended", {
+    method: "POST",
+    token: secondToken,
+    body: {
+      eventId: `${secondSession}-1`,
+      session: secondSession,
+      clientEpochMs: s0 + 70_000,
+      sequenceNumber: 1,
+    },
+  });
 
   const secondActivities = [
     {
@@ -1485,7 +1663,11 @@ const main = async (): Promise<void> => {
   );
   assert.strictEqual(secondRound2.vlmPendingCount, 0);
   assert.strictEqual(secondRound2.vlmProposal.kind, "vlm_proposal");
-  assert.strictEqual(secondRound2.activities[0].rawLabel, "food_preparation");
+  assert.notStrictEqual(
+    secondRound2.activities[0].rawLabel,
+    "food_preparation",
+    "fallback still injects one wrong row when a day has only one activity",
+  );
 
   await api("/api/reconstruction/round/2/submit", {
     method: "POST",

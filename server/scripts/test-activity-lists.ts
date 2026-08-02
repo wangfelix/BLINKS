@@ -224,6 +224,7 @@ const runNaturalKeyMigrationTest = (): void => {
     .prepare("PRAGMA table_info(chunks)")
     .all() as { name: string }[];
   for (const removed of [
+    "vlm_description",
     "vlm_descriptor",
     "user_corrected_activity_label",
     "user_corrected_category_label",
@@ -233,19 +234,29 @@ const runNaturalKeyMigrationTest = (): void => {
       `chunks.${removed} removed during migration`,
     );
   }
+  for (const added of [
+    "vlm_activity_confidence",
+    "vlm_activity_confidences_json",
+    "vlm_category_confidence",
+    "vlm_category_confidences_json",
+  ]) {
+    assert.ok(
+      chunkColumns.some((column) => column.name === added),
+      `chunks.${added} added during migration`,
+    );
+  }
   assert.deepStrictEqual(
     migratedSchemaDb
       .prepare(
-        "SELECT vlm_label, vlm_category, vlm_description " +
+        "SELECT vlm_label, vlm_category " +
           "FROM chunks WHERE participant = ? AND chunk_start_ms = ?",
       )
       .get(participant, t0),
     {
       vlm_label: "computer_or_monitor_use",
       vlm_category: "work",
-      vlm_description: "Visible computer use.",
     },
-    "dropping derived chunk columns preserves the original VLM result",
+    "dropping obsolete chunk columns preserves the original VLM labels",
   );
   assert.deepStrictEqual(
     migratedSchemaDb
@@ -311,6 +322,17 @@ const runNaturalKeyMigrationTest = (): void => {
   assert.ok(!childColumnNames.includes("participant"));
   assert.ok(!childColumnNames.includes("round"));
   assert.ok(!childColumnNames.includes("list_kind"));
+  for (const added of [
+    "vlm_mean_activity_confidence",
+    "vlm_mean_activity_confidences_json",
+    "vlm_mean_category_confidence",
+    "vlm_mean_category_confidences_json",
+  ]) {
+    assert.ok(
+      childColumnNames.includes(added),
+      `activities.${added} added during migration`,
+    );
+  }
   assert.deepStrictEqual(
     verificationDb
       .prepare(

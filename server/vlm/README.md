@@ -3,10 +3,12 @@
 Labels **5-minute chunks**: the Node server groups frames into clock-aligned
 5-minute windows at ingestion (`chunks` table in `recordings.db`), and this
 worker sends each completed chunk's frames to a Vision Language Model in ONE
-multi-image call, writing a closed activity enum, `work | break | other`
-category, and visible-evidence description onto the chunk row. Frames inherit
-their chunk's label everywhere downstream (segmentation, the assisted round);
-the frame table does not duplicate VLM output.
+multi-image call. The model returns complete verbalized probability
+distributions over the closed activity and category vocabularies. The worker
+derives both labels by deterministic argmax and writes the distributions,
+argmax probabilities, and labels onto the chunk row. Frames inherit their
+chunk's label in server-side segmentation; the frame table does not duplicate
+VLM output.
 
 For the **DRM subproject** it additionally classifies every chunk into
 `work | break | other` (`vlm_category`) and picks the activity label from a
@@ -90,7 +92,7 @@ the face-blur worker.
 | `RECORDINGS_DIR` | `../recordings` | recordings tree (matches the server's env) |
 | `RECORDINGS_DB` | `<RECORDINGS_DIR>/recordings.db` | the SQLite index |
 | `VLM_TIMEOUT` | `120` | per-request timeout (s; multi-image requests are bigger) |
-| `VLM_TEMPERATURE` | `0.1` | sampling temperature |
+| `VLM_TEMPERATURE` | `0.0` | sampling temperature; deterministic by default for the probability-elicitation contract |
 | `VLM_MAX_RETRIES` | `3` | retries per chunk on API/parse error before marking `failed` |
 | `VLM_CHUNK_MAX_FRAMES` | `20` | frames sent per chunk, evenly sampled across the window (a full window at the 15 s study interval) |
 | `POLL_INTERVAL_S` | `3.0` | sleep between polls when the queue is empty |
@@ -121,22 +123,71 @@ in-flight chunks. If you ever truly need multiple processes, first switch to an
 atomic claim (`UPDATE ... WHERE status='ready' ... RETURNING`) and a
 time-based reclaim.
 
+## Probability-elicitation prompt
+
+The prompt adapts the incremental elicitation approach from Wang et al.,
+*Calibrating Verbalized Probabilities for Large Language Models*
+(arXiv:2410.06707v1): first determine the most likely label, then assess its
+confidence, then return the complete distribution, and finally constrain the
+answer to the requested structured output. These are instructions for the
+model to follow internally, not a request to expose chain-of-thought.
+
+Unlike the paper's Python-dictionary examples, this worker uses the API's
+strict JSON Schema. Schematically (the activity dictionary below is
+abbreviated), the model returns:
+
+```jsonc
+{
+  "activity_probabilities": {
+    "computer_or_monitor_use": 0.82,
+    // one numeric entry for each of the other 16 exact activity keys
+  },
+  "category_probabilities": {
+    "work": 0.87,
+    "break": 0.04,
+    "other": 0.09
+  }
+}
+```
+
+The worker, rather than the model response, selects the activity and category
+argmax. Like the paper's classification examples, the constrained model
+response contains only the probability distributions.
+
+This paper supports the **verbalized-probability prompting method**, not a
+claim that the resulting values are calibrated probabilities and not the
+validity of the overreliance intervention or its exploratory `0.8` threshold.
+The paper studies text LLM classification, so using the method with this VLM
+must be evaluated empirically. A calibrated-probability claim would require a
+labelled validation set and post-hoc calibration. In particular, do not apply
+softmax or temperature scaling directly to these already normalized values;
+the paper first reconstructs logits with an inverse-softmax step.
+
 ## What it writes (`chunks` columns)
 
 - `status`: `ready → processing → done` (or `failed` after retries)
 - `vlm_model`: the model name, so every pass is traceable
-- `vlm_label`: the model's `"activity"` — exactly one of the 17 closed enum
-  keys in `ACTIVITY_VOCABULARY` (`vlm_worker.py`). `other` covers a visible
-  activity outside the vocabulary; `unclear` means the images are
-  insufficient.
-- `vlm_category`: `work | break | other` (DRM subproject). Anything the model
-  returns outside those three values fails local validation and is retried.
+- `vlm_label`: the deterministic argmax of the activity distribution, exactly
+  one of the 17 closed enum keys in `ACTIVITY_VOCABULARY`
+  (`vlm_worker.py`). `other` covers a visible activity outside the vocabulary;
+  `unclear` means the images are insufficient.
+- `vlm_category`: the deterministic argmax of the category distribution:
+  `work | break | other` (DRM subproject).
   Semantics: `work` = the participant's own occupation work (their occupation
   + work description provide the context); `break` = intentional restorative
   pause ("erholsame Pause": coffee, resting, deliberate walk, socializing to
   recover); `other` = neither work nor restorative (chores, personal
   administration, travel, or other non-restorative activity).
-- `vlm_description`: one short sentence citing visible evidence only
+- `vlm_activity_confidence`: the maximum activity probability.
+- `vlm_activity_confidences_json`: a normalized dictionary containing one
+  verbalized probability for every activity label.
+- `vlm_category_confidence`: the maximum category probability.
+- `vlm_category_confidences_json`: a normalized dictionary containing one
+  verbalized probability for each of `work`, `break`, and `other`.
+- Both distributions require their exact key sets, finite values in `[0, 1]`,
+  and an approximate sum of 1. Accepted rounding is normalized exactly before
+  persistence. These black-box self-assessments are not logits or calibrated
+  probabilities.
 
 The **Node server owns the `chunks` migration** (`server/src/db.ts` `initDb`).
 If the table is missing (server not yet deployed/restarted with the chunk
@@ -146,7 +197,7 @@ every chunk.
 The activity vocabulary is a closed, study-specific observational taxonomy.
 Purpose is deliberately excluded from the activity enum and inferred only in
 the independent category. JSON-schema constrained decoding plus local
-validation rejects off-vocabulary activity/category output.
+validation rejects missing, extra, malformed, or non-normalized distributions.
 
 ## Occupation context
 

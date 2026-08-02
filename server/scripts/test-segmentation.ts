@@ -13,11 +13,26 @@ const chunk = (
   index: number,
   label: string | null,
   category: string | null,
+  confidence: number | null = label === null || category === null ? null : 0.9,
+  confidences: Record<string, number> | null =
+    label === null || category === null || confidence === null
+      ? null
+      : { [label]: confidence },
+  categoryConfidence: number | null =
+    label === null || category === null ? null : 0.9,
+  categoryConfidences: Record<string, number> | null =
+    label === null || category === null || categoryConfidence === null
+      ? null
+      : { [category]: categoryConfidence },
 ): SegmentationChunk => ({
   chunkStartMs: BASE + index * WINDOW,
   chunkEndMs: BASE + (index + 1) * WINDOW,
   vlmLabel: label,
   vlmCategory: category,
+  vlmActivityConfidence: confidence,
+  vlmActivityConfidences: confidences,
+  vlmCategoryConfidence: categoryConfidence,
+  vlmCategoryConfidences: categoryConfidences,
 });
 
 const spans = (chunks: SegmentationChunk[]) =>
@@ -124,8 +139,44 @@ check(
   [[0, WINDOW, null, null]],
 );
 
+const confidenceMean = segmentDay([
+  chunk(
+    0,
+    "computer_or_monitor_use",
+    "work",
+    0.7,
+    { computer_or_monitor_use: 0.7, unclear: 0.3 },
+    0.6,
+    { work: 0.6, break: 0.1, other: 0.3 },
+  ),
+  chunk(
+    1,
+    "computer_or_monitor_use",
+    "work",
+    0.9,
+    { computer_or_monitor_use: 0.9, unclear: 0.1 },
+    0.8,
+    { work: 0.8, break: 0.1, other: 0.1 },
+  ),
+])[0];
+check(
+  "merged activity stores the unweighted mean confidence and score vector",
+  {
+    scalar: confidenceMean.vlmMeanActivityConfidence,
+    scores: confidenceMean.vlmMeanActivityConfidences,
+    categoryScalar: confidenceMean.vlmMeanCategoryConfidence,
+    categoryScores: confidenceMean.vlmMeanCategoryConfidences,
+  },
+  {
+    scalar: 0.8,
+    scores: { computer_or_monitor_use: 0.8, unclear: 0.2 },
+    categoryScalar: 0.7,
+    categoryScores: { work: 0.7, break: 0.1, other: 0.2 },
+  },
+);
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
 }
-console.log(`\nSEGMENTATION TESTS PASSED (9 cases)`);
+console.log(`\nSEGMENTATION TESTS PASSED (10 cases)`);

@@ -18,7 +18,7 @@ frames, assembled by the Node server at ingestion:
                                       |
                                       v
         [this worker]  chunk ready->processing->done|failed
-                       writes vlm_label/category/description
+                       writes labels and probability distributions
                        only onto the CHUNK row
 
 Readiness gate (columns, not locks): a chunk is only claimed when
@@ -28,11 +28,16 @@ so the VLM provably never sees an un-anonymized face. A chunk whose frames all
 failed the blur is marked 'failed' without an API call.
 
 Per chunk the model receives up to VLM_CHUNK_MAX_FRAMES face-anonymized frames
-(evenly sampled across the window, chronological order) and returns ONE
-activity/category/description for the window:
-  - "activity": one exact key from ACTIVITY_VOCABULARY
-                                                  -> chunks.vlm_label
-  - "category": 'work' | 'break' | 'other'      -> chunks.vlm_category
+(evenly sampled across the window, chronological order) and returns full
+verbalized probability distributions:
+  - activity probabilities over all 17 keys
+                              -> chunks.vlm_activity_confidences_json
+  - their deterministic argmax -> chunks.vlm_label
+  - that maximum probability   -> chunks.vlm_activity_confidence
+  - category probabilities over work|break|other
+                              -> chunks.vlm_category_confidences_json
+  - their deterministic argmax -> chunks.vlm_category
+  - that maximum probability   -> chunks.vlm_category_confidence
 Classification is conditioned on the participant's occupation + work
 description (participants table, owned by the Node server).
 
@@ -53,7 +58,7 @@ Config (environment variables; a local .env next to this file is auto-loaded):
     RECORDINGS_DIR        recordings tree      (default: ../recordings)
     RECORDINGS_DB         path to recordings.db (default: <RECORDINGS_DIR>/recordings.db)
     VLM_TIMEOUT           per-request timeout seconds (default: 120)
-    VLM_TEMPERATURE       sampling temperature        (default: 0.1)
+    VLM_TEMPERATURE       sampling temperature        (default: 0.0)
     VLM_MAX_RETRIES       retries per chunk on API/parse error (default: 3)
     VLM_CHUNK_MAX_FRAMES  frames sent per chunk, evenly sampled (default: 20;
                             covers a full window at the 15 s study interval)
@@ -86,6 +91,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import os
 import signal
 import sqlite3
@@ -116,7 +122,7 @@ KIT_BASE_URL = os.environ.get("KIT_BASE_URL", "https://ki-toolbox.scc.kit.edu/ap
 VLM_MODEL = os.environ.get("VLM_MODEL", "kit.gemma4-31b-it")
 
 VLM_TIMEOUT = float(os.environ.get("VLM_TIMEOUT", "120"))
-VLM_TEMPERATURE = float(os.environ.get("VLM_TEMPERATURE", "0.1"))
+VLM_TEMPERATURE = float(os.environ.get("VLM_TEMPERATURE", "0.0"))
 VLM_MAX_RETRIES = int(os.environ.get("VLM_MAX_RETRIES", "3"))
 VLM_CHUNK_MAX_FRAMES = max(1, int(os.environ.get("VLM_CHUNK_MAX_FRAMES", "20")))
 POLL_INTERVAL_S = float(os.environ.get("POLL_INTERVAL_S", "3.0"))
@@ -201,8 +207,12 @@ SYSTEM_PROMPT = (
     "images are intentionally pixelated for privacy; describe the scene and "
     "activity, never attempt to identify people. Judge the sequence as a "
     "whole: classify the DOMINANT activity of the window, not any single frame. "
-    "The activity field describes visible behavior only. Purpose and restorative "
-    "intent belong exclusively in the separate category field."
+    "Use incremental probability elicitation: first determine the most likely "
+    "label, then assess its confidence, then distribute probability across every "
+    "allowed label. Do this independently for activity and category. Do not reveal "
+    "your reasoning or output chosen-label fields; the server derives each label "
+    "from the corresponding distribution. Activity describes visible behavior "
+    "only. Purpose and restorative intent belong exclusively in category."
 )
 
 
@@ -229,20 +239,32 @@ def _build_user_prompt(
         "return the requested structured classification.\n\n"
         "Activity definitions:\n"
         f"{definitions}\n\n"
+        "Follow these steps internally for activity:\n"
+        "1. Determine the single most likely activity key using the definitions.\n"
+        "2. Assess confidence in that choice.\n"
+        "3. Return the full probability distribution over all 17 activity keys.\n"
         "Choose the most specific visibly supported activity. A specific label "
         "such as remote_meeting, phone_call, eating_drinking, or food_preparation "
         "takes precedence over a broader device or material-handling label. Base "
         "dominance on what is most consistently visible across the sequence. Do "
         "not infer activity from posture, location, clothing, or occupation alone.\n\n"
-        '  "category": one of ["work", "break", "other"]. '
+        "Follow the same steps independently for category: determine the most "
+        "likely category, assess confidence, then return the full probability "
+        'distribution over ["work", "break", "other"]. '
         '"work" = the wearer\'s own occupation work (their occupation and work '
         "description above provide the context for what counts as work). "
         '"break" = an intentional restorative pause ("erholsame Pause": coffee, '
         "resting, a deliberate walk, socializing to recover). "
         '"other" = neither work nor restorative (chores, personal administration, '
         "travel, or other non-restorative activity).\n"
-        '  "description": one short sentence citing visible evidence only. '
-        'Do not write purpose claims such as "taking a break" in the description.'
+        '  "activity_probabilities": one numeric probability from 0 to 1 for '
+        "every activity key above.\n"
+        '  "category_probabilities": one numeric probability from 0 to 1 for '
+        "each category.\n"
+        "Each distribution must sum to 1. Use at least two decimal places of "
+        "precision where useful rather than limiting scores to tenths.\n"
+        "Return only the JSON object required by the response schema, with no "
+        "reasoning, selected-label fields, or additional text."
     )
 
 
@@ -274,21 +296,57 @@ def _extract_json_object(text: str) -> dict:
     return json.loads(text[start : end + 1])
 
 
-def _normalize(raw: dict) -> dict:
-    """Validate the model's JSON against the closed activity/category contract."""
-    activity = raw.get("activity")
-    if activity not in ACTIVITY_VOCABULARY:
-        raise ValueError(f"off-vocabulary activity: {activity!r}")
-    category = raw.get("category")
-    if category not in VLM_CATEGORIES:
-        raise ValueError(f"invalid category: {category!r}")
-    description = raw.get("description")
-    if not isinstance(description, str):
-        raise ValueError("description must be a string")
+def _normalize_distribution(
+    raw: object, labels: tuple[str, ...], field_name: str
+) -> dict[str, float]:
+    """Validate and exactly normalize one verbalized probability distribution."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"{field_name} must be an object")
+    if set(raw) != set(labels):
+        raise ValueError(f"{field_name} must contain exactly every allowed label")
+    probabilities: dict[str, float] = {}
+    for label in labels:
+        value = raw[label]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"probability for {label!r} must be numeric")
+        value = float(value)
+        if not math.isfinite(value) or value < 0 or value > 1:
+            raise ValueError(f"probability for {label!r} must be between 0 and 1")
+        probabilities[label] = value
+    probability_sum = sum(probabilities.values())
+    if not math.isclose(probability_sum, 1.0, abs_tol=0.02):
+        raise ValueError(
+            f"{field_name} must sum approximately to 1, got {probability_sum}"
+        )
+    # Accept harmless model rounding, then persist an exactly normalized vector.
     return {
-        "description": description.strip()[:1000],
+        label: value / probability_sum for label, value in probabilities.items()
+    }
+
+
+def _normalize(raw: dict) -> dict:
+    """Validate distributions, then derive both labels by deterministic argmax."""
+    activity_probabilities = _normalize_distribution(
+        raw.get("activity_probabilities"),
+        ACTIVITY_VOCABULARY,
+        "activity_probabilities",
+    )
+    category_probabilities = _normalize_distribution(
+        raw.get("category_probabilities"),
+        VLM_CATEGORIES,
+        "category_probabilities",
+    )
+    activity = max(
+        ACTIVITY_VOCABULARY, key=lambda label: activity_probabilities[label]
+    )
+    category = max(VLM_CATEGORIES, key=lambda label: category_probabilities[label])
+    return {
         "activity": activity,
         "category": category,
+        "activity_confidence": activity_probabilities[activity],
+        "activity_confidences": activity_probabilities,
+        "category_confidence": category_probabilities[category],
+        "category_confidences": category_probabilities,
     }
 
 
@@ -300,17 +358,29 @@ VLM_RESPONSE_FORMAT = {
         "schema": {
             "type": "object",
             "properties": {
-                "activity": {
-                    "type": "string",
-                    "enum": list(ACTIVITY_VOCABULARY),
+                "activity_probabilities": {
+                    "type": "object",
+                    "properties": {
+                        label: {"type": "number", "minimum": 0, "maximum": 1}
+                        for label in ACTIVITY_VOCABULARY
+                    },
+                    "required": list(ACTIVITY_VOCABULARY),
+                    "additionalProperties": False,
                 },
-                "category": {
-                    "type": "string",
-                    "enum": list(VLM_CATEGORIES),
+                "category_probabilities": {
+                    "type": "object",
+                    "properties": {
+                        label: {"type": "number", "minimum": 0, "maximum": 1}
+                        for label in VLM_CATEGORIES
+                    },
+                    "required": list(VLM_CATEGORIES),
+                    "additionalProperties": False,
                 },
-                "description": {"type": "string"},
             },
-            "required": ["activity", "category", "description"],
+            "required": [
+                "activity_probabilities",
+                "category_probabilities",
+            ],
             "additionalProperties": False,
         },
     },
@@ -383,6 +453,20 @@ def _ensure_chunks_table(conn: sqlite3.Connection) -> bool:
             "The Node server owns this migration (server/src/db.ts initDb) - "
             "deploy and start the updated server once so it creates the table, "
             "then restart this worker."
+        )
+        sys.exit(2)
+    required_columns = {
+        "vlm_activity_confidence",
+        "vlm_activity_confidences_json",
+        "vlm_category_confidence",
+        "vlm_category_confidences_json",
+    }
+    missing_columns = required_columns - chunk_columns
+    if missing_columns:
+        _log(
+            "FATAL: recordings.db is missing the new chunk confidence columns "
+            f"{sorted(missing_columns)}. Start the updated Node server once to "
+            "run its migration, then restart this worker."
         )
         sys.exit(2)
     return True
@@ -500,14 +584,19 @@ def _write_result(conn: sqlite3.Connection, row: sqlite3.Row, result: dict) -> N
         """
         UPDATE chunks
         SET status = 'done', vlm_model = ?, vlm_label = ?, vlm_category = ?,
-            vlm_description = ?, vlm_completed_at = ?, updated_at = ?
+            vlm_activity_confidence = ?, vlm_activity_confidences_json = ?,
+            vlm_category_confidence = ?,
+            vlm_category_confidences_json = ?, vlm_completed_at = ?, updated_at = ?
         WHERE participant = ? AND chunk_start_ms = ?
         """,
         (
             VLM_MODEL,
             result["activity"],
             result["category"],
-            result["description"],
+            result["activity_confidence"],
+            json.dumps(result["activity_confidences"], separators=(",", ":")),
+            result["category_confidence"],
+            json.dumps(result["category_confidences"], separators=(",", ":")),
             int(time.time() * 1000),
             int(time.time() * 1000),
             row["participant"], row["chunk_start_ms"],
@@ -519,7 +608,12 @@ def _write_result(conn: sqlite3.Connection, row: sqlite3.Row, result: dict) -> N
 def _mark_failed(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
     conn.execute(
         """
-        UPDATE chunks SET status = 'failed', vlm_completed_at = ?, updated_at = ?
+        UPDATE chunks
+        SET status = 'failed', vlm_activity_confidence = NULL,
+            vlm_activity_confidences_json = NULL,
+            vlm_category_confidence = NULL,
+            vlm_category_confidences_json = NULL,
+            vlm_completed_at = ?, updated_at = ?
         WHERE participant = ? AND chunk_start_ms = ?
         """,
         (
