@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, Trash2Icon } from "lucide-react";
 
 import type {
   Activity,
@@ -127,7 +127,21 @@ export const RoundEditor = ({
   const [boundaryDialog, setBoundaryDialog] =
     useState<BoundaryDialogState | null>(null);
   const [photoDialog, setPhotoDialog] = useState<PhotoDialogState | null>(null);
+  const [deleteCandidateLocalId, setDeleteCandidateLocalId] = useState<
+    string | null
+  >(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const deleteCandidate =
+    deleteCandidateLocalId === null
+      ? null
+      : (rows.find((row) => row.localId === deleteCandidateLocalId) ?? null);
+  const deleteCandidateTimeSpan =
+    deleteCandidate?.startMs !== null &&
+    deleteCandidate?.startMs !== undefined &&
+    deleteCandidate.endMs !== null
+      ? formatTimeSpan(deleteCandidate.startMs, deleteCandidate.endMs)
+      : null;
 
   // Latest rows for the debounced/unmount saves, without retriggering their
   // effects on every keystroke.
@@ -221,6 +235,12 @@ export const RoundEditor = ({
   const deleteRow = (localId: string) => {
     setRows((previous) => previous.filter((row) => row.localId !== localId));
     markEdited();
+  };
+
+  const confirmDeleteRow = () => {
+    if (deleteCandidateLocalId === null) return;
+    deleteRow(deleteCandidateLocalId);
+    setDeleteCandidateLocalId(null);
   };
 
   const addSelfRow = () => {
@@ -463,7 +483,7 @@ export const RoundEditor = ({
                 onChangeExperienceRating={(category, rating) =>
                   setExperienceRating(row.localId, category, rating)
                 }
-                onDelete={() => deleteRow(row.localId)}
+                onDelete={() => setDeleteCandidateLocalId(row.localId)}
                 onAdjustBoundaries={() =>
                   setBoundaryDialog({ mode: "adjust", localId: row.localId })
                 }
@@ -516,7 +536,7 @@ export const RoundEditor = ({
               onChangeExperienceRating={(category, rating) =>
                 setExperienceRating(row.localId, category, rating)
               }
-              onDelete={() => deleteRow(row.localId)}
+              onDelete={() => setDeleteCandidateLocalId(row.localId)}
             />
           ))}
           <Row justify="center">
@@ -527,6 +547,45 @@ export const RoundEditor = ({
           </Row>
         </Column>
       )}
+
+      <Dialog
+        open={deleteCandidate !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteCandidateLocalId(null);
+        }}
+      >
+        <DialogContent className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-md">
+          <div className="px-5 py-6 pr-14 sm:px-6">
+            <DialogHeader>
+              <div className="mb-2 flex size-11 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
+                <Trash2Icon className="size-5" aria-hidden />
+              </div>
+              <DialogTitle className="text-lg leading-tight font-semibold">
+                Delete this activity?
+              </DialogTitle>
+              <DialogDescription className="leading-relaxed">
+                {deleteCandidateTimeSpan === null
+                  ? "This activity will be removed from your reconstruction."
+                  : `The activity from ${deleteCandidateTimeSpan} will be removed from your reconstruction.`}{" "}
+                You can create a new activity in its place, or assign the unassigned images to the preceeding and succeeding activities by adjusting their time spans.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <div className="flex flex-col-reverse gap-2 border-t bg-muted/30 p-4 sm:flex-row sm:justify-end">
+            <Button
+              variant="outline"
+              className="bg-background"
+              onClick={() => setDeleteCandidateLocalId(null)}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteRow}>
+              <Trash2Icon aria-hidden />
+              Delete activity
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
@@ -591,7 +650,7 @@ export const RoundEditor = ({
             photoDialogActivity.startMs ?? 0,
             photoDialogActivity.endMs ?? 0,
           )}`}
-          description="Review every photo captured during this activity. Deleting a photo does not change the activity's time span."
+          description="Review every photo captured during this activity. Deleting a photo keeps its timestamp and does not change the activity's time span."
           frames={photoDialogFrames}
           initialFrameKey={photoDialog.initialFrameKey}
         />

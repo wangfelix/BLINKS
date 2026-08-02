@@ -2,6 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import {
+  ArrowRightIcon,
+  Clock3Icon,
+  ImageOffIcon,
+  RotateCcwIcon,
+} from "lucide-react";
 
 import type { Frame } from "@/lib/api-types";
 import { frameImageSrc } from "@/lib/api-client";
@@ -11,7 +17,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -22,11 +27,10 @@ import { mergeClassNames } from "@/lib/utils";
 // Grid geometry. Every size is computed in pixels so each virtualized row has
 // an exact height — thumbnails can never be squished by the container, no
 // matter how many frames the day has.
-const TARGET_CELL_WIDTH_PX = 140;
-const MIN_COLUMNS = 3;
+const TARGET_CELL_WIDTH_PX = 168;
+const MIN_COLUMNS = 2;
 const MAX_COLUMNS = 6;
-const CELL_GAP_PX = 8;
-const CAPTION_HEIGHT_PX = 20;
+const CELL_GAP_PX = 12;
 const CELL_BORDER_PX = 2; // 1px top + 1px bottom on the cell button
 const THUMBNAIL_ASPECT = 3 / 4; // height / width
 const HALF_HOUR_MS = 30 * 60 * 1000;
@@ -150,10 +154,12 @@ export const FramePickerDialog = ({
             ),
           ),
         );
-  const cellWidth = (gridWidth - CELL_GAP_PX * (columns - 1)) / columns;
+  const cellWidth =
+    gridWidth === 0
+      ? TARGET_CELL_WIDTH_PX
+      : (gridWidth - CELL_GAP_PX * (columns - 1)) / columns;
   const thumbnailHeight = Math.round(cellWidth * THUMBNAIL_ASPECT);
-  const rowHeight =
-    thumbnailHeight + CAPTION_HEIGHT_PX + CELL_BORDER_PX + CELL_GAP_PX;
+  const rowHeight = thumbnailHeight + CELL_BORDER_PX + CELL_GAP_PX;
 
   const frameRows = useMemo(() => {
     const rows: Frame[][] = [];
@@ -219,167 +225,248 @@ export const FramePickerDialog = ({
   const hasFrames = frames.length > 0;
   const hasSelection = startMs !== null || endMs !== null;
   const canConfirm = startMs !== null && endMs !== null && startMs <= endMs;
+  const selectionInstruction =
+    startMs === null
+      ? "Choose the first frame of the activity."
+      : endMs === null
+        ? "Now choose the last frame of the activity."
+        : "Review the selected range, then apply it.";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+      <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl border-border/70 bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
+        <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7 sm:py-6 sm:pr-20">
+          <Row gap="md" align="start">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
+              <Clock3Icon className="size-5" aria-hidden />
+            </div>
+            <Column gap="xs" className="min-w-0">
+              <DialogTitle className="text-lg leading-tight font-semibold sm:text-xl">
+                {title}
+              </DialogTitle>
+              <DialogDescription className="leading-relaxed">
+                {description}
+              </DialogDescription>
+            </Column>
+          </Row>
         </DialogHeader>
 
         {!hasFrames ? (
-          <Text variant="secondary" className="py-6 text-center">
-            There are no unassigned frames in this gap.
-          </Text>
+          <div className="flex min-h-72 items-center justify-center bg-muted/15 px-5 py-12">
+            <Column gap="sm" align="center" className="max-w-md text-center">
+              <div className="flex size-12 items-center justify-center rounded-2xl border bg-background text-muted-foreground">
+                <ImageOffIcon className="size-5" aria-hidden />
+              </div>
+              <Text variant="secondary">
+                There are no unassigned frames in this gap.
+              </Text>
+            </Column>
+          </div>
         ) : (
           <>
-            <Text variant="nudge">
-              Click the first frame of the activity, then its last frame.
-              {startMs !== null && (
-                <span className="ml-1 font-medium text-foreground">
-                  Start {formatTimeOfDay(startMs)}
-                  {endMs !== null && ` — End ${formatTimeOfDay(endMs)}`}
+            <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-5 py-3 sm:px-7">
+              <Column gap="xs">
+                <p className="text-sm font-medium">Select the time span</p>
+                <Text variant="nudge">{selectionInstruction}</Text>
+              </Column>
+
+              <Row gap="xs" align="center" wrap>
+                <span
+                  className={mergeClassNames(
+                    "inline-flex min-h-8 items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1 text-xs",
+                    startMs !== null &&
+                      "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
+                  )}
+                >
+                  <span className="text-muted-foreground">Start</span>
+                  <strong className="font-medium tabular-nums">
+                    {startMs === null ? "—" : formatTimeOfDay(startMs)}
+                  </strong>
                 </span>
-              )}
-            </Text>
-
-            <Row gap="md">
-              {timelineMarks.length > 1 && (
-                <nav
-                  aria-label="Jump to time of day"
-                  className="max-h-[55vh] shrink-0 overflow-y-auto pr-1"
+                <ArrowRightIcon
+                  className="size-3.5 text-muted-foreground"
+                  aria-hidden
+                />
+                <span
+                  className={mergeClassNames(
+                    "inline-flex min-h-8 items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1 text-xs",
+                    endMs !== null &&
+                      "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
+                  )}
                 >
-                  <Column>
-                    {timelineMarks.map((mark) => (
-                      <button
-                        key={mark.epochMs}
-                        type="button"
-                        disabled={mark.firstFrameIndex === null}
-                        onClick={() => {
-                          if (mark.firstFrameIndex !== null) {
-                            scrollToFrameIndex(mark.firstFrameIndex);
-                          }
-                        }}
-                        className={mergeClassNames(
-                          "rounded px-1.5 py-0.5 text-left text-xs tabular-nums transition-colors",
-                          mark.isFullHour
-                            ? "font-medium text-foreground"
-                            : "text-muted-foreground",
-                          mark.firstFrameIndex === null
-                            ? "opacity-40"
-                            : "hover:bg-muted",
-                        )}
-                      >
-                        {mark.label}
-                      </button>
-                    ))}
-                  </Column>
-                </nav>
-              )}
+                  <span className="text-muted-foreground">End</span>
+                  <strong className="font-medium tabular-nums">
+                    {endMs === null ? "—" : formatTimeOfDay(endMs)}
+                  </strong>
+                </span>
+              </Row>
+            </div>
 
-              <div
-                ref={setScrollElement}
-                className="max-h-[55vh] min-w-0 flex-1 overflow-y-auto"
-              >
-                <div
-                  className="relative"
-                  style={{ height: virtualizer.getTotalSize() }}
-                >
-                  {virtualizer.getVirtualItems().map((virtualRow) => (
-                    <div
-                      key={virtualRow.key}
-                      className="absolute top-0 left-0 grid w-full"
-                      style={{
-                        transform: `translateY(${virtualRow.start}px)`,
-                        gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                        gap: CELL_GAP_PX,
-                      }}
-                    >
-                      {frameRows[virtualRow.index].map((frame) => {
-                        const isStart = frame.captureEpochMs === startMs;
-                        const isEnd = frame.captureEpochMs === endMs;
-                        const isSelectionBoundary = isStart || isEnd;
-                        const isInSelectedRange =
-                          startMs !== null &&
-                          endMs !== null &&
-                          frame.captureEpochMs >= startMs &&
-                          frame.captureEpochMs <= endMs;
-                        return (
-                          <button
-                            key={frame.captureEpochMs}
-                            type="button"
-                            onClick={() =>
-                              handleFrameClick(frame.captureEpochMs)
+            <div className="bg-muted/15 p-3 sm:p-5">
+              <Row gap="md" align="start">
+                {timelineMarks.length > 1 && (
+                  <nav
+                    aria-label="Jump to time of day"
+                    className="hidden max-h-[62vh] w-20 shrink-0 overflow-y-auto rounded-xl border bg-background p-2 sm:block"
+                  >
+                    <p className="px-1 pb-2 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                      Jump to
+                    </p>
+                    <Column gap="xs">
+                      {timelineMarks.map((mark) => (
+                        <button
+                          key={mark.epochMs}
+                          type="button"
+                          disabled={mark.firstFrameIndex === null}
+                          onClick={() => {
+                            if (mark.firstFrameIndex !== null) {
+                              scrollToFrameIndex(mark.firstFrameIndex);
                             }
-                            className={mergeClassNames(
-                              "relative overflow-hidden rounded-md border text-left transition-shadow focus-visible:ring-2 focus-visible:ring-ring",
-                              isInSelectedRange && "ring-2 ring-primary/50",
-                              isSelectionBoundary && "ring-2 ring-primary",
-                            )}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element -- authenticated cross-origin image; the Next image proxy cannot forward the auth cookie */}
-                            <img
-                              src={frameImageSrc(frame.imageUrl!)}
-                              alt={`Frame at ${formatTimeOfDay(frame.captureEpochMs)}`}
-                              loading="lazy"
-                              className="w-full bg-muted object-cover"
-                              style={{ height: thumbnailHeight }}
-                            />
-                            <span
-                              className="block bg-background/90 px-1 text-center text-[10px] tabular-nums"
-                              style={{
-                                height: CAPTION_HEIGHT_PX,
-                                lineHeight: `${CAPTION_HEIGHT_PX}px`,
-                              }}
+                          }}
+                          className={mergeClassNames(
+                            "w-full rounded-lg px-2 py-1 text-left text-xs tabular-nums transition-colors",
+                            mark.isFullHour
+                              ? "font-medium text-foreground"
+                              : "text-muted-foreground",
+                            mark.firstFrameIndex === null
+                              ? "opacity-35"
+                              : "hover:bg-muted",
+                          )}
+                        >
+                          {mark.label}
+                        </button>
+                      ))}
+                    </Column>
+                  </nav>
+                )}
+
+                <div
+                  ref={setScrollElement}
+                  className="max-h-[62vh] min-w-0 flex-1 overflow-y-auto pr-1"
+                >
+                  <div
+                    className="relative"
+                    style={{ height: virtualizer.getTotalSize() }}
+                  >
+                    {virtualizer.getVirtualItems().map((virtualRow) => (
+                      <div
+                        key={virtualRow.key}
+                        className="absolute top-0 left-0 grid w-full"
+                        style={{
+                          transform: `translateY(${virtualRow.start}px)`,
+                          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                          gap: CELL_GAP_PX,
+                        }}
+                      >
+                        {frameRows[virtualRow.index].map((frame) => {
+                          const frameTime = formatTimeOfDay(
+                            frame.captureEpochMs,
+                          );
+                          const isStart = frame.captureEpochMs === startMs;
+                          const isEnd = frame.captureEpochMs === endMs;
+                          const isSelectionBoundary = isStart || isEnd;
+                          const isInSelectedRange =
+                            startMs !== null &&
+                            endMs !== null &&
+                            frame.captureEpochMs >= startMs &&
+                            frame.captureEpochMs <= endMs;
+                          return (
+                            <button
+                              key={frame.captureEpochMs}
+                              type="button"
+                              aria-label={`Select frame at ${frameTime}`}
+                              aria-pressed={
+                                isSelectionBoundary || isInSelectedRange
+                              }
+                              onClick={() =>
+                                handleFrameClick(frame.captureEpochMs)
+                              }
+                              className={mergeClassNames(
+                                "relative overflow-hidden rounded-xl border bg-background text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                isInSelectedRange &&
+                                  "border-blue-500 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-950/30",
+                                isSelectionBoundary &&
+                                  "border-blue-600 dark:border-blue-500",
+                              )}
                             >
-                              {formatTimeOfDay(frame.captureEpochMs)}
-                            </span>
-                            {isSelectionBoundary && (
-                              <span className="absolute top-1 left-1 rounded bg-primary px-1 text-[10px] font-medium text-primary-foreground">
-                                {isStart && isEnd
-                                  ? "Start + End"
-                                  : isStart
-                                    ? "Start"
-                                    : "End"}
+                              {/* eslint-disable-next-line @next/next/no-img-element -- authenticated cross-origin image; the Next image proxy cannot forward the auth cookie */}
+                              <img
+                                src={frameImageSrc(frame.imageUrl!)}
+                                alt={`Frame at ${frameTime}`}
+                                loading="lazy"
+                                decoding="async"
+                                fetchPriority="low"
+                                className="w-full bg-muted object-cover"
+                                style={{ height: thumbnailHeight }}
+                              />
+                              <span
+                                className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/45 to-transparent"
+                                aria-hidden
+                              />
+                              {(isSelectionBoundary || isInSelectedRange) && (
+                                <span
+                                  className="pointer-events-none absolute inset-0 z-10 rounded-[inherit] border-[3.5px] border-blue-600 bg-blue-500/10 dark:border-blue-500"
+                                  aria-hidden
+                                />
+                              )}
+                              <span className="pointer-events-none absolute bottom-2 left-2 z-20 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-[10px] font-medium text-white tabular-nums">
+                                {frameTime}
                               </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ))}
+                              {isSelectionBoundary && (
+                                <span className="pointer-events-none absolute top-2 left-2 z-20 rounded-md bg-blue-600 px-2 py-1 text-[10px] font-medium text-white dark:bg-blue-500">
+                                  {isStart && isEnd
+                                    ? "Start + End"
+                                    : isStart
+                                      ? "Start"
+                                      : "End"}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </Row>
+              </Row>
+            </div>
           </>
         )}
 
-        <DialogFooter>
+        <div className="flex flex-col gap-3 border-t border-border/70 bg-background px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
           <Button
             variant="ghost"
+            className="self-start"
             onClick={() => {
               setStartMs(null);
               setEndMs(null);
             }}
             disabled={!hasSelection}
           >
+            <RotateCcwIcon aria-hidden />
             Clear selection
           </Button>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            disabled={!canConfirm}
-            onClick={() => {
-              if (startMs !== null && endMs !== null) {
-                onConfirm(startMs, endMs);
-              }
-            }}
-          >
-            {confirmLabel}
-          </Button>
-        </DialogFooter>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              className="bg-background"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="sm:min-w-36"
+              disabled={!canConfirm}
+              onClick={() => {
+                if (startMs !== null && endMs !== null) {
+                  onConfirm(startMs, endMs);
+                }
+              }}
+            >
+              {confirmLabel}
+            </Button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

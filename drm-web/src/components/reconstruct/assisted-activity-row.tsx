@@ -197,7 +197,7 @@ export const AssistedActivityRow = ({
             <Button
               variant="secondary"
               size="icon-sm"
-              className="border border-white/30 bg-background/95 hover:bg-background"
+              className="border border-white/30 bg-background/95 text-muted-foreground transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white focus-visible:ring-destructive/20 active:translate-y-0 dark:hover:bg-destructive dark:hover:text-white dark:focus-visible:bg-destructive dark:focus-visible:text-white"
               aria-label="Delete activity"
               onClick={onDelete}
             >

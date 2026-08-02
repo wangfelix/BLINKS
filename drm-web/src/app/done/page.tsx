@@ -3,12 +3,6 @@
 import { CheckCircle2Icon } from "lucide-react";
 
 import { useRequireAuth } from "@/lib/use-require-auth";
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { StudyWorkspaceShell } from "@/components/study-workspace-shell";
 
 const DoneContent = () => {
@@ -17,20 +11,15 @@ const DoneContent = () => {
       maxWidthClassName="max-w-2xl"
       contentClassName="flex min-h-[420px] items-center justify-center"
     >
-      <Card className="w-full max-w-md border-white/60 bg-background/75 text-center shadow-lg backdrop-blur-xl dark:border-white/10">
-        <CardHeader className="items-center">
-          <CheckCircle2Icon
-            className="mx-auto size-10 text-primary"
-            aria-hidden
-          />
-          <CardTitle>All done</CardTitle>
-          <CardDescription>
-            Thank you for taking part in the study. You can close this tab now.
-            Please bring the glasses and the study phone back to the lab as
-            arranged.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <div className="flex w-full max-w-lg flex-col items-center gap-3 text-center">
+        <CheckCircle2Icon className="size-12 text-primary" aria-hidden />
+        <h1 className="text-2xl font-semibold tracking-tight">All done</h1>
+        <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
+          Thank you for taking part in the study. You can close this tab now.
+          Please bring the glasses and the study phone back to the lab as
+          arranged.
+        </p>
+      </div>
     </StudyWorkspaceShell>
   );
 };

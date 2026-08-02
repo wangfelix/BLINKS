@@ -6,6 +6,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   CheckIcon,
   ImageOffIcon,
+  ImagesIcon,
   LoaderCircleIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -21,7 +22,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -30,11 +30,10 @@ import {
   usePhotoDeletion,
 } from "@/components/photos/use-photo-deletion";
 
-const TARGET_CELL_WIDTH_PX = 150;
+const TARGET_CELL_WIDTH_PX = 168;
 const MIN_COLUMNS = 2;
 const MAX_COLUMNS = 6;
-const CELL_GAP_PX = 8;
-const CAPTION_HEIGHT_PX = 24;
+const CELL_GAP_PX = 12;
 const CELL_BORDER_PX = 2;
 const THUMBNAIL_ASPECT = 3 / 4;
 
@@ -208,8 +207,7 @@ export const PhotoManagementDialog = ({
       ? TARGET_CELL_WIDTH_PX
       : (gridWidth - CELL_GAP_PX * (columns - 1)) / columns;
   const thumbnailHeight = Math.round(cellWidth * THUMBNAIL_ASPECT);
-  const rowHeight =
-    thumbnailHeight + CAPTION_HEIGHT_PX + CELL_BORDER_PX + CELL_GAP_PX;
+  const rowHeight = thumbnailHeight + CELL_BORDER_PX + CELL_GAP_PX;
 
   const frameRows = useMemo(() => {
     const rows: Frame[][] = [];
@@ -258,26 +256,53 @@ export const PhotoManagementDialog = ({
   const confirmationCount = confirmFrames?.length ?? 0;
   const confirmationNoun =
     confirmationCount === 1 ? "image file" : "image files";
+  const deletedFrameCount = orderedFrames.length - liveFrameCount;
 
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-5xl">
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
+        <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl border-border/70 bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
+          <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7 sm:py-6 sm:pr-20">
+            <Row gap="md" align="start">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
+                <ImagesIcon className="size-5" aria-hidden />
+              </div>
+              <Column gap="xs" className="min-w-0">
+                <DialogTitle className="text-lg leading-tight font-semibold sm:text-xl">
+                  {title}
+                </DialogTitle>
+                <DialogDescription className="leading-relaxed">
+                  {description}
+                </DialogDescription>
+              </Column>
+            </Row>
           </DialogHeader>
 
           {!isLoading && loadError === null && (
-            <Row gap="sm" align="center" justify="between" wrap>
+            <Row
+              gap="md"
+              align="center"
+              justify="between"
+              wrap
+              className="min-h-14 border-b border-border/70 bg-muted/20 px-5 py-3 sm:px-7"
+            >
               {isSelectionMode ? (
                 <>
-                  <Text variant="nudge" className="font-medium text-foreground">
-                    {selectedKeys.size} selected
-                  </Text>
+                  <Row gap="sm" align="center" wrap>
+                    <span
+                      className="rounded-lg bg-foreground px-2.5 py-1 text-xs font-medium text-background tabular-nums"
+                      aria-live="polite"
+                    >
+                      {selectedKeys.size} selected
+                    </span>
+                    <Text variant="nudge" className="hidden sm:block">
+                      Shift-click to select a continuous range.
+                    </Text>
+                  </Row>
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
+                    className="bg-background"
                     disabled={deletion.isPending}
                     onClick={closeSelectionMode}
                   >
@@ -286,15 +311,23 @@ export const PhotoManagementDialog = ({
                 </>
               ) : (
                 <>
-                  <Text variant="nudge">
-                    {liveFrameCount}{" "}
-                    {liveFrameCount === 1
-                      ? "photo remaining"
-                      : "photos remaining"}
-                  </Text>
+                  <Row gap="sm" align="center" wrap>
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1.5 text-xs font-medium tabular-nums">
+                      <ImagesIcon
+                        className="size-3.5 text-muted-foreground"
+                        aria-hidden
+                      />
+                      {liveFrameCount}{" "}
+                      {liveFrameCount === 1 ? "photo" : "photos"}
+                    </span>
+                    {deletedFrameCount > 0 && (
+                      <Text variant="nudge">{deletedFrameCount} deleted</Text>
+                    )}
+                  </Row>
                   <Button
-                    variant="secondary"
+                    variant="outline"
                     size="sm"
+                    className="bg-background"
                     disabled={liveFrameCount === 0}
                     onClick={() => setIsSelectionMode(true)}
                   >
@@ -306,43 +339,54 @@ export const PhotoManagementDialog = ({
           )}
 
           {!isLoading && loadError === null && deletion.isError && (
-            <Text variant="destructive" role="alert">
-              {deletion.error instanceof ApiError
-                ? deletion.error.message
-                : "Some photos could not be deleted. The gallery was refreshed; please try again."}
-            </Text>
+            <div className="border-b border-destructive/20 bg-destructive/5 px-5 py-3 sm:px-7">
+              <Text variant="destructive" role="alert">
+                {deletion.error instanceof ApiError
+                  ? deletion.error.message
+                  : "Some photos could not be deleted. The gallery was refreshed; please try again."}
+              </Text>
+            </div>
           )}
 
           {isLoading ? (
-            <Row gap="sm" align="center" justify="center" className="py-12">
-              <LoaderCircleIcon className="animate-spin" aria-hidden />
-              <Text variant="secondary">Loading photos…</Text>
-            </Row>
+            <div className="flex min-h-72 items-center justify-center bg-muted/15 px-5 py-12">
+              <Row gap="sm" align="center">
+                <LoaderCircleIcon className="animate-spin" aria-hidden />
+                <Text variant="secondary">Loading photos…</Text>
+              </Row>
+            </div>
           ) : loadError !== null ? (
-            <Column gap="sm" align="center" className="py-10">
-              <Text variant="destructive" role="alert">
-                {loadError}
-              </Text>
-              {onRetry !== undefined && (
-                <Button variant="outline" size="sm" onClick={onRetry}>
-                  Try again
-                </Button>
-              )}
-            </Column>
+            <div className="flex min-h-72 items-center justify-center bg-muted/15 px-5 py-12">
+              <Column gap="md" align="center" className="max-w-md text-center">
+                <Text variant="destructive" role="alert">
+                  {loadError}
+                </Text>
+                {onRetry !== undefined && (
+                  <Button variant="outline" size="sm" onClick={onRetry}>
+                    Try again
+                  </Button>
+                )}
+              </Column>
+            </div>
           ) : orderedFrames.length === 0 ? (
-            <Text variant="secondary" className="py-10 text-center">
-              {emptyMessage}
-            </Text>
+            <div className="flex min-h-72 items-center justify-center bg-muted/15 px-5 py-12">
+              <Column gap="sm" align="center" className="max-w-md text-center">
+                <div className="flex size-12 items-center justify-center rounded-2xl border bg-background text-muted-foreground">
+                  <ImageOffIcon className="size-5" aria-hidden />
+                </div>
+                <Text variant="secondary">{emptyMessage}</Text>
+              </Column>
+            </div>
           ) : (
-            <Column gap="sm">
+            <div className="bg-muted/15 p-3 sm:p-5">
               {liveFrameCount === 0 && (
-                <Text variant="secondary" className="text-center">
+                <Text variant="secondary" className="pb-3 text-center">
                   No photos remaining. Deleted placeholders are shown below.
                 </Text>
               )}
               <div
                 ref={setScrollElement}
-                className="max-h-[62vh] min-h-48 overflow-y-auto pr-1"
+                className="max-h-[66vh] min-h-64 overflow-y-auto pr-1"
               >
                 <div
                   className="relative"
@@ -363,13 +407,18 @@ export const PhotoManagementDialog = ({
                         const isDeleted = frame.deletedAt !== null;
                         const isSelected = selectedKeys.has(key);
                         const content = (
-                          <>
+                          <div
+                            className="relative w-full overflow-hidden bg-muted"
+                            style={{ height: thumbnailHeight }}
+                          >
                             {isDeleted ? (
-                              <div
-                                className="flex w-full flex-col items-center justify-center gap-1 bg-muted text-muted-foreground"
-                                style={{ height: thumbnailHeight }}
-                              >
-                                <ImageOffIcon aria-hidden />
+                              <div className="flex size-full flex-col items-center justify-center gap-1.5 bg-muted/70 text-muted-foreground">
+                                <span className="flex size-9 items-center justify-center rounded-xl border border-border/70 bg-background/60">
+                                  <ImageOffIcon
+                                    className="size-4"
+                                    aria-hidden
+                                  />
+                                </span>
                                 <span className="text-xs font-medium">
                                   Deleted
                                 </span>
@@ -380,20 +429,21 @@ export const PhotoManagementDialog = ({
                                 src={frameImageSrc(frame.imageUrl!)}
                                 alt={`Frame at ${formatTimeOfDay(frame.captureEpochMs)}`}
                                 loading="lazy"
-                                className="w-full bg-muted object-cover"
-                                style={{ height: thumbnailHeight }}
+                                decoding="async"
+                                fetchPriority="low"
+                                className="size-full bg-muted object-cover"
                               />
                             )}
-                            <span
-                              className="block bg-background/95 px-1 text-center text-[10px] tabular-nums"
-                              style={{
-                                height: CAPTION_HEIGHT_PX,
-                                lineHeight: `${CAPTION_HEIGHT_PX}px`,
-                              }}
-                            >
+                            {!isDeleted && (
+                              <span
+                                className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/45 to-transparent"
+                                aria-hidden
+                              />
+                            )}
+                            <span className="pointer-events-none absolute bottom-2 left-2 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-[10px] font-medium text-white tabular-nums">
                               {formatTimeOfDay(frame.captureEpochMs)}
                             </span>
-                          </>
+                          </div>
                         );
 
                         if (isSelectionMode) {
@@ -411,19 +461,25 @@ export const PhotoManagementDialog = ({
                               disabled={isDeleted || deletion.isPending}
                               onClick={(event) => toggleSelection(frame, event)}
                               className={mergeClassNames(
-                                "relative overflow-hidden rounded-md border text-left transition-shadow focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed",
+                                "relative overflow-hidden rounded-xl border bg-background text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed",
                                 isSelected &&
-                                  "border-primary ring-2 ring-primary/50",
+                                  "border-blue-600 dark:border-blue-500",
                                 isDeleted && "opacity-70",
                               )}
                             >
                               {content}
+                              {isSelected && (
+                                <span
+                                  className="pointer-events-none absolute inset-0 z-10 rounded-[inherit] border-[3.5px] border-blue-600 dark:border-blue-500"
+                                  aria-hidden
+                                />
+                              )}
                               {!isDeleted && (
                                 <span
                                   className={mergeClassNames(
-                                    "absolute top-2 left-2 flex size-6 items-center justify-center rounded border-2 bg-background/90",
+                                    "absolute top-2 left-2 z-20 flex size-7 items-center justify-center rounded-lg border-2 bg-background/95",
                                     isSelected &&
-                                      "border-primary bg-primary text-primary-foreground",
+                                      "border-blue-600 bg-blue-600 text-white dark:border-blue-500 dark:bg-blue-500",
                                   )}
                                   aria-hidden
                                 >
@@ -440,7 +496,7 @@ export const PhotoManagementDialog = ({
                           <figure
                             key={key}
                             className={mergeClassNames(
-                              "relative overflow-hidden rounded-md border",
+                              "relative overflow-hidden rounded-xl border bg-background",
                               isDeleted && "opacity-70",
                             )}
                           >
@@ -449,7 +505,7 @@ export const PhotoManagementDialog = ({
                               <Button
                                 variant="destructive"
                                 size="icon-sm"
-                                className="absolute top-1.5 right-1.5 bg-background/90 shadow-sm"
+                                className="absolute top-2 right-2 border border-destructive/15 bg-background/95 transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0 dark:hover:bg-destructive dark:hover:text-white dark:focus-visible:bg-destructive dark:focus-visible:text-white"
                                 aria-label={`Delete photo from ${formatTimeOfDay(frame.captureEpochMs)}`}
                                 disabled={deletion.isPending}
                                 onClick={() => setConfirmFrames([frame])}
@@ -464,13 +520,17 @@ export const PhotoManagementDialog = ({
                   ))}
                 </div>
               </div>
-            </Column>
+            </div>
           )}
 
           {!isLoading && loadError === null && isSelectionMode && (
-            <DialogFooter>
+            <div className="flex flex-col-reverse gap-2 border-t border-border/70 bg-background px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+              <Text variant="nudge" className="text-center sm:text-left">
+                Deleted files cannot be restored.
+              </Text>
               <Button
                 variant="destructive"
+                className="transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0 sm:min-w-44 dark:hover:bg-destructive dark:hover:text-white dark:focus-visible:bg-destructive dark:focus-visible:text-white"
                 disabled={selectedFrames.length === 0 || deletion.isPending}
                 onClick={() => setConfirmFrames(selectedFrames)}
               >
@@ -479,7 +539,7 @@ export const PhotoManagementDialog = ({
                 )}
                 Delete Selected ({selectedFrames.length})
               </Button>
-            </DialogFooter>
+            </div>
           )}
         </DialogContent>
       </Dialog>
@@ -490,20 +550,26 @@ export const PhotoManagementDialog = ({
           if (!nextOpen && !deletion.isPending) setConfirmFrames(null);
         }}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              Delete {confirmationCount} {confirmationNoun}?
-            </DialogTitle>
-            <DialogDescription>
-              The selected {confirmationNoun} will be permanently removed from
-              the study data. Its timestamped database record will remain marked
-              as deleted.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
+        <DialogContent className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-md">
+          <div className="px-5 py-6 pr-14 sm:px-6">
+            <DialogHeader>
+              <div className="mb-2 flex size-11 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
+                <Trash2Icon className="size-5" aria-hidden />
+              </div>
+              <DialogTitle className="text-lg leading-tight font-semibold">
+                Delete {confirmationCount} {confirmationNoun}?
+              </DialogTitle>
+              <DialogDescription className="leading-relaxed">
+                The selected {confirmationNoun} will be permanently removed from
+                the study data. Its timestamped database record will remain
+                marked as deleted.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <div className="flex flex-col-reverse gap-2 border-t bg-muted/30 p-4 sm:flex-row sm:justify-end">
             <Button
               variant="outline"
+              className="bg-background"
               disabled={deletion.isPending}
               onClick={() => setConfirmFrames(null)}
             >
@@ -511,6 +577,7 @@ export const PhotoManagementDialog = ({
             </Button>
             <Button
               variant="destructive"
+              className="transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0 dark:hover:bg-destructive dark:hover:text-white dark:focus-visible:bg-destructive dark:focus-visible:text-white"
               disabled={deletion.isPending}
               onClick={confirmDeletion}
             >
@@ -519,7 +586,7 @@ export const PhotoManagementDialog = ({
               )}
               Delete
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </>
