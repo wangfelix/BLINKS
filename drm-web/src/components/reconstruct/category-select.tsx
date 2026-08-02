@@ -14,6 +14,7 @@ import {
   PauseIcon,
   type LucideIcon,
 } from "lucide-react";
+import { mergeClassNames } from "@/lib/utils";
 
 const CATEGORY_ITEMS: {
   icon: LucideIcon;
@@ -37,12 +38,14 @@ export const CategorySelect = ({
   value,
   onChange,
   invalid = false,
+  triggerClassName,
 }: {
   /** Trigger element id, so a visible <Label htmlFor> can point at it. */
   id?: string;
   value: CategoryLabel | null;
   onChange: (value: CategoryLabel) => void;
   invalid?: boolean;
+  triggerClassName?: string;
 }) => {
   const SelectedIcon = CATEGORY_ITEMS.find(
     (item) => item.value === value,
@@ -58,7 +61,7 @@ export const CategorySelect = ({
     >
       <SelectTrigger
         id={id}
-        className="w-full sm:w-32"
+        className={mergeClassNames("w-full sm:w-32", triggerClassName)}
         aria-label="Activity type"
         aria-invalid={invalid || undefined}
       >

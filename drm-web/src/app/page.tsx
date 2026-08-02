@@ -122,7 +122,7 @@ const LandingPage = () => {
                   autoFocus
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
-                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-4 pl-11 text-base shadow-sm backdrop-blur-sm transition-[border-color,box-shadow,background-color] hover:bg-background/80 focus-visible:bg-background"
+                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-4 pl-11 text-base backdrop-blur-sm transition-[border-color,box-shadow,background-color] hover:bg-background/80 focus-visible:bg-background"
                 />
               </div>
             </Column>
@@ -141,7 +141,7 @@ const LandingPage = () => {
                   autoComplete="current-password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-12 pl-11 text-base shadow-sm backdrop-blur-sm transition-[border-color,box-shadow,background-color] hover:bg-background/80 focus-visible:bg-background"
+                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-12 pl-11 text-base backdrop-blur-sm transition-[border-color,box-shadow,background-color] hover:bg-background/80 focus-visible:bg-background"
                 />
                 <button
                   type="button"

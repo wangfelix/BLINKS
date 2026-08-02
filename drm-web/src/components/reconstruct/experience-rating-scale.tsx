@@ -4,7 +4,7 @@ import type { ExperienceRating } from "@/lib/api-types";
 import { Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
 import { mergeClassNames } from "@/lib/utils";
-import {Label} from "@/components/ui/label";
+import { Label } from "@/components/ui/label";
 
 const RATING_VALUES: ExperienceRating[] = [1, 2, 3, 4, 5, 6, 7];
 
@@ -37,18 +37,76 @@ export const ExperienceRatingScale = ({
   value,
   onChange,
   invalid = false,
+  layout = "inline",
+  className,
 }: {
   category: RatedCategory;
   value: ExperienceRating | null;
   onChange: (rating: ExperienceRating) => void;
   invalid?: boolean;
+  layout?: "inline" | "field-row";
+  className?: string;
 }) => {
   const copy = SCALE_COPY[category];
+
+  const ratingButtons = RATING_VALUES.map((rating) => (
+    <button
+      key={rating}
+      type="button"
+      role="radio"
+      aria-checked={value === rating}
+      aria-label={`${rating} of 7`}
+      onClick={() => onChange(rating)}
+      className={mergeClassNames(
+        "size-8 rounded-full border text-sm tabular-nums transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        value === rating
+          ? "border-primary bg-primary font-medium text-primary-foreground"
+          : "text-muted-foreground hover:bg-muted",
+        invalid && value === null && "border-destructive",
+      )}
+    >
+      {rating}
+    </button>
+  ));
+
+  if (layout === "field-row") {
+    return (
+      <div
+        className={mergeClassNames(
+          "grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_20rem] sm:items-center sm:gap-6",
+          className,
+        )}
+      >
+        <Label color={invalid ? "destructive" : undefined}>
+          {copy.question}
+        </Label>
+        <div className="w-full min-w-0 sm:justify-self-end">
+          <div
+            className="grid grid-cols-7 place-items-center gap-1.5"
+            role="radiogroup"
+            aria-label={copy.question}
+            aria-invalid={invalid || undefined}
+          >
+            {ratingButtons}
+          </div>
+          <div className="mt-1.5 flex items-center justify-between px-0.5">
+            <Text variant="nudge">{copy.lowAnchor}</Text>
+            <Text variant="nudge">{copy.highAnchor}</Text>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <Row gap="md" align="center" justify="between" wrap className="px-1">
-      <Label color={invalid ? "destructive" : undefined}>
-        {copy.question}
-      </Label>
+    <Row
+      gap="md"
+      align="center"
+      justify="between"
+      wrap
+      className={mergeClassNames("px-1", className)}
+    >
+      <Label color={invalid ? "destructive" : undefined}>{copy.question}</Label>
       <Row
         gap="sm"
         align="center"
@@ -57,25 +115,7 @@ export const ExperienceRatingScale = ({
         aria-invalid={invalid || undefined}
       >
         <Text variant="nudge">{copy.lowAnchor}</Text>
-        {RATING_VALUES.map((rating) => (
-          <button
-            key={rating}
-            type="button"
-            role="radio"
-            aria-checked={value === rating}
-            aria-label={`${rating} of 5`}
-            onClick={() => onChange(rating)}
-            className={mergeClassNames(
-              "size-8 rounded-full border text-sm tabular-nums transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-              value === rating
-                ? "border-primary bg-primary font-medium text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted",
-              invalid && value === null && "border-destructive",
-            )}
-          >
-            {rating}
-          </button>
-        ))}
+        {ratingButtons}
         <Text variant="nudge">{copy.highAnchor}</Text>
       </Row>
     </Row>

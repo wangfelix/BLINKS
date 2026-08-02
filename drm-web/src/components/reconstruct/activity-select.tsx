@@ -9,17 +9,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { mergeClassNames } from "@/lib/utils";
 
 export const ActivitySelect = ({
   id,
   value,
   onChange,
   invalid = false,
+  triggerClassName,
 }: {
   id?: string;
   value: ActivityLabel | null;
   onChange: (value: ActivityLabel) => void;
   invalid?: boolean;
+  triggerClassName?: string;
 }) => (
   <Select
     items={ACTIVITY_ITEMS}
@@ -30,7 +33,7 @@ export const ActivitySelect = ({
   >
     <SelectTrigger
       id={id}
-      className="w-full min-w-64"
+      className={mergeClassNames("w-full min-w-64", triggerClassName)}
       aria-label="Activity"
       aria-invalid={invalid || undefined}
     >

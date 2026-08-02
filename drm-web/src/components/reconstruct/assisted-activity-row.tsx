@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { ImageOffIcon, Trash2Icon } from "lucide-react";
 
 import type {
@@ -9,11 +10,10 @@ import type {
   Frame,
 } from "@/lib/api-types";
 import { frameImageSrc } from "@/lib/api-client";
-import { cn } from "@/lib/utils";
+import { mergeClassNames } from "@/lib/utils";
 import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
 import { CategorySelect } from "@/components/reconstruct/category-select";
 import { ActivitySelect } from "@/components/reconstruct/activity-select";
@@ -28,6 +28,25 @@ import {
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
 
 const THUMBNAIL_COUNT = 5;
+
+const AssistedFieldRow = ({
+  label,
+  htmlFor,
+  invalid,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  invalid: boolean;
+  children: ReactNode;
+}) => (
+  <div className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_20rem] sm:items-center sm:gap-6">
+    <Label htmlFor={htmlFor} color={invalid ? "destructive" : undefined}>
+      {label}
+    </Label>
+    <div className="w-full min-w-0 sm:w-80 sm:justify-self-end">{children}</div>
+  </div>
+);
 
 /** One assisted-condition activity row: time span, frame thumbnails, labels. */
 export const AssistedActivityRow = ({
@@ -76,114 +95,152 @@ export const AssistedActivityRow = ({
       : activity.recoveryRating;
 
   return (
-    <Column
-      gap="md"
-      className={cn(
-        "rounded-xl border bg-card p-4 shadow-xs",
+    <article
+      className={mergeClassNames(
+        "overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow hover:shadow-md",
         activity.isIncorrectAnnotationInjected &&
           "border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/20",
       )}
     >
-      <Row gap="sm" align="center" justify="between">
-        <span className="text-sm font-medium tabular-nums">
-          {formatTimeSpan(startMs, endMs)}
-        </span>
-
-        <Row gap="xs" align="center" wrap justify="end">
-          <Button variant="secondary" size="sm" onClick={() => onViewPhotos()}>
-            View all photos
-          </Button>
-          <Button variant="secondary" size="sm" onClick={onAdjustBoundaries}>
-            Adjust times
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Delete activity"
-            onClick={onDelete}
-          >
-            <Trash2Icon />
-          </Button>
-        </Row>
-      </Row>
-
-      {thumbnails.length > 0 && (
-        <Row gap="sm" className="overflow-x-auto pb-1">
-          {thumbnails.map((frame) => (
-            <figure key={frameIdentityKey(frame)} className="w-24 shrink-0">
-              <button
-                type="button"
-                className="block aspect-[4/3] w-full overflow-hidden rounded-md border bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={
-                  frame.deletedAt === null
-                    ? `View all photos, starting at ${formatTimeOfDay(frame.captureEpochMs)}`
-                    : `View deleted photo placeholder at ${formatTimeOfDay(frame.captureEpochMs)}`
-                }
-                onClick={() => onViewPhotos(frame)}
+      <div className="relative isolate overflow-hidden bg-muted">
+        {thumbnails.length > 0 ? (
+          <div className="flex h-40 overflow-x-auto sm:h-44">
+            {thumbnails.map((frame) => (
+              <figure
+                key={frameIdentityKey(frame)}
+                className="relative w-36 shrink-0 overflow-hidden border-r border-background/40 last:border-r-0 sm:min-w-0 sm:flex-1"
               >
-                {frame.deletedAt !== null ? (
-                  <span className="flex size-full flex-col items-center justify-center gap-0.5 text-muted-foreground">
-                    <ImageOffIcon className="size-5" aria-hidden />
-                    <span className="text-[10px] font-medium">Deleted</span>
-                  </span>
-                ) : (
-                  /* eslint-disable-next-line @next/next/no-img-element -- authenticated cross-origin image; the Next image proxy cannot forward the auth cookie */
-                  <img
-                    src={frameImageSrc(frame.imageUrl!)}
-                    alt={`Frame at ${formatTimeOfDay(frame.captureEpochMs)}`}
-                    loading="lazy"
-                    className="size-full object-cover"
-                  />
-                )}
-              </button>
-              <figcaption className="mt-0.5 text-center text-[10px] text-muted-foreground tabular-nums">
-                {formatTimeOfDay(frame.captureEpochMs)}
-              </figcaption>
-            </figure>
-          ))}
-        </Row>
-      )}
-      {!hasLivePhotos && (
-        <Text variant="secondary" className="text-sm">
-          No photos remaining.
-        </Text>
-      )}
+                <button
+                  type="button"
+                  className="block size-full bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
+                  aria-label={
+                    frame.deletedAt === null
+                      ? `View all photos, starting at ${formatTimeOfDay(frame.captureEpochMs)}`
+                      : `View deleted photo placeholder at ${formatTimeOfDay(frame.captureEpochMs)}`
+                  }
+                  onClick={() => onViewPhotos(frame)}
+                >
+                  {frame.deletedAt !== null ? (
+                    <span className="flex size-full flex-col items-center justify-center gap-1 text-muted-foreground">
+                      <ImageOffIcon className="size-6" aria-hidden />
+                      <span className="text-xs font-medium">Deleted</span>
+                    </span>
+                  ) : (
+                    /* eslint-disable-next-line @next/next/no-img-element -- authenticated cross-origin image; the Next image proxy cannot forward the auth cookie */
+                    <img
+                      src={frameImageSrc(frame.imageUrl!)}
+                      alt={`Frame at ${formatTimeOfDay(frame.captureEpochMs)}`}
+                      loading="lazy"
+                      className="size-full object-cover transition-transform duration-300 hover:scale-[1.02] motion-reduce:transition-none motion-reduce:hover:scale-100"
+                    />
+                  )}
+                </button>
+                <figcaption className="pointer-events-none absolute right-2 bottom-2 rounded-full border border-white/15 bg-black/60 px-2 py-1 text-[10px] text-white tabular-nums shadow-sm backdrop-blur-md">
+                  {formatTimeOfDay(frame.captureEpochMs)}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        ) : (
+          <div className="flex h-40 flex-col items-center justify-center gap-2 text-muted-foreground sm:h-44">
+            <ImageOffIcon className="size-8" aria-hidden />
+            <span className="text-sm font-medium">No photos available</span>
+          </div>
+        )}
 
-      <Column gap="sm" className="sm:flex-row">
-        <Column gap="xs" className="min-w-0 flex-1">
-          <Label htmlFor={`${activity.localId}-label`} className="pl-1">
-            Activity
-          </Label>
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/55 via-black/20 to-transparent"
+          aria-hidden
+        />
+        <div className="absolute inset-x-3 top-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <span className="rounded-full border border-white/20 bg-black/60 px-3 py-1.5 text-sm font-medium text-white tabular-nums shadow-md backdrop-blur-md">
+            {formatTimeSpan(startMs, endMs)}
+          </span>
+
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="border border-white/30 bg-background/90 shadow-md backdrop-blur-md hover:bg-background"
+              onClick={() => onViewPhotos()}
+            >
+              View all photos
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="border border-white/30 bg-background/90 shadow-md backdrop-blur-md hover:bg-background"
+              onClick={onAdjustBoundaries}
+            >
+              Adjust times
+            </Button>
+            <Button
+              variant="secondary"
+              size="icon-sm"
+              className="border border-white/30 bg-background/90 shadow-md backdrop-blur-md hover:bg-background"
+              aria-label="Delete activity"
+              onClick={onDelete}
+            >
+              <Trash2Icon />
+            </Button>
+          </div>
+        </div>
+
+        {!hasLivePhotos && thumbnails.length > 0 && (
+          <span className="absolute bottom-3 left-3 rounded-full bg-background/90 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur-md">
+            No photos remaining
+          </span>
+        )}
+      </div>
+
+      <div className="px-4 sm:px-6">
+        <AssistedFieldRow
+          label="Activity"
+          htmlFor={`${activity.localId}-label`}
+          invalid={isLabelMissing}
+        >
           <ActivitySelect
             id={`${activity.localId}-label`}
             value={activity.rawLabel}
             invalid={isLabelMissing}
             onChange={onChangeLabel}
+            triggerClassName="h-11 w-full min-w-0 rounded-lg bg-background/70"
           />
-        </Column>
-        <Column gap="xs">
-          <Label htmlFor={`${activity.localId}-category`} className="pl-1">
-            Activity Type
-          </Label>
+        </AssistedFieldRow>
+
+        <AssistedFieldRow
+          label="Activity Type"
+          htmlFor={`${activity.localId}-category`}
+          invalid={isCategoryMissing}
+        >
           <CategorySelect
             id={`${activity.localId}-category`}
             value={activity.categoryLabel}
             onChange={onChangeCategory}
             invalid={isCategoryMissing}
+            triggerClassName="h-11 w-full min-w-0 rounded-lg bg-background/70 sm:w-full"
           />
-        </Column>
-      </Column>
+        </AssistedFieldRow>
 
-      {ratedCategory !== null && (
-        <ExperienceRatingScale
-          category={ratedCategory}
-          value={experienceRating}
-          onChange={(rating) => onChangeExperienceRating(ratedCategory, rating)}
-          invalid={highlightIssues && experienceRating === null}
-        />
-      )}
+        {ratedCategory !== null && (
+          <ExperienceRatingScale
+            category={ratedCategory}
+            value={experienceRating}
+            onChange={(rating) =>
+              onChangeExperienceRating(ratedCategory, rating)
+            }
+            invalid={highlightIssues && experienceRating === null}
+            layout="field-row"
+            className="py-3"
+          />
+        )}
 
-      {showIssueMessage && <Text variant="destructive">{issue}</Text>}
-    </Column>
+        {showIssueMessage && (
+          <div className="py-3">
+            <Text variant="destructive">{issue}</Text>
+          </div>
+        )}
+      </div>
+    </article>
   );
 };
