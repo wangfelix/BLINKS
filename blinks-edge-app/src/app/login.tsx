@@ -36,7 +36,7 @@ const LoginScreen = () => {
             accessibilityLabel="BLINKS"
           />
           <AppText variant="caption" style={styles.subtitle}>
-            Wearable camera study · KD2Lab, KIT
+            Wearable camera study - KD2Lab, KIT
           </AppText>
         </View>
 

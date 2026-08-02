@@ -591,7 +591,7 @@ export const RoundEditor = ({
             photoDialogActivity.startMs ?? 0,
             photoDialogActivity.endMs ?? 0,
           )}`}
-          description="Review every photo captured during this activity. Deleting a photo keeps its timestamp and does not change the activity's time span."
+          description="Review every photo captured during this activity. Deleting a photo does not change the activity's time span."
           frames={photoDialogFrames}
           initialFrameKey={photoDialog.initialFrameKey}
         />

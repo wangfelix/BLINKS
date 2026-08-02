@@ -8,8 +8,8 @@ import { ExternalLinkIcon, LoaderCircleIcon } from "lucide-react";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { getProfile } from "@/lib/api-client";
 import { surveyUrlForParticipant } from "@/lib/study-config";
-import { StudyNavbar } from "@/components/study-navbar";
 import { StudyProgress } from "@/components/study-progress";
+import { StudyWorkspaceShell } from "@/components/study-workspace-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -34,11 +34,12 @@ const SurveyContent = () => {
       : surveyUrlForParticipant("final", profileQuery.data.username);
 
   return (
-    <main className="flex w-full flex-1 flex-col">
-      <StudyNavbar />
-      <StudyProgress currentPage="surveys" />
-
-      <section className="mx-auto flex w-full max-w-2xl flex-1 items-center px-4 py-10">
+    <StudyWorkspaceShell
+      progress={<StudyProgress currentPage="surveys" bare />}
+      maxWidthClassName="max-w-3xl"
+      contentClassName="flex min-h-[420px] items-center"
+    >
+      <div className="mx-auto w-full max-w-2xl">
         {profileQuery.isPending ? (
           <div className="flex w-full items-center justify-center gap-2 text-sm text-muted-foreground">
             <LoaderCircleIcon className="animate-spin" aria-hidden />
@@ -105,8 +106,8 @@ const SurveyContent = () => {
             </CardContent>
           </Card>
         )}
-      </section>
-    </main>
+      </div>
+    </StudyWorkspaceShell>
   );
 };
 

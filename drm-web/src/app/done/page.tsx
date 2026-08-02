@@ -9,29 +9,29 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { StudyNavbar } from "@/components/study-navbar";
+import { StudyWorkspaceShell } from "@/components/study-workspace-shell";
 
 const DoneContent = () => {
   return (
-    <main className="flex w-full flex-1 flex-col">
-      <StudyNavbar />
-      <section className="flex flex-1 items-center justify-center px-4 py-12">
-        <Card className="w-full max-w-md text-center">
-          <CardHeader className="items-center">
-            <CheckCircle2Icon
-              className="mx-auto size-10 text-primary"
-              aria-hidden
-            />
-            <CardTitle>All done</CardTitle>
-            <CardDescription>
-              Thank you for taking part in the study. You can close this tab
-              now. Please bring the glasses and the study phone back to the lab
-              as arranged.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      </section>
-    </main>
+    <StudyWorkspaceShell
+      maxWidthClassName="max-w-2xl"
+      contentClassName="flex min-h-[420px] items-center justify-center"
+    >
+      <Card className="w-full max-w-md border-white/60 bg-background/75 text-center shadow-lg backdrop-blur-xl dark:border-white/10">
+        <CardHeader className="items-center">
+          <CheckCircle2Icon
+            className="mx-auto size-10 text-primary"
+            aria-hidden
+          />
+          <CardTitle>All done</CardTitle>
+          <CardDescription>
+            Thank you for taking part in the study. You can close this tab now.
+            Please bring the glasses and the study phone back to the lab as
+            arranged.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    </StudyWorkspaceShell>
   );
 };
 

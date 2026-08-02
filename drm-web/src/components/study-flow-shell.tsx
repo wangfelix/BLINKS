@@ -20,11 +20,13 @@ export const StudyFlowShell = ({
   headerTrailing,
   children,
   contentClassName,
+  maxWidthClassName = "max-w-4xl",
 }: {
-  progress: ReactNode;
-  headerTrailing: ReactNode;
+  progress?: ReactNode;
+  headerTrailing?: ReactNode;
   children: ReactNode;
   contentClassName?: string;
+  maxWidthClassName?: string;
 }) => (
   <main className="relative flex min-h-dvh flex-col overflow-hidden bg-background">
     <StudyFlowBackground />
@@ -33,17 +35,24 @@ export const StudyFlowShell = ({
       <div className="flex items-center gap-3">
         <BlinksLogo className="h-10 w-[140px]" priority />
         <p className="hidden border-l pl-3 text-xs text-muted-foreground sm:block">
-          KIT · KD2Lab
+          KIT - KD2Lab
         </p>
       </div>
       {headerTrailing}
     </header>
 
-    <section className="relative z-10 mx-auto flex w-full max-w-4xl flex-1 items-center px-4 py-8 sm:px-6 sm:py-12">
+    <section
+      className={mergeClassNames(
+        "relative z-10 mx-auto flex w-full flex-1 items-center px-4 py-8 sm:px-6 sm:py-12",
+        maxWidthClassName,
+      )}
+    >
       <div className="w-full overflow-hidden rounded-3xl border border-white/50 bg-background/80 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.35)] ring-1 ring-foreground/5 backdrop-blur-2xl dark:border-white/10">
-        <div className="border-b border-border/70 bg-muted/20 px-5 py-6 sm:px-10">
-          {progress}
-        </div>
+        {progress !== undefined && (
+          <div className="border-b border-border/70 bg-muted/20 px-5 py-6 sm:px-10">
+            {progress}
+          </div>
+        )}
 
         <div
           className={mergeClassNames(

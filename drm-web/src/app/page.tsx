@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Column } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
 import { StudyTeamContactLink } from "@/components/study-team-contact-link";
+import { StudyFlowShell } from "@/components/study-flow-shell";
 
 const LandingPage = () => {
   const router = useRouter();
@@ -69,8 +70,18 @@ const LandingPage = () => {
   };
 
   return (
-    <main className="flex flex-1 items-center justify-center px-4 py-12">
-      <Column gap="xl" className="w-full max-w-md">
+    <StudyFlowShell
+      headerTrailing={
+        <span className="rounded-full border border-border/70 bg-background/70 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur">
+          Participant portal
+        </span>
+      }
+      contentClassName="flex items-center justify-center"
+    >
+      <Column
+        gap="xl"
+        className="onboarding-step-enter onboarding-stagger w-full max-w-md"
+      >
         <Column gap="sm" className="text-center">
           <Text variant="eyebrow" className="uppercase">
             Karlsruhe Institute of Technology
@@ -86,16 +97,7 @@ const LandingPage = () => {
           </Text>
         </Column>
 
-        <Alert>
-          <AlertTitle>Important for Step 2</AlertTitle>
-          <AlertDescription>
-            Some of the activity labels and activity types shown in Step 2 are
-            deliberately incorrect. Review the activities and correct anything
-            that does not match your day.
-          </AlertDescription>
-        </Alert>
-
-        <Card>
+        <Card className="border-white/60 bg-background/75 shadow-lg backdrop-blur-xl dark:border-white/10">
           <CardHeader>
             <CardTitle>Participant sign-in</CardTitle>
             <CardDescription>
@@ -154,7 +156,7 @@ const LandingPage = () => {
           team.
         </Text>
       </Column>
-    </main>
+    </StudyFlowShell>
   );
 };
 

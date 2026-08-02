@@ -30,8 +30,8 @@ import { ReadOnlyActivityList } from "@/components/reconstruct/read-only-activit
 import { CategoryLegendCard } from "@/components/reconstruct/category-legend-card";
 import { ReconstructionIntro } from "@/components/reconstruct/reconstruction-intro";
 import { ReconstructionStatusScreen } from "@/components/reconstruct/reconstruction-status-screen";
-import { StudyNavbar } from "@/components/study-navbar";
 import { StudyProgress } from "@/components/study-progress";
+import { StudyWorkspaceShell } from "@/components/study-workspace-shell";
 
 /** The round the participant works on next; null once both are submitted. */
 const firstUnsubmittedRound = (
@@ -434,18 +434,17 @@ const ReconstructContent = () => {
   }
 
   return (
-    <main className="flex w-full flex-1 flex-col">
-      <StudyNavbar />
-      <StudyProgress currentPage="reconstruction" />
-
-      <section className="mx-auto w-full max-w-4xl flex-1 px-4 py-8 lg:max-w-6xl">
-        <StudyStateView
-          stateQuery={stateQuery}
-          onRoundSubmitted={handleRoundSubmitted}
-          onGoToSurvey={() => router.push("/survey")}
-        />
-      </section>
-    </main>
+    <StudyWorkspaceShell
+      progress={<StudyProgress currentPage="reconstruction" bare />}
+      progressPosition="full-width"
+      variant="plain"
+    >
+      <StudyStateView
+        stateQuery={stateQuery}
+        onRoundSubmitted={handleRoundSubmitted}
+        onGoToSurvey={() => router.push("/survey")}
+      />
+    </StudyWorkspaceShell>
   );
 };
 

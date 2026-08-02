@@ -10,6 +10,7 @@ import {
 
 import { StudyFlowShell } from "@/components/study-flow-shell";
 import { StudyProgress } from "@/components/study-progress";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 const INTRO_CONTENT = {
@@ -93,6 +94,16 @@ export const ReconstructionIntro = ({
             <p className="mt-3 text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">
               {content.description}
             </p>
+            {round === 2 && (
+              <Alert className="mt-6 border-violet-300/70 bg-violet-500/5 text-left dark:border-violet-400/30">
+
+                <AlertDescription>
+                  Some of the activity labels and activity types shown in Step 2
+                  are deliberately incorrect. Review the activities and correct
+                  anything that does not match your day.
+                </AlertDescription>
+              </Alert>
+            )}
           </div>
         </div>
 

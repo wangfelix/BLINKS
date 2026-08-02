@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImagesIcon } from "lucide-react";
+import { ImagesIcon, LogOutIcon } from "lucide-react";
 
 import {
   ApiError,
@@ -50,16 +50,15 @@ export const StudyNavbar = () => {
 
   return (
     <>
-      <nav className="border-b bg-white" aria-label="Study navigation">
-        <div className="mx-auto flex min-h-14 w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2">
+      <nav
+        className="border-b border-border/60 bg-background/55 backdrop-blur-xl"
+        aria-label="Study navigation"
+      >
+        <div className="flex min-h-16 w-full flex-wrap items-center justify-between gap-2 px-4 py-2 sm:px-8">
           <div className="flex items-center gap-3">
-            <BlinksLogo
-              className="h-8 w-28 sm:h-9 sm:w-32"
-              sizes="(min-width: 640px) 128px, 112px"
-              priority
-            />
-            <span className="hidden border-l pl-3 text-sm font-medium text-muted-foreground sm:block">
-              Day Reconstruction Study
+            <BlinksLogo className="h-10 w-[140px]" sizes="140px" priority />
+            <span className="hidden border-l pl-3 text-xs text-muted-foreground sm:block">
+              KIT - KD2Lab
             </span>
           </div>
           <Row gap="sm" align="center" wrap className="shrink-0">
@@ -77,6 +76,7 @@ export const StudyNavbar = () => {
               Participant: {profileQuery.data?.username ?? "…"}
             </Text>
             <Button variant="ghost" size="sm" onClick={handleSignOut}>
+              <LogOutIcon aria-hidden />
               Sign out
             </Button>
           </Row>
@@ -90,7 +90,7 @@ export const StudyNavbar = () => {
           title={
             photosQuery.data === undefined
               ? "Manage Photos"
-              : `Manage Photos · ${formatDayLabel(photosQuery.data.day)}`
+              : `Manage Photos: ${formatDayLabel(photosQuery.data.day)}`
           }
           description="Review every photo from your recorded day."
           frames={photosQuery.data?.frames ?? []}
