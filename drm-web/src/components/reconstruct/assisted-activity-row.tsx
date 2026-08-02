@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ImageOffIcon, Trash2Icon } from "lucide-react";
 
 import type {
@@ -33,14 +33,21 @@ const AssistedFieldRow = ({
   label,
   htmlFor,
   invalid,
+  className,
   children,
 }: {
   label: string;
   htmlFor: string;
   invalid: boolean;
+  className?: string;
   children: ReactNode;
 }) => (
-  <div className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_20rem] sm:items-center sm:gap-6">
+  <div
+    className={mergeClassNames(
+      "grid gap-2 sm:grid-cols-[minmax(0,1fr)_20rem] sm:items-center sm:gap-6",
+      className,
+    )}
+  >
     <Label htmlFor={htmlFor} color={invalid ? "destructive" : undefined}>
       {label}
     </Label>
@@ -77,11 +84,22 @@ export const AssistedActivityRow = ({
 }) => {
   const startMs = activity.startMs ?? 0;
   const endMs = activity.endMs ?? 0;
-  const framesInSpan = dayFrames.filter(
-    (frame) => frame.captureEpochMs >= startMs && frame.captureEpochMs <= endMs,
+  const framesInSpan = useMemo(
+    () =>
+      dayFrames.filter(
+        (frame) =>
+          frame.captureEpochMs >= startMs && frame.captureEpochMs <= endMs,
+      ),
+    [dayFrames, endMs, startMs],
   );
-  const thumbnails = sampleEvenly(framesInSpan, THUMBNAIL_COUNT);
-  const hasLivePhotos = framesInSpan.some((frame) => frame.deletedAt === null);
+  const thumbnails = useMemo(
+    () => sampleEvenly(framesInSpan, THUMBNAIL_COUNT),
+    [framesInSpan],
+  );
+  const hasLivePhotos = useMemo(
+    () => framesInSpan.some((frame) => frame.deletedAt === null),
+    [framesInSpan],
+  );
   const isLabelMissing = highlightIssues && activity.rawLabel === null;
   const isCategoryMissing = highlightIssues && activity.categoryLabel === null;
   const showIssueMessage = highlightIssues && issue !== null;
@@ -97,7 +115,7 @@ export const AssistedActivityRow = ({
   return (
     <article
       className={mergeClassNames(
-        "overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow hover:shadow-md",
+        "overflow-hidden rounded-2xl border bg-card [contain-intrinsic-size:auto_23rem] [content-visibility:auto]",
         activity.isIncorrectAnnotationInjected &&
           "border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/20",
       )}
@@ -131,11 +149,13 @@ export const AssistedActivityRow = ({
                       src={frameImageSrc(frame.imageUrl!)}
                       alt={`Frame at ${formatTimeOfDay(frame.captureEpochMs)}`}
                       loading="lazy"
-                      className="size-full object-cover transition-transform duration-300 hover:scale-[1.02] motion-reduce:transition-none motion-reduce:hover:scale-100"
+                      decoding="async"
+                      fetchPriority="low"
+                      className="size-full object-cover"
                     />
                   )}
                 </button>
-                <figcaption className="pointer-events-none absolute right-2 bottom-2 rounded-full border border-white/15 bg-black/60 px-2 py-1 text-[10px] text-white tabular-nums shadow-sm backdrop-blur-md">
+                <figcaption className="pointer-events-none absolute right-2 bottom-2 rounded-full border border-white/15 bg-black/75 px-2 py-1 text-[10px] text-white tabular-nums">
                   {formatTimeOfDay(frame.captureEpochMs)}
                 </figcaption>
               </figure>
@@ -153,7 +173,7 @@ export const AssistedActivityRow = ({
           aria-hidden
         />
         <div className="absolute inset-x-3 top-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <span className="rounded-full border border-white/20 bg-black/60 px-3 py-1.5 text-sm font-medium text-white tabular-nums shadow-md backdrop-blur-md">
+          <span className="rounded-full border border-white/20 bg-black/75 px-3 py-1.5 text-sm font-medium text-white tabular-nums">
             {formatTimeSpan(startMs, endMs)}
           </span>
 
@@ -161,7 +181,7 @@ export const AssistedActivityRow = ({
             <Button
               variant="secondary"
               size="sm"
-              className="border border-white/30 bg-background/90 shadow-md backdrop-blur-md hover:bg-background"
+              className="border border-white/30 bg-background/95 hover:bg-background"
               onClick={() => onViewPhotos()}
             >
               View all photos
@@ -169,7 +189,7 @@ export const AssistedActivityRow = ({
             <Button
               variant="secondary"
               size="sm"
-              className="border border-white/30 bg-background/90 shadow-md backdrop-blur-md hover:bg-background"
+              className="border border-white/30 bg-background/95 hover:bg-background"
               onClick={onAdjustBoundaries}
             >
               Adjust times
@@ -177,7 +197,7 @@ export const AssistedActivityRow = ({
             <Button
               variant="secondary"
               size="icon-sm"
-              className="border border-white/30 bg-background/90 shadow-md backdrop-blur-md hover:bg-background"
+              className="border border-white/30 bg-background/95 hover:bg-background"
               aria-label="Delete activity"
               onClick={onDelete}
             >
@@ -187,7 +207,7 @@ export const AssistedActivityRow = ({
         </div>
 
         {!hasLivePhotos && thumbnails.length > 0 && (
-          <span className="absolute bottom-3 left-3 rounded-full bg-background/90 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur-md">
+          <span className="absolute bottom-3 left-3 rounded-full bg-background/95 px-3 py-1.5 text-xs font-medium text-muted-foreground">
             No photos remaining
           </span>
         )}
@@ -198,6 +218,7 @@ export const AssistedActivityRow = ({
           label="Activity"
           htmlFor={`${activity.localId}-label`}
           invalid={isLabelMissing}
+          className="pt-3 pb-2"
         >
           <ActivitySelect
             id={`${activity.localId}-label`}
@@ -212,6 +233,7 @@ export const AssistedActivityRow = ({
           label="Activity Type"
           htmlFor={`${activity.localId}-category`}
           invalid={isCategoryMissing}
+          className={ratedCategory === null ? "pt-2 pb-3" : "py-2"}
         >
           <CategorySelect
             id={`${activity.localId}-category`}
@@ -231,7 +253,7 @@ export const AssistedActivityRow = ({
             }
             invalid={highlightIssues && experienceRating === null}
             layout="field-row"
-            className="py-3"
+            className="pt-2 pb-3"
           />
         )}
 
