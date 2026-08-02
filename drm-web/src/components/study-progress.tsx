@@ -128,14 +128,41 @@ const Stepper = ({ steps }: { steps: DisplayStep[] }) => {
   );
 };
 
-export const StudyProgress = ({ currentPage }: { currentPage: StudyPage }) => {
+export const StudyProgress = ({
+  currentPage,
+  bare = false,
+  activeRoundOverride,
+}: {
+  currentPage: StudyPage;
+  bare?: boolean;
+  activeRoundOverride?: 1 | 2;
+}) => {
   const stateQuery = useQuery({
     queryKey: ["study-state"],
     queryFn: getStudyState,
+    enabled: activeRoundOverride === undefined,
   });
 
   let progressContent = <StepperSkeleton />;
-  if (stateQuery.data !== undefined) {
+  if (activeRoundOverride !== undefined) {
+    progressContent = (
+      <Stepper
+        steps={[
+          {
+            number: 1,
+            label: "DRM From memory",
+            state: activeRoundOverride === 1 ? "active" : "completed",
+          },
+          {
+            number: 2,
+            label: "DRM With photos",
+            state: activeRoundOverride === 2 ? "active" : "locked",
+          },
+          { number: 3, label: "Surveys", state: "pending" },
+        ]}
+      />
+    );
+  } else if (stateQuery.data !== undefined) {
     const round1 = stateQuery.data.rounds.find((entry) => entry.round === 1);
     const round2 = stateQuery.data.rounds.find((entry) => entry.round === 2);
 
@@ -165,6 +192,10 @@ export const StudyProgress = ({ currentPage }: { currentPage: StudyPage }) => {
       ];
       progressContent = <Stepper steps={steps} />;
     }
+  }
+
+  if (bare) {
+    return <section aria-label="Study progress">{progressContent}</section>;
   }
 
   return (

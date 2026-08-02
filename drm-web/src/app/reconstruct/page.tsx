@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   useQuery,
@@ -9,7 +10,12 @@ import {
 import { RefreshCwIcon } from "lucide-react";
 
 import type { RoundState, StudyStateResponse } from "@/lib/api-types";
-import { ApiError, getRound, getStudyState } from "@/lib/api-client";
+import {
+  ApiError,
+  clearStoredToken,
+  getRound,
+  getStudyState,
+} from "@/lib/api-client";
 import { formatHour } from "@/lib/time";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -22,6 +28,8 @@ import { StudyTeamContactLink } from "@/components/study-team-contact-link";
 import { RoundEditor } from "@/components/reconstruct/round-editor";
 import { ReadOnlyActivityList } from "@/components/reconstruct/read-only-activity-list";
 import { CategoryLegendCard } from "@/components/reconstruct/category-legend-card";
+import { ReconstructionIntro } from "@/components/reconstruct/reconstruction-intro";
+import { ReconstructionStatusScreen } from "@/components/reconstruct/reconstruction-status-screen";
 import { StudyNavbar } from "@/components/study-navbar";
 import { StudyProgress } from "@/components/study-progress";
 
@@ -352,11 +360,37 @@ const StudyStateView = ({
 
 const ReconstructContent = () => {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const [completedIntros, setCompletedIntros] = useState<
+    Record<1 | 2, boolean>
+  >({ 1: false, 2: false });
   const stateQuery = useQuery({
     queryKey: ["study-state"],
     queryFn: getStudyState,
     refetchOnMount: "always",
   });
+
+  const state = stateQuery.data;
+  const round1 = state?.rounds.find((entry) => entry.round === 1);
+  const round2 = state?.rounds.find((entry) => entry.round === 2);
+  const activeRound =
+    state?.day !== null &&
+    state?.available === true &&
+    round1 !== undefined &&
+    round2 !== undefined
+      ? firstUnsubmittedRound(round1, round2)
+      : null;
+
+  const handleIntroContinue = (round: 1 | 2) => {
+    setCompletedIntros((previous) => ({ ...previous, [round]: true }));
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0 }));
+  };
+
+  const handleSignOut = () => {
+    clearStoredToken();
+    queryClient.clear();
+    router.replace("/");
+  };
 
   const handleRoundSubmitted = (round: 1 | 2) => {
     if (round === 2) {
@@ -367,6 +401,37 @@ const ReconstructContent = () => {
     // flips activeRound; just bring the participant back to the top.
     window.scrollTo({ top: 0 });
   };
+
+  if (state?.day === null) {
+    return (
+      <ReconstructionStatusScreen
+        status={{ kind: "no-recorded-day" }}
+        onSignOut={handleSignOut}
+      />
+    );
+  }
+
+  if (state !== undefined && !state.available) {
+    return (
+      <ReconstructionStatusScreen
+        status={{
+          kind: "opens-later",
+          availableFromHour: state.availableFromHour,
+        }}
+        onSignOut={handleSignOut}
+      />
+    );
+  }
+
+  if (activeRound !== null && !completedIntros[activeRound]) {
+    return (
+      <ReconstructionIntro
+        round={activeRound}
+        onContinue={() => handleIntroContinue(activeRound)}
+        onSignOut={handleSignOut}
+      />
+    );
+  }
 
   return (
     <main className="flex w-full flex-1 flex-col">

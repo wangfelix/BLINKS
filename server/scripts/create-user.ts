@@ -2,7 +2,7 @@ import path from "path";
 import fs from "fs";
 
 import { hashPassword } from "../src/auth";
-import { getUser, initAuthDb, insertUser, updatePasswordHash } from "../src/auth-db";
+import { getUser, initAuthDb, insertUser, resetPassword } from "../src/auth-db";
 import { ensureParticipant, initDb } from "../src/db";
 
 // Creates a study participant account (or resets a password with --reset) and
@@ -66,7 +66,10 @@ const main = async (): Promise<void> => {
   const passwordHash = await hashPassword(password);
 
   if (existing && reset) {
-    updatePasswordHash(username, passwordHash);
+    // A researcher-issued replacement password is temporary too. Require the
+    // participant to choose their own password on their next web visit, but do
+    // not repeat an already completed pre-study survey.
+    resetPassword(username, passwordHash);
     // Never wipe occupation or schedule on a password reset.
     ensureParticipant(username);
     console.log(`Password reset for '${username}'.`);

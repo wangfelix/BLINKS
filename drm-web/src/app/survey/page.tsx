@@ -7,23 +7,23 @@ import { ExternalLinkIcon, LoaderCircleIcon } from "lucide-react";
 
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { getProfile } from "@/lib/api-client";
+import { surveyUrlForParticipant } from "@/lib/study-config";
 import { StudyNavbar } from "@/components/study-navbar";
 import { StudyProgress } from "@/components/study-progress";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { mergeClassNames } from "@/lib/utils";
-
-const SURVEY_URL =
-  "https://survey.win.kit.edu/index.php/628794?lang=en";
-
-const surveyUrlForParticipant = (participantId: string): string => {
-  const url = new URL(SURVEY_URL);
-  url.searchParams.set("participantId", participantId);
-  return url.toString();
-};
 
 const SurveyContent = () => {
   const router = useRouter();
-  const [questionnaireStarted, setQuestionnaireStarted] = useState(false);
+  const [questionnaireOpened, setQuestionnaireOpened] = useState(false);
   const profileQuery = useQuery({
     queryKey: ["profile"],
     queryFn: getProfile,
@@ -31,80 +31,79 @@ const SurveyContent = () => {
   const surveyUrl =
     profileQuery.data === undefined
       ? null
-      : surveyUrlForParticipant(profileQuery.data.username);
+      : surveyUrlForParticipant("final", profileQuery.data.username);
 
   return (
     <main className="flex w-full flex-1 flex-col">
       <StudyNavbar />
       <StudyProgress currentPage="surveys" />
 
-      <section className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-6">
-        <div className="mb-4">
-          <h1 className="text-xl font-semibold tracking-tight">
-            Final questionnaire
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Thank you! Both steps of your reconstruction are submitted. Please
-            complete the questionnaire below. When you reach its confirmation
-            page, return here and continue.
-          </p>
-        </div>
-
-        {surveyUrl === null ? (
-          <div className="flex min-h-[640px] flex-1 items-center justify-center rounded-xl border bg-muted/40">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <LoaderCircleIcon className="animate-spin" aria-hidden />
-              Loading questionnaire…
-            </div>
+      <section className="mx-auto flex w-full max-w-2xl flex-1 items-center px-4 py-10">
+        {profileQuery.isPending ? (
+          <div className="flex w-full items-center justify-center gap-2 text-sm text-muted-foreground">
+            <LoaderCircleIcon className="animate-spin" aria-hidden />
+            Preparing your questionnaire…
           </div>
+        ) : profileQuery.isError ? (
+          <Alert variant="destructive">
+            <AlertTitle>Questionnaire unavailable</AlertTitle>
+            <AlertDescription>
+              Your participant details could not be loaded. Please refresh the
+              page or contact the study team.
+            </AlertDescription>
+          </Alert>
+        ) : surveyUrl === null ? (
+          <Alert variant="destructive">
+            <AlertTitle>Questionnaire not configured</AlertTitle>
+            <AlertDescription>
+              The final questionnaire URL is missing or invalid. Please contact
+              the study team.
+            </AlertDescription>
+          </Alert>
         ) : (
-          <div className="relative min-h-[640px] flex-1 overflow-hidden rounded-xl border bg-white shadow-sm">
-            {!questionnaireStarted && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <LoaderCircleIcon className="animate-spin" aria-hidden />
-                  Loading questionnaire…
-                </div>
-              </div>
-            )}
-            <iframe
-              src={surveyUrl}
-              title="BLINKS final questionnaire"
-              className="block h-[75dvh] min-h-[640px] w-full border-0"
-              loading="eager"
-              referrerPolicy="strict-origin-when-cross-origin"
-              onLoad={() => setQuestionnaireStarted(true)}
-            />
-          </div>
-        )}
-
-        {surveyUrl !== null && (
-          <div className="mt-4 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-muted-foreground">
-              Having trouble with the embedded questionnaire?{" "}
+          <Card className="w-full overflow-hidden">
+            <CardHeader className="border-b bg-muted/30">
+              <CardTitle>Final questionnaire</CardTitle>
+              <CardDescription>
+                Thank you! Both reconstruction steps are submitted. Complete the
+                final questionnaire in a separate tab, then return here.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5 pt-6">
               <a
                 href={surveyUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={mergeClassNames(
-                  buttonVariants({ variant: "link", size: "sm" }),
-                  "h-auto p-0 align-baseline",
+                  buttonVariants({ size: "lg" }),
+                  "w-full sm:w-auto",
                 )}
-                onClick={() => setQuestionnaireStarted(true)}
+                onClick={() => setQuestionnaireOpened(true)}
               >
-                Open it in a new tab
+                Open final questionnaire
                 <ExternalLinkIcon />
               </a>
-            </p>
-            {questionnaireStarted && (
-              <Button
-                className="w-full sm:w-auto"
-                onClick={() => router.push("/done")}
-              >
-                Continue
-              </Button>
-            )}
-          </div>
+
+              {questionnaireOpened && (
+                <div className="animate-in space-y-3 border-t pt-5 duration-300 fade-in slide-in-from-bottom-2 motion-reduce:animate-none">
+                  <p
+                    className="text-sm text-muted-foreground"
+                    aria-live="polite"
+                  >
+                    The questionnaire opened in a new tab. Return here after its
+                    confirmation page.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    className="w-full sm:w-auto"
+                    onClick={() => router.push("/done")}
+                  >
+                    I have completed the questionnaire
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         )}
       </section>
     </main>

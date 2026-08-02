@@ -3,7 +3,13 @@ import path = require("path");
 import Database = require("better-sqlite3");
 
 import { hashPassword } from "../src/auth";
-import { getUser, initAuthDb, insertUser, updatePasswordHash } from "../src/auth-db";
+import {
+  completeOnboarding,
+  getUser,
+  initAuthDb,
+  insertUser,
+  markPasswordChanged,
+} from "../src/auth-db";
 import { ACTIVITY_LABELS } from "../src/activity-vocabulary";
 import {
   chunkStartOf,
@@ -166,12 +172,14 @@ const main = async (): Promise<void> => {
 
     for (const user of USERS) {
       if (getUser(user.username)) {
-        updatePasswordHash(user.username, passwordHash);
+        markPasswordChanged(user.username, passwordHash);
         console.log(`Auth user '${user.username}' already existed, password reset.`);
       } else {
         insertUser(user.username, passwordHash);
+        markPasswordChanged(user.username, passwordHash);
         console.log(`Created auth user '${user.username}'.`);
       }
+      completeOnboarding(user.username);
 
       // participants row: occupation + schedule pre-filled so the app
       // onboarding gate and the bedtime reminder are satisfied.

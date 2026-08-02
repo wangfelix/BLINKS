@@ -26,6 +26,8 @@ const RECORDINGS_DIR = process.env.RECORDINGS_DIR;
 const MAIN_USER = "smoketester";
 const SECOND_USER = "smokesecond";
 const PASSWORD = "password123";
+const PRIVATE_PASSWORD = "password456";
+const UPDATED_PASSWORD = "password789";
 const CATEGORY_LABELS = ["work", "break", "other"] as const;
 const confidenceScores = (
   selectedLabel: string,
@@ -430,11 +432,69 @@ const main = async (): Promise<void> => {
     expectStatus: 401,
   });
 
-  const { token } = await api("/api/login", {
+  const loginResponse = await api("/api/login", {
     method: "POST",
     body: { username: MAIN_USER, password: PASSWORD },
   });
+  const { token } = loginResponse;
   assert.ok(typeof token === "string" && token.length === 64, "token issued");
+  assert.strictEqual(loginResponse.onboarding.mustChangePassword, true);
+  assert.strictEqual(loginResponse.onboarding.completed, false);
+
+  // The first-run gate protects the DRM web workflow while leaving mobile
+  // capture/profile APIs available for lab device setup.
+  await api("/api/sessions", { token });
+  const onboardingGate = await api("/api/reconstruction/state", {
+    token,
+    expectStatus: 403,
+  });
+  assert.strictEqual(onboardingGate.code, "onboarding_required");
+  await api("/api/onboarding/complete", {
+    method: "POST",
+    token,
+    expectStatus: 409,
+  });
+  await api("/api/onboarding/password", {
+    method: "POST",
+    token,
+    body: { newPassword: "short" },
+    expectStatus: 400,
+  });
+  await api("/api/onboarding/password", {
+    method: "POST",
+    token,
+    body: { newPassword: PASSWORD },
+    expectStatus: 400,
+  });
+  const passwordChanged = await api("/api/onboarding/password", {
+    method: "POST",
+    token,
+    body: { newPassword: PRIVATE_PASSWORD },
+  });
+  assert.strictEqual(passwordChanged.mustChangePassword, false);
+  assert.strictEqual(passwordChanged.completed, false);
+  await api("/api/onboarding/password", {
+    method: "POST",
+    token,
+    body: { newPassword: UPDATED_PASSWORD },
+    expectStatus: 409,
+  });
+  const onboardingCompleted = await api("/api/onboarding/complete", {
+    method: "POST",
+    token,
+  });
+  assert.strictEqual(onboardingCompleted.completed, true);
+  assert.ok(onboardingCompleted.onboardingCompletedAt > 0);
+  await api("/api/login", {
+    method: "POST",
+    body: { username: MAIN_USER, password: PASSWORD },
+    expectStatus: 401,
+  });
+  const relogin = await api("/api/login", {
+    method: "POST",
+    body: { username: MAIN_USER, password: PRIVATE_PASSWORD },
+  });
+  assert.strictEqual(relogin.onboarding.completed, true);
 
   // unauthenticated WS upgrade is rejected
   await expectWsRejected();
@@ -676,17 +736,17 @@ const main = async (): Promise<void> => {
   await api("/api/change-password", {
     method: "POST",
     token,
-    body: { currentPassword: "nope", newPassword: "password456" },
+    body: { currentPassword: "nope", newPassword: UPDATED_PASSWORD },
     expectStatus: 403,
   });
   await api("/api/change-password", {
     method: "POST",
     token,
-    body: { currentPassword: PASSWORD, newPassword: "password456" },
+    body: { currentPassword: PRIVATE_PASSWORD, newPassword: UPDATED_PASSWORD },
   });
   await api("/api/login", {
     method: "POST",
-    body: { username: MAIN_USER, password: "password456" },
+    body: { username: MAIN_USER, password: UPDATED_PASSWORD },
   });
 
   // =========================================================================
@@ -1584,6 +1644,15 @@ const main = async (): Promise<void> => {
   const { token: secondToken } = await api("/api/login", {
     method: "POST",
     body: { username: SECOND_USER, password: PASSWORD },
+  });
+  await api("/api/onboarding/password", {
+    method: "POST",
+    token: secondToken,
+    body: { newPassword: PRIVATE_PASSWORD },
+  });
+  await api("/api/onboarding/complete", {
+    method: "POST",
+    token: secondToken,
   });
 
   const secondSession = session + 3;

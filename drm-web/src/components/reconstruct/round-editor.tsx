@@ -192,10 +192,12 @@ export const RoundEditor = ({
 
   const submitMutation = useMutation({
     mutationFn: () => submitRound(round, toActivityInputs(rowsRef.current)),
-    onSuccess: () => {
+    onSuccess: async () => {
       cancelPendingAutosave(); // a late draft PUT would 409 against the lock
-      void queryClient.invalidateQueries({ queryKey: ["study-state"] });
-      void queryClient.invalidateQueries({ queryKey: ["round", round] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["study-state"] }),
+        queryClient.invalidateQueries({ queryKey: ["round", round] }),
+      ]);
       onSubmitted();
     },
   });

@@ -1,13 +1,14 @@
 # drm-web — BLINKS Day Reconstruction web app
 
-Participant-facing evening web app for the DRM subproject (single-day,
-two-round design): in the evening of their one field day the participant signs
-in and reconstructs that day in **two sequential rounds, fixed order** — step 1
-is always Self DRM (from memory, no frames, no VLM output), step 2 unlocks only
-after step 1 is submitted and is always VLM-assisted (frames + editable
-auto-segmented activity list). Then
-the embedded external questionnaire, then offboarding. The order and the
-frames/VLM anti-leak are enforced server-side; this app only renders them.
+Participant-facing web app for the DRM subproject (single-day, two-round
+design). On the first login in the lab, the participant must replace the
+lab-issued password and open the pre-study LimeSurvey questionnaire. In the
+evening of their field day they reconstruct that day in **two sequential
+rounds, fixed order** — step 1 is always Self DRM (from memory, no frames, no
+VLM output), step 2 unlocks only after step 1 is submitted and is always
+VLM-assisted (frames + editable auto-segmented activity list). The final
+questionnaire opens in a new tab, followed by offboarding. Onboarding and the
+frames/VLM anti-leak are enforced server-side.
 
 Stack: Next.js (App Router, TypeScript strict, `src/` dir, Tailwind v4) +
 shadcn/ui + TanStack Query. The app is a pure client of the BLINKS server API
@@ -15,16 +16,19 @@ shadcn/ui + TanStack Query. The app is a pure client of the BLINKS server API
 
 ## Pages (a linear pipeline)
 
-| Route          | Purpose                                                             |
-| -------------- | ------------------------------------------------------------------- |
-| `/`            | Landing + participant login (same credentials as the phone app)     |
-| `/reconstruct` | The two-step flow: step progress header + the active round's editor |
-| `/survey`      | Embedded LimeSurvey questionnaire with participant-specific URL     |
-| `/done`        | Offboarding: thank-you, device-return hint, sign-out                |
+| Route             | Purpose                                                               |
+| ----------------- | --------------------------------------------------------------------- |
+| `/`               | Landing + participant login (same credentials as the phone app)       |
+| `/onboarding`     | First-run password change + external pre-study LimeSurvey link        |
+| `/reconstruct`    | The two-step flow: step progress header + the active round's editor   |
+| `/survey`         | External final LimeSurvey link with participant-specific URL          |
+| `/done`           | Offboarding: thank-you, device-return hint, sign-out                  |
+| `/dev/onboarding` | Non-mutating, fully interactive onboarding preview (`DRM_DEV_MODE=1`) |
 
-All pages except `/` are guarded client-side (redirect to `/` without a token);
-the API additionally enforces auth and the evening availability gate
-server-side.
+Next's proxy performs an optimistic cookie-based route redirect. The API is the
+security boundary: reconstruction reads and writes return
+`onboarding_required` until both first-run steps have been persisted, in
+addition to enforcing authentication, round order, and the evening gate.
 
 ## Auth model
 
@@ -34,6 +38,12 @@ server-side.
   because `<img>` tags cannot send headers — the server accepts the cookie for
   `GET /frames/*` (images) **only**. JSON APIs stay header-only (CSRF hygiene).
 - Any 401 clears the token and redirects to `/`.
+- Login also returns the persisted onboarding state. A non-sensitive
+  `blinks_onboarding` cookie is used only for route routing; the server checks
+  the database before protected reconstruction API access.
+- `POST /api/onboarding/password` uses the authenticated login token and asks
+  only for the new password. The normal `/api/change-password` endpoint keeps
+  its current-password check for changes outside first-run onboarding.
 - Sign-out and sign-in both call `queryClient.clear()`: no cached rounds or
   frame URLs may survive into another account's session on a shared browser
   (anti-leak), and a submitted round is never mounted in the editable editor.
@@ -58,15 +68,23 @@ npm run dev   # http://localhost:3002 (BLINKS API expected on :3000)
 
 Env vars:
 
-| Variable              | Default                 | Meaning                                                 |
-| --------------------- | ----------------------- | ------------------------------------------------------- |
-| `API_PROXY_TARGET`    | `http://127.0.0.1:3000` | Dev-proxy target for `/api`, `/frames`, `/health`       |
-| `DRM_DEV_MODE`        | (off)                   | `1` shows direct dev navigation; set on API server too  |
-| `NEXT_PUBLIC_API_URL` | `""` (same origin)      | API base override; normally never needed                |
-| `NEXT_PUBLIC_DRM_TZ`  | `Europe/Berlin`         | Study timezone; keep in sync with the server's `DRM_TZ` |
+| Variable                            | Default                 | Meaning                                                  |
+| ----------------------------------- | ----------------------- | -------------------------------------------------------- |
+| `API_PROXY_TARGET`                  | `http://127.0.0.1:3000` | Dev-proxy target for `/api`, `/frames`, `/health`        |
+| `DRM_DEV_MODE`                      | (off)                   | `1` shows direct dev navigation; set on API server too   |
+| `NEXT_PUBLIC_API_URL`               | `""` (same origin)      | API base override; normally never needed                 |
+| `NEXT_PUBLIC_DRM_TZ`                | `Europe/Berlin`         | Study timezone; keep in sync with the server's `DRM_TZ`  |
+| `NEXT_PUBLIC_ONBOARDING_SURVEY_URL` | (required)              | Pre-study LimeSurvey base URL; app adds `participant_id` |
+| `NEXT_PUBLIC_FINAL_SURVEY_URL`      | (required)              | Final LimeSurvey base URL; app adds `participantId`      |
+
+Copy `.env.example` to `.env.local` for development. `NEXT_PUBLIC_*` values
+are compiled into the client bundle, so production values must be present when
+running `npm run build`.
 
 With `DRM_DEV_MODE=1` on both the web app and API server, a floating menu
-links directly to Self DRM, VLM-assisted DRM, the survey page, and offboarding.
+links directly to the onboarding preview, Self DRM, VLM-assisted DRM, the
+survey page, and offboarding. `/dev/onboarding` is fully clickable but never
+changes the signed-in account, password, or persisted onboarding state.
 The reconstruction pages use the signed-in development account's real round
 data and keep autosave/submission enabled. The API bypasses only the evening
 and round-order gates; auth, participant isolation, and submitted-round
@@ -148,13 +166,22 @@ Deploy update: `cd /root/BLINKS && git pull && cd drm-web && npm ci && npm run b
 
 ## Before the study
 
-- In LimeSurvey, keep survey embedding enabled and map the Panel Integration
-  URL parameter `participantId` to the hidden participant-ID question.
-- Serve `blinks.win.kit.edu` over HTTPS before relying on the iframe. As of
-  2026-07-21 the app is still HTTP while LimeSurvey is HTTPS; the resulting
-  cross-site cookie context can break LimeSurvey sessions in stricter browsers.
-- Verify one complete iframe submission and the new-tab fallback on each study
-  phone/browser before deployment.
+- Set both survey URLs at **build time**. The pre-study questionnaire is
+  `https://survey.win.kit.edu/index.php/462485?lang=en` and receives
+  `participant_id`; the final questionnaire receives `participantId`.
+- Map both parameters to their respective hidden participant-ID question in
+  LimeSurvey Panel Integration.
+- Verify one complete first-run onboarding and one complete final questionnaire
+  on each study browser. Both surveys intentionally open in a new tab; there is
+  no iframe or attempt to inspect LimeSurvey's cross-origin completion state.
+- New accounts require onboarding by default. Existing accounts are marked
+  completed by the migration. See `COMMANDS.md` for targeted resets.
+- Completing first-run onboarding stays on the final success screen until the
+  participant selects **Log out**. On the evening return, `/reconstruct` first
+  shows the Self-DRM instructions; submitting Self DRM shows a second
+  instruction screen before the assisted editor and its proposal are loaded.
+  This keeps both round timers tied to opening their editor, not reading the
+  preceding instructions.
 
 ## Code layout
 
@@ -162,8 +189,10 @@ Deploy update: `cd /root/BLINKS && git pull && cd drm-web && npm ci && npm run b
   `server/src/server.ts`** — update both together).
 - `src/lib/api-client.ts` — typed fetch wrapper, token/cookie handling,
   endpoint functions.
+- `src/lib/study-config.ts` — survey URLs and their intentionally different
+  participant query-parameter names.
 - `src/lib/time.ts` — study-timezone helpers (day keys, HH:MM conversion).
 - `src/components/reconstruct/` — assisted/self activity rows, frame-picker
-  dialog (boundary adjustment + insert), round editor with debounced autosave,
-  read-only view of submitted rounds.
+  dialog (boundary adjustment + insert), the two pre-round instruction screens,
+  round editor with debounced autosave, and read-only view of submitted rounds.
 - `src/components/ui/` — generated shadcn/ui components.

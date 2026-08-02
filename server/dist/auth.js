@@ -8,6 +8,7 @@ exports.issueToken = issueToken;
 exports.authenticateToken = authenticateToken;
 exports.participantFromAuthHeader = participantFromAuthHeader;
 exports.requireAuth = requireAuth;
+exports.requireCompletedOnboarding = requireCompletedOnboarding;
 exports.requireAuthWithCookieFallback = requireAuthWithCookieFallback;
 exports.verifyUserPassword = verifyUserPassword;
 const argon2_1 = __importDefault(require("argon2"));
@@ -49,6 +50,21 @@ function requireAuth(req, res, next) {
         return;
     }
     req.participant = participant;
+    next();
+}
+// Secure authorization gate for the DRM web workflow. The Next.js proxy also
+// performs an optimistic redirect for a smooth first-run experience, but this
+// database-backed check is the authoritative protection against bypassing the
+// onboarding wizard.
+function requireCompletedOnboarding(req, res, next) {
+    const participant = req.participant;
+    if (!participant || !(0, auth_db_1.isOnboardingComplete)(participant)) {
+        res.status(403).json({
+            error: "onboarding required",
+            code: "onboarding_required",
+        });
+        return;
+    }
     next();
 }
 // Extracts the blinks_token cookie value from a raw Cookie header. Parsed by

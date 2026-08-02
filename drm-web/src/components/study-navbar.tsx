@@ -15,6 +15,7 @@ import {
 import { formatDayLabel } from "@/lib/time";
 import { Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
+import { BlinksLogo } from "@/components/blinks-logo";
 import { Button } from "@/components/ui/button";
 import { PhotoManagementDialog } from "@/components/photos/photo-management-dialog";
 
@@ -51,9 +52,16 @@ export const StudyNavbar = () => {
     <>
       <nav className="border-b bg-white" aria-label="Study navigation">
         <div className="mx-auto flex min-h-14 w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2">
-          <span className="text-sm font-medium sm:text-base">
-            BLINKS Day Reconstruction Study
-          </span>
+          <div className="flex items-center gap-3">
+            <BlinksLogo
+              className="h-8 w-28 sm:h-9 sm:w-32"
+              sizes="(min-width: 640px) 128px, 112px"
+              priority
+            />
+            <span className="hidden border-l pl-3 text-sm font-medium text-muted-foreground sm:block">
+              Day Reconstruction Study
+            </span>
+          </div>
           <Row gap="sm" align="center" wrap className="shrink-0">
             {canManagePhotos && (
               <Button

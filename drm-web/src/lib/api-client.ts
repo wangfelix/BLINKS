@@ -14,6 +14,8 @@ import type {
   DeleteFramesResponse,
   Frame,
   LoginResponse,
+  OnboardingMutationResponse,
+  OnboardingStatusResponse,
   OkResponse,
   PhotoDayResponse,
   ProfileResponse,
@@ -26,6 +28,9 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 const TOKEN_STORAGE_KEY = "blinks_token";
 const TOKEN_COOKIE_NAME = "blinks_token";
+const ONBOARDING_COOKIE_NAME = "blinks_onboarding";
+
+export type OnboardingRoutingState = "required" | "complete";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -49,9 +54,28 @@ export const storeToken = (token: string): void => {
   document.cookie = `${TOKEN_COOKIE_NAME}=${encodeURIComponent(token)}; path=/; SameSite=Lax; Max-Age=${oneYearSeconds}`;
 };
 
+export const getStoredOnboardingRoutingState =
+  (): OnboardingRoutingState | null => {
+    if (typeof document === "undefined") return null;
+    const prefix = `${ONBOARDING_COOKIE_NAME}=`;
+    const value = document.cookie
+      .split(";")
+      .map((entry) => entry.trim())
+      .find((entry) => entry.startsWith(prefix))
+      ?.slice(prefix.length);
+    return value === "required" || value === "complete" ? value : null;
+  };
+
+export const storeOnboardingRoutingState = (completed: boolean): void => {
+  const oneYearSeconds = 60 * 60 * 24 * 365;
+  const value: OnboardingRoutingState = completed ? "complete" : "required";
+  document.cookie = `${ONBOARDING_COOKIE_NAME}=${value}; path=/; SameSite=Lax; Max-Age=${oneYearSeconds}`;
+};
+
 export const clearStoredToken = (): void => {
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
   document.cookie = `${TOKEN_COOKIE_NAME}=; path=/; SameSite=Lax; Max-Age=0`;
+  document.cookie = `${ONBOARDING_COOKIE_NAME}=; path=/; SameSite=Lax; Max-Age=0`;
 };
 
 /** Absolute src for an authenticated frame image (cookie carries the token). */
@@ -89,11 +113,25 @@ const apiFetch = async <T>(
 
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
+    let errorCode: string | undefined;
     try {
-      const errorBody = (await response.json()) as { error?: string };
+      const errorBody = (await response.json()) as {
+        error?: string;
+        code?: string;
+      };
       if (typeof errorBody.error === "string") message = errorBody.error;
+      if (typeof errorBody.code === "string") errorCode = errorBody.code;
     } catch {
       // Non-JSON error body; keep the generic message.
+    }
+    if (errorCode === "onboarding_required") {
+      storeOnboardingRoutingState(false);
+      if (
+        typeof window !== "undefined" &&
+        window.location.pathname !== "/onboarding"
+      ) {
+        window.location.href = "/onboarding";
+      }
     }
     throw new ApiError(message, response.status);
   }
@@ -108,6 +146,20 @@ export const login = (username: string, password: string) =>
     method: "POST",
     body: { username, password },
     skipAuthRedirect: true,
+  });
+
+export const getOnboardingStatus = () =>
+  apiFetch<OnboardingStatusResponse>("/api/onboarding");
+
+export const changeInitialPassword = (newPassword: string) =>
+  apiFetch<OnboardingMutationResponse>("/api/onboarding/password", {
+    method: "POST",
+    body: { newPassword },
+  });
+
+export const completeOnboarding = () =>
+  apiFetch<OnboardingMutationResponse>("/api/onboarding/complete", {
+    method: "POST",
   });
 
 export const getProfile = () => apiFetch<ProfileResponse>("/api/profile");

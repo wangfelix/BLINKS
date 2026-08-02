@@ -1,3 +1,4 @@
+import { Image } from "expo-image";
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -28,9 +29,12 @@ const LoginScreen = () => {
     >
       <View style={styles.content}>
         <View style={styles.header}>
-          <AppText variant="title" style={styles.brand}>
-            BLINKS
-          </AppText>
+          <Image
+            source={require("../../assets/images/blinks-logo.png")}
+            style={styles.logo}
+            contentFit="cover"
+            accessibilityLabel="BLINKS"
+          />
           <AppText variant="caption" style={styles.subtitle}>
             Wearable camera study · KD2Lab, KIT
           </AppText>
@@ -86,7 +90,7 @@ const styles = StyleSheet.create({
     gap: spacing.xxl,
   },
   header: { alignItems: "center", gap: spacing.xs },
-  brand: { letterSpacing: 6 },
+  logo: { width: 240, height: 74 },
   subtitle: { textAlign: "center" },
   form: { gap: spacing.lg },
 });

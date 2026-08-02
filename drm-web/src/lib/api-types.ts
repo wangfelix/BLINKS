@@ -36,6 +36,19 @@ export type ExperienceRating = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export interface LoginResponse {
   token: string;
   username: string;
+  onboarding: OnboardingStatusResponse;
+}
+
+/** First-run state stored with the authenticated user in auth.db. */
+export interface OnboardingStatusResponse {
+  username: string;
+  mustChangePassword: boolean;
+  onboardingCompletedAt: number | null;
+  completed: boolean;
+}
+
+export interface OnboardingMutationResponse extends OnboardingStatusResponse {
+  ok: true;
 }
 
 /** GET /api/profile */
@@ -149,4 +162,5 @@ export interface SubmitResponse {
 
 export interface ApiErrorBody {
   error: string;
+  code?: string;
 }

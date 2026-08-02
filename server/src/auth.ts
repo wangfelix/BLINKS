@@ -6,6 +6,7 @@ import {
   getUser,
   getUsernameForTokenHash,
   insertToken,
+  isOnboardingComplete,
 } from "./auth-db";
 
 // argon2id is the OWASP-recommended password hash; library defaults are sane
@@ -64,6 +65,26 @@ export function requireAuth(
     return;
   }
   req.participant = participant;
+  next();
+}
+
+// Secure authorization gate for the DRM web workflow. The Next.js proxy also
+// performs an optimistic redirect for a smooth first-run experience, but this
+// database-backed check is the authoritative protection against bypassing the
+// onboarding wizard.
+export function requireCompletedOnboarding(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): void {
+  const participant = req.participant;
+  if (!participant || !isOnboardingComplete(participant)) {
+    res.status(403).json({
+      error: "onboarding required",
+      code: "onboarding_required",
+    });
+    return;
+  }
   next();
 }
 

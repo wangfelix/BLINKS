@@ -1,7 +1,7 @@
 # BLINKS — command reference
 
 Everyday commands for running and testing the stack locally. Paths are relative
-to the repo root (`esp32s3-vlm-inference/`). For the *why* behind any of this,
+to the repo root (`esp32s3-vlm-inference/`). For the _why_ behind any of this,
 see `CLAUDE.md`.
 
 ## Node version (important)
@@ -27,18 +27,18 @@ npm run build && npm start   # compiled dist/server.js          (prod)
 
 Env knobs (all optional; prepend to the command, e.g. `DISABLE_PUSH=1 npm run dev`):
 
-| Var | Default | Meaning |
-|---|---|---|
-| `CAMERA_PORT` | `3000` | HTTP + WS port |
-| `RECORDINGS_DIR` | `server/recordings` | frames + `recordings.db` |
-| `DATA_DIR` | `server/data` | `auth.db` (credentials, kept out of recordings) |
-| `AUTH_DB_PATH` | `<DATA_DIR>/auth.db` | override the auth DB path |
-| `WEB_URL` | `http://blinks.win.kit.edu` | DRM website URL put into push notifications |
-| `DRM_TZ` | `Europe/Berlin` | study timezone for day keys + the gate |
-| `DRM_AVAILABLE_FROM_HOUR` | `19` | hour today's reconstruction opens; **set `0` for testing** |
-| `DRM_DEFAULT_BEDTIME` | `22:00` | fallback-push bedtime for participants without a stored one |
-| `DRM_DEV_MODE` | (off) | `1` enables direct DRM dev pages and bypasses the evening + round-order gates; never enable for the study |
-| `DISABLE_PUSH` | (off) | `1` turns the push scheduler off (use in dev/tests) |
+| Var                       | Default                     | Meaning                                                                                                   |
+| ------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `CAMERA_PORT`             | `3000`                      | HTTP + WS port                                                                                            |
+| `RECORDINGS_DIR`          | `server/recordings`         | frames + `recordings.db`                                                                                  |
+| `DATA_DIR`                | `server/data`               | `auth.db` (credentials, kept out of recordings)                                                           |
+| `AUTH_DB_PATH`            | `<DATA_DIR>/auth.db`        | override the auth DB path                                                                                 |
+| `WEB_URL`                 | `http://blinks.win.kit.edu` | DRM website URL put into push notifications                                                               |
+| `DRM_TZ`                  | `Europe/Berlin`             | study timezone for day keys + the gate                                                                    |
+| `DRM_AVAILABLE_FROM_HOUR` | `19`                        | hour today's reconstruction opens; **set `0` for testing**                                                |
+| `DRM_DEFAULT_BEDTIME`     | `22:00`                     | fallback-push bedtime for participants without a stored one                                               |
+| `DRM_DEV_MODE`            | (off)                       | `1` enables direct DRM dev pages and bypasses the evening + round-order gates; never enable for the study |
+| `DISABLE_PUSH`            | (off)                       | `1` turns the push scheduler off (use in dev/tests)                                                       |
 
 The push is a single **bedtime fallback**: at the participant's reported
 bedtime (app onboarding) minus 10 min, if they captured frames today and round
@@ -59,10 +59,19 @@ npm run create-user -- participant1 <password>
 
 # reset a password (keeps occupation/schedule):
 npm run create-user -- participant1 <newpassword> --reset
+
+# repeat both first-run onboarding steps without changing the password:
+npm run reset-onboarding -- participant1
 ```
 
 - Username: letters/digits/`-`/`_` only (it becomes the recordings folder name).
 - Password: ≥ 8 chars.
+- New accounts must replace their initial password and complete the pre-study
+  survey link before the DRM web API opens. Existing accounts are marked as
+  completed when the columns are first migrated.
+- `create-user --reset` forces only the password step on the next web login. It
+  retains an existing survey-completion timestamp. `reset-onboarding` clears
+  both steps and is the command for retesting the complete wizard.
 - Writes the auth user (`auth.db`) **and** a `participants` row (`recordings.db`).
   Run it with the **same `RECORDINGS_DIR`/`DATA_DIR`** the server uses, or it
   writes to a different DB. Occupation + wake/bed times are entered by the
@@ -77,6 +86,7 @@ npx tsx scripts/test-activity-vocabulary.ts  # VLM/API/dropdown enum stays ident
 npx tsx scripts/test-activity-lists.ts  # legacy/natural-key migration + parent FK + three-list immutability
 npx tsx scripts/test-recording-events.ts  # idempotent lifecycle events + pause restoration + session-specific close
 npx tsx scripts/test-reconstruction-timing-migration.ts  # reconstructions -> response-parent workflow/timing migration
+npm run test-auth-onboarding  # legacy migration + first-run state transitions
 
 # inspect/backfill probability columns on legacy demo rows only (also maps
 # old democtl free-text fixture labels to the current closed enum):
@@ -85,15 +95,16 @@ npm run backfill-demo-probabilities -- --apply
 # Rewrite existing seed vectors too (fixture data only):
 npm run backfill-demo-probabilities -- --apply --force
 
-# end-to-end smoke test (needs its own throwaway dirs + a matching server):
-rm -rf /tmp/blinks-smoke && mkdir -p /tmp/blinks-smoke/{recordings,data}
-DATA_DIR=/tmp/blinks-smoke/data RECORDINGS_DIR=/tmp/blinks-smoke/recordings \
+# end-to-end smoke test (needs its own new throwaway dir + matching server):
+SMOKE_ROOT="$(mktemp -d /tmp/blinks-smoke.XXXXXX)"
+mkdir -p "$SMOKE_ROOT/recordings" "$SMOKE_ROOT/data"
+DATA_DIR="$SMOKE_ROOT/data" RECORDINGS_DIR="$SMOKE_ROOT/recordings" \
   npx tsx scripts/create-user.ts smoketester password123
-DATA_DIR=/tmp/blinks-smoke/data RECORDINGS_DIR=/tmp/blinks-smoke/recordings \
+DATA_DIR="$SMOKE_ROOT/data" RECORDINGS_DIR="$SMOKE_ROOT/recordings" \
   npx tsx scripts/create-user.ts smokesecond password123
-RECORDINGS_DIR=/tmp/blinks-smoke/recordings DATA_DIR=/tmp/blinks-smoke/data \
+RECORDINGS_DIR="$SMOKE_ROOT/recordings" DATA_DIR="$SMOKE_ROOT/data" \
   CAMERA_PORT=3100 DRM_AVAILABLE_FROM_HOUR=0 DISABLE_PUSH=1 node dist/server.js &   # (npm run build first)
-SMOKE_BASE_URL=http://127.0.0.1:3100 RECORDINGS_DIR=/tmp/blinks-smoke/recordings \
+SMOKE_BASE_URL=http://127.0.0.1:3100 RECORDINGS_DIR="$SMOKE_ROOT/recordings" \
   npx tsx scripts/smoke-test.ts
 ```
 
@@ -204,15 +215,21 @@ npm run dev                 # http://localhost:3002 (Node 22)
 npm run build && npm start   # production build on port 3001
 ```
 
-To show the floating dev navigator and open either reconstruction round
-directly, start both the server and web app with `DRM_DEV_MODE=1`. The pages
-use the signed-in account's real data and keep normal autosave/submission
+To show the floating dev navigator, start both the server and web app with
+`DRM_DEV_MODE=1`. Its **Onboarding preview** runs the complete animated wizard
+locally without modifying the signed-in account or its password. The **Self-DRM
+introduction** and **Assisted introduction** entries preview the two new
+instruction screens before linking to their corresponding editor. The editor
+links use the signed-in account's real data and keep normal autosave/submission
 behavior. Authentication and submitted-round finality still apply.
 
 - Dev proxies `/api`, `/frames`, `/health` to the server, so **no CORS setup**.
   Default target is `http://127.0.0.1:3000`; override with
   `API_PROXY_TARGET=http://127.0.0.1:3100 npm run dev`.
 - Login uses the same participant credentials as the app.
+- Copy `drm-web/.env.example` to `.env.local` to configure both external survey
+  links. The pre-study URL receives `participant_id`; the final URL receives
+  `participantId`.
 
 ### Seed clickable demo data (no camera/VLM run needed)
 

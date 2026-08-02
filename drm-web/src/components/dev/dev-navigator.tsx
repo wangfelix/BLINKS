@@ -10,7 +10,10 @@ import { mergeClassNames } from "@/lib/utils";
 
 const DEV_DESTINATIONS = [
   { href: "/", label: "Landing / login" },
+  { href: "/dev/onboarding", label: "Onboarding preview" },
+  { href: "/dev/self-intro", label: "Self-DRM introduction" },
   { href: "/dev/self", label: "Self-DRM" },
+  { href: "/dev/assisted-intro", label: "Assisted introduction" },
   { href: "/dev/assisted", label: "VLM-assisted DRM" },
   { href: "/survey", label: "Survey link" },
   { href: "/done", label: "Done / offboarding" },
@@ -37,7 +40,10 @@ export const DevNavigator = () => {
               <XIcon />
             </Button>
           </div>
-          <nav className="mt-1 flex flex-col gap-1" aria-label="Developer pages">
+          <nav
+            className="mt-1 flex flex-col gap-1"
+            aria-label="Developer pages"
+          >
             {DEV_DESTINATIONS.map((destination) => (
               <Link
                 key={destination.href}

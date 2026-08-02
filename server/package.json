@@ -8,6 +8,8 @@
     "start": "node dist/server.js",
     "build": "tsc",
     "create-user": "tsx scripts/create-user.ts",
+    "reset-onboarding": "tsx scripts/reset-onboarding.ts",
+    "test-auth-onboarding": "tsx scripts/test-auth-onboarding.ts",
     "backfill-demo-probabilities": "tsx scripts/backfill-demo-vlm-probabilities.ts"
   },
   "dependencies": {

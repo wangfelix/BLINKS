@@ -11,11 +11,17 @@ import {
   issueToken,
   participantFromAuthHeader,
   requireAuth,
+  requireCompletedOnboarding,
   requireAuthWithCookieFallback,
   verifyPassword,
   verifyUserPassword,
 } from "./auth";
-import { getUser, initAuthDb, updatePasswordHash } from "./auth-db";
+import {
+  completeOnboarding,
+  getUser,
+  initAuthDb,
+  markPasswordChanged,
+} from "./auth-db";
 import {
   ActivityRow,
   ActivityWriteInput,
@@ -149,6 +155,14 @@ app.get("/health", (_req, res) => {
 
 // --- Auth -------------------------------------------------------------------
 
+const onboardingJson = (user: NonNullable<ReturnType<typeof getUser>>) => ({
+  username: user.username,
+  mustChangePassword: user.must_change_password === 1,
+  onboardingCompletedAt: user.onboarding_completed_at,
+  completed:
+    user.must_change_password === 0 && user.onboarding_completed_at !== null,
+});
+
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body as {
     username?: string;
@@ -165,9 +179,86 @@ app.post("/api/login", async (req, res) => {
     return;
   }
   const token = issueToken(cleanUsername);
+  const user = getUser(cleanUsername)!;
   console.log(`Login: ${cleanUsername}`);
-  res.json({ token, username: cleanUsername });
+  res.json({
+    token,
+    username: cleanUsername,
+    onboarding: onboardingJson(user),
+  });
 });
+
+app.get("/api/onboarding", requireAuth, (req: AuthenticatedRequest, res) => {
+  const user = getUser(req.participant!);
+  if (!user) {
+    res.status(404).json({ error: "user not found" });
+    return;
+  }
+  res.json(onboardingJson(user));
+});
+
+// First-run-only password change. Possession of the freshly issued bearer
+// token proves the participant just authenticated with the lab-provided
+// password, so asking for it a second time adds no value. Once this mandatory
+// change is complete, this endpoint closes and normal password changes still
+// require the current password below.
+app.post(
+  "/api/onboarding/password",
+  requireAuth,
+  async (req: AuthenticatedRequest, res) => {
+    const participant = req.participant!;
+    const { newPassword } = req.body as { newPassword?: unknown };
+    if (typeof newPassword !== "string") {
+      res.status(400).json({ error: "newPassword is required" });
+      return;
+    }
+    if (newPassword.length < 8) {
+      res
+        .status(400)
+        .json({ error: "the new password needs at least 8 characters" });
+      return;
+    }
+    const user = getUser(participant);
+    if (!user) {
+      res.status(404).json({ error: "user not found" });
+      return;
+    }
+    if (user.must_change_password !== 1) {
+      res
+        .status(409)
+        .json({ error: "the initial password was already changed" });
+      return;
+    }
+    if (await verifyPassword(user.password_hash, newPassword)) {
+      res
+        .status(400)
+        .json({
+          error: "choose a password different from the initial password",
+        });
+      return;
+    }
+    markPasswordChanged(participant, await hashPassword(newPassword));
+    const updatedUser = getUser(participant)!;
+    console.log(`Initial password changed: ${participant}`);
+    res.json({ ok: true, ...onboardingJson(updatedUser) });
+  },
+);
+
+app.post(
+  "/api/onboarding/complete",
+  requireAuth,
+  (req: AuthenticatedRequest, res) => {
+    const participant = req.participant!;
+    const completedAt = completeOnboarding(participant);
+    if (completedAt === undefined) {
+      res.status(409).json({ error: "change the initial password first" });
+      return;
+    }
+    const user = getUser(participant)!;
+    console.log(`Onboarding completed: ${participant}`);
+    res.json({ ok: true, ...onboardingJson(user) });
+  },
+);
 
 app.post(
   "/api/change-password",
@@ -198,7 +289,7 @@ app.post(
       res.status(403).json({ error: "current password is incorrect" });
       return;
     }
-    updatePasswordHash(participant, await hashPassword(newPassword));
+    markPasswordChanged(participant, await hashPassword(newPassword));
     console.log(`Password changed: ${participant}`);
     res.json({ ok: true });
   },
@@ -773,6 +864,7 @@ const roundTimingJson = (
 app.get(
   "/api/reconstruction/state",
   requireAuth,
+  requireCompletedOnboarding,
   (req: AuthenticatedRequest, res) => {
     const participant = req.participant!;
     const round1 = getRoundResponseList(participant, 1);
@@ -812,6 +904,7 @@ app.get(
 app.get(
   "/api/photos",
   requireAuth,
+  requireCompletedOnboarding,
   (req: AuthenticatedRequest, res) => {
     const participant = req.participant!;
     const round1 = getRoundResponseList(participant, 1);
@@ -877,6 +970,7 @@ const guardRound = (
 app.get(
   "/api/reconstruction/round/:round",
   requireAuth,
+  requireCompletedOnboarding,
   (req: AuthenticatedRequest, res) => {
     const guard = guardRound(req, res, false);
     if (!guard) return;
@@ -1097,6 +1191,7 @@ app.get(
 app.put(
   "/api/reconstruction/round/:round",
   requireAuth,
+  requireCompletedOnboarding,
   (req: AuthenticatedRequest, res) => {
     const guard = guardRound(req, res, true);
     if (!guard) return;
@@ -1131,6 +1226,7 @@ app.put(
 app.post(
   "/api/reconstruction/round/:round/submit",
   requireAuth,
+  requireCompletedOnboarding,
   (req: AuthenticatedRequest, res) => {
     const guard = guardRound(req, res, true);
     if (!guard) return;

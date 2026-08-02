@@ -4,7 +4,13 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { getStoredToken, login, storeToken } from "@/lib/api-client";
+import {
+  getStoredOnboardingRoutingState,
+  getStoredToken,
+  login,
+  storeOnboardingRoutingState,
+  storeToken,
+} from "@/lib/api-client";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,7 +34,12 @@ const LandingPage = () => {
 
   // Already signed in (e.g. returning the same evening): skip the login form.
   useEffect(() => {
-    if (getStoredToken() !== null) router.replace("/reconstruct");
+    if (getStoredToken() === null) return;
+    router.replace(
+      getStoredOnboardingRoutingState() === "complete"
+        ? "/reconstruct"
+        : "/onboarding",
+    );
   }, [router]);
 
   const loginMutation = useMutation({
@@ -41,7 +52,10 @@ const LandingPage = () => {
       // Token in localStorage for API calls (Authorization header) AND in the
       // blinks_token cookie so <img> requests to /frames/* are authenticated.
       storeToken(response.token);
-      router.push("/reconstruct");
+      storeOnboardingRoutingState(response.onboarding.completed);
+      router.push(
+        response.onboarding.completed ? "/reconstruct" : "/onboarding",
+      );
     },
   });
 
@@ -65,11 +79,10 @@ const LandingPage = () => {
             BLINKS — Day Reconstruction Study
           </h1>
           <Text variant="secondary" className="leading-relaxed">
-            In the evening of your recording day, please reconstruct your day as
-            a sequence of activities — in two steps, one after the other. It
-            takes about 20 minutes. Sign in with the participant credentials you
-            received from the study team, then follow the steps on the next
-            pages.
+            Sign in with the participant credentials you received from the study
+            team. On your first visit, you will choose your own password and
+            complete the short pre-study questionnaire. On the evening of your
+            recording day, return here to reconstruct your day.
           </Text>
         </Column>
 

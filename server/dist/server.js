@@ -85,6 +85,12 @@ app.get("/health", (_req, res) => {
     res.json({ status: "ok", time: new Date().toISOString() });
 });
 // --- Auth -------------------------------------------------------------------
+const onboardingJson = (user) => ({
+    username: user.username,
+    mustChangePassword: user.must_change_password === 1,
+    onboardingCompletedAt: user.onboarding_completed_at,
+    completed: user.must_change_password === 0 && user.onboarding_completed_at !== null,
+});
 app.post("/api/login", async (req, res) => {
     const { username, password } = req.body;
     if (typeof username !== "string" || typeof password !== "string") {
@@ -98,8 +104,74 @@ app.post("/api/login", async (req, res) => {
         return;
     }
     const token = (0, auth_1.issueToken)(cleanUsername);
+    const user = (0, auth_db_1.getUser)(cleanUsername);
     console.log(`Login: ${cleanUsername}`);
-    res.json({ token, username: cleanUsername });
+    res.json({
+        token,
+        username: cleanUsername,
+        onboarding: onboardingJson(user),
+    });
+});
+app.get("/api/onboarding", auth_1.requireAuth, (req, res) => {
+    const user = (0, auth_db_1.getUser)(req.participant);
+    if (!user) {
+        res.status(404).json({ error: "user not found" });
+        return;
+    }
+    res.json(onboardingJson(user));
+});
+// First-run-only password change. Possession of the freshly issued bearer
+// token proves the participant just authenticated with the lab-provided
+// password, so asking for it a second time adds no value. Once this mandatory
+// change is complete, this endpoint closes and normal password changes still
+// require the current password below.
+app.post("/api/onboarding/password", auth_1.requireAuth, async (req, res) => {
+    const participant = req.participant;
+    const { newPassword } = req.body;
+    if (typeof newPassword !== "string") {
+        res.status(400).json({ error: "newPassword is required" });
+        return;
+    }
+    if (newPassword.length < 8) {
+        res
+            .status(400)
+            .json({ error: "the new password needs at least 8 characters" });
+        return;
+    }
+    const user = (0, auth_db_1.getUser)(participant);
+    if (!user) {
+        res.status(404).json({ error: "user not found" });
+        return;
+    }
+    if (user.must_change_password !== 1) {
+        res
+            .status(409)
+            .json({ error: "the initial password was already changed" });
+        return;
+    }
+    if (await (0, auth_1.verifyPassword)(user.password_hash, newPassword)) {
+        res
+            .status(400)
+            .json({
+            error: "choose a password different from the initial password",
+        });
+        return;
+    }
+    (0, auth_db_1.markPasswordChanged)(participant, await (0, auth_1.hashPassword)(newPassword));
+    const updatedUser = (0, auth_db_1.getUser)(participant);
+    console.log(`Initial password changed: ${participant}`);
+    res.json({ ok: true, ...onboardingJson(updatedUser) });
+});
+app.post("/api/onboarding/complete", auth_1.requireAuth, (req, res) => {
+    const participant = req.participant;
+    const completedAt = (0, auth_db_1.completeOnboarding)(participant);
+    if (completedAt === undefined) {
+        res.status(409).json({ error: "change the initial password first" });
+        return;
+    }
+    const user = (0, auth_db_1.getUser)(participant);
+    console.log(`Onboarding completed: ${participant}`);
+    res.json({ ok: true, ...onboardingJson(user) });
 });
 app.post("/api/change-password", auth_1.requireAuth, async (req, res) => {
     const participant = req.participant;
@@ -122,7 +194,7 @@ app.post("/api/change-password", auth_1.requireAuth, async (req, res) => {
         res.status(403).json({ error: "current password is incorrect" });
         return;
     }
-    (0, auth_db_1.updatePasswordHash)(participant, await (0, auth_1.hashPassword)(newPassword));
+    (0, auth_db_1.markPasswordChanged)(participant, await (0, auth_1.hashPassword)(newPassword));
     console.log(`Password changed: ${participant}`);
     res.json({ ok: true });
 });
@@ -552,7 +624,7 @@ const roundTimingJson = (responseList) => ({
 // The whole evening at a glance: the pinned/derived study day and both
 // rounds' status, so the website can render the linear two-step flow without
 // client-side workflow branching.
-app.get("/api/reconstruction/state", auth_1.requireAuth, (req, res) => {
+app.get("/api/reconstruction/state", auth_1.requireAuth, auth_1.requireCompletedOnboarding, (req, res) => {
     const participant = req.participant;
     const round1 = (0, db_1.getRoundResponseList)(participant, 1);
     const round2 = (0, db_1.getRoundResponseList)(participant, 2);
@@ -586,7 +658,7 @@ app.get("/api/reconstruction/state", auth_1.requireAuth, (req, res) => {
 // starts only after Self DRM is submitted so photos cannot contaminate the
 // from-memory round. Soft-deleted rows remain as timestamped tombstones, but
 // their cleared file paths are never returned.
-app.get("/api/photos", auth_1.requireAuth, (req, res) => {
+app.get("/api/photos", auth_1.requireAuth, auth_1.requireCompletedOnboarding, (req, res) => {
     const participant = req.participant;
     const round1 = (0, db_1.getRoundResponseList)(participant, 1);
     if (round1?.status !== "submitted") {
@@ -637,7 +709,7 @@ const guardRound = (req, res, forWrite) => {
     }
     return { round, day };
 };
-app.get("/api/reconstruction/round/:round", auth_1.requireAuth, (req, res) => {
+app.get("/api/reconstruction/round/:round", auth_1.requireAuth, auth_1.requireCompletedOnboarding, (req, res) => {
     const guard = guardRound(req, res, false);
     if (!guard)
         return;
@@ -796,7 +868,7 @@ app.get("/api/reconstruction/round/:round", auth_1.requireAuth, (req, res) => {
     res.json(payload);
 });
 // Replace-all draft save.
-app.put("/api/reconstruction/round/:round", auth_1.requireAuth, (req, res) => {
+app.put("/api/reconstruction/round/:round", auth_1.requireAuth, auth_1.requireCompletedOnboarding, (req, res) => {
     const guard = guardRound(req, res, true);
     if (!guard)
         return;
@@ -818,7 +890,7 @@ app.put("/api/reconstruction/round/:round", auth_1.requireAuth, (req, res) => {
 });
 // Atomic save + lock. Original VLM and final participant labels remain in
 // their separately identified lists. Submitting round 1 unlocks round 2.
-app.post("/api/reconstruction/round/:round/submit", auth_1.requireAuth, (req, res) => {
+app.post("/api/reconstruction/round/:round/submit", auth_1.requireAuth, auth_1.requireCompletedOnboarding, (req, res) => {
     const guard = guardRound(req, res, true);
     if (!guard)
         return;
