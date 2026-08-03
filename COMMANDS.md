@@ -71,7 +71,8 @@ npm run reset-onboarding -- participant1
   completed when the columns are first migrated.
 - `create-user --reset` forces only the password step on the next web login. It
   retains an existing survey-completion timestamp. `reset-onboarding` clears
-  both steps and is the command for retesting the complete wizard.
+  both onboarding steps and the study-completion flag, so a finished account
+  can be reused for testing. It does not reset submitted reconstruction lists.
 - Writes the auth user (`auth.db`) **and** a `participants` row (`recordings.db`).
   Run it with the **same `RECORDINGS_DIR`/`DATA_DIR`** the server uses, or it
   writes to a different DB. Occupation + wake/bed times are entered by the

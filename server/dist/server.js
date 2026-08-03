@@ -91,6 +91,18 @@ const onboardingJson = (user) => ({
     onboardingCompletedAt: user.onboarding_completed_at,
     completed: user.must_change_password === 0 && user.onboarding_completed_at !== null,
 });
+const studyCompletionJson = (user) => ({
+    completedAt: user.study_completed_at,
+    completed: user.study_completed_at !== null,
+});
+const studyStatusJson = (participant) => {
+    const user = (0, auth_db_1.getUser)(participant);
+    return {
+        username: participant,
+        ...studyCompletionJson(user),
+        canManagePhotos: (0, db_1.getRoundResponseList)(participant, 1)?.status === "submitted",
+    };
+};
 app.post("/api/login", async (req, res) => {
     const { username, password } = req.body;
     if (typeof username !== "string" || typeof password !== "string") {
@@ -110,6 +122,7 @@ app.post("/api/login", async (req, res) => {
         token,
         username: cleanUsername,
         onboarding: onboardingJson(user),
+        study: studyCompletionJson(user),
     });
 });
 app.get("/api/onboarding", auth_1.requireAuth, (req, res) => {
@@ -172,6 +185,27 @@ app.post("/api/onboarding/complete", auth_1.requireAuth, (req, res) => {
     const user = (0, auth_db_1.getUser)(participant);
     console.log(`Onboarding completed: ${participant}`);
     res.json({ ok: true, ...onboardingJson(user) });
+});
+app.get("/api/study/status", auth_1.requireAuth, (req, res) => {
+    res.json(studyStatusJson(req.participant));
+});
+app.post("/api/study/complete", auth_1.requireAuth, auth_1.requireCompletedOnboarding, (req, res) => {
+    const participant = req.participant;
+    if ((0, db_1.getRoundResponseList)(participant, 2)?.status !== "submitted") {
+        res.status(409).json({
+            error: "submit both reconstruction steps before completing the study",
+        });
+        return;
+    }
+    const wasAlreadyComplete = (0, auth_db_1.isStudyComplete)(participant);
+    if ((0, auth_db_1.completeStudy)(participant) === undefined) {
+        res.status(404).json({ error: "user not found" });
+        return;
+    }
+    if (!wasAlreadyComplete) {
+        console.log(`Study completed: ${participant}`);
+    }
+    res.json({ ok: true, ...studyStatusJson(participant) });
 });
 app.post("/api/change-password", auth_1.requireAuth, async (req, res) => {
     const participant = req.participant;
@@ -624,7 +658,7 @@ const roundTimingJson = (responseList) => ({
 // The whole evening at a glance: the pinned/derived study day and both
 // rounds' status, so the website can render the linear two-step flow without
 // client-side workflow branching.
-app.get("/api/reconstruction/state", auth_1.requireAuth, auth_1.requireCompletedOnboarding, (req, res) => {
+app.get("/api/reconstruction/state", auth_1.requireAuth, auth_1.requireCompletedOnboarding, auth_1.requireActiveStudy, (req, res) => {
     const participant = req.participant;
     const round1 = (0, db_1.getRoundResponseList)(participant, 1);
     const round2 = (0, db_1.getRoundResponseList)(participant, 2);
@@ -709,7 +743,7 @@ const guardRound = (req, res, forWrite) => {
     }
     return { round, day };
 };
-app.get("/api/reconstruction/round/:round", auth_1.requireAuth, auth_1.requireCompletedOnboarding, (req, res) => {
+app.get("/api/reconstruction/round/:round", auth_1.requireAuth, auth_1.requireCompletedOnboarding, auth_1.requireActiveStudy, (req, res) => {
     const guard = guardRound(req, res, false);
     if (!guard)
         return;
@@ -868,7 +902,7 @@ app.get("/api/reconstruction/round/:round", auth_1.requireAuth, auth_1.requireCo
     res.json(payload);
 });
 // Replace-all draft save.
-app.put("/api/reconstruction/round/:round", auth_1.requireAuth, auth_1.requireCompletedOnboarding, (req, res) => {
+app.put("/api/reconstruction/round/:round", auth_1.requireAuth, auth_1.requireCompletedOnboarding, auth_1.requireActiveStudy, (req, res) => {
     const guard = guardRound(req, res, true);
     if (!guard)
         return;
@@ -890,7 +924,7 @@ app.put("/api/reconstruction/round/:round", auth_1.requireAuth, auth_1.requireCo
 });
 // Atomic save + lock. Original VLM and final participant labels remain in
 // their separately identified lists. Submitting round 1 unlocks round 2.
-app.post("/api/reconstruction/round/:round/submit", auth_1.requireAuth, auth_1.requireCompletedOnboarding, (req, res) => {
+app.post("/api/reconstruction/round/:round/submit", auth_1.requireAuth, auth_1.requireCompletedOnboarding, auth_1.requireActiveStudy, (req, res) => {
     const guard = guardRound(req, res, true);
     if (!guard)
         return;

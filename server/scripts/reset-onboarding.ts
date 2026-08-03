@@ -23,5 +23,5 @@ if (!resetOnboarding(username)) {
 }
 
 console.log(
-  `Onboarding reset for '${username}'. Their next web sign-in starts at the password step.`,
+  `Onboarding and study completion reset for '${username}'. Their next web sign-in starts at the password step.`,
 );

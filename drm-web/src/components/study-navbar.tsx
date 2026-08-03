@@ -10,7 +10,7 @@ import {
   clearStoredToken,
   getManagedPhotos,
   getProfile,
-  getStudyState,
+  getStudyStatus,
 } from "@/lib/api-client";
 import { formatDayLabel } from "@/lib/time";
 import { Row } from "@/components/layout/flex";
@@ -27,13 +27,11 @@ export const StudyNavbar = () => {
     queryKey: ["profile"],
     queryFn: getProfile,
   });
-  const stateQuery = useQuery({
-    queryKey: ["study-state"],
-    queryFn: getStudyState,
+  const studyStatusQuery = useQuery({
+    queryKey: ["study-status"],
+    queryFn: getStudyStatus,
   });
-  const canManagePhotos =
-    stateQuery.data?.rounds.find((round) => round.round === 1)?.status ===
-    "submitted";
+  const canManagePhotos = studyStatusQuery.data?.canManagePhotos === true;
   const photosQuery = useQuery({
     queryKey: ["photos", "day"],
     queryFn: getManagedPhotos,
@@ -58,7 +56,7 @@ export const StudyNavbar = () => {
           <div className="flex items-center gap-3">
             <BlinksLogo className="h-10 w-[140px]" sizes="140px" priority />
             <span className="hidden border-l pl-3 text-xs text-muted-foreground sm:block">
-              KIT - KD2Lab
+              KIT · KD2Lab
             </span>
           </div>
           <Row gap="sm" align="center" wrap className="shrink-0">
@@ -90,7 +88,7 @@ export const StudyNavbar = () => {
           title={
             photosQuery.data === undefined
               ? "Manage Photos"
-              : `Manage Photos: ${formatDayLabel(photosQuery.data.day)}`
+              : `Manage Photos · ${formatDayLabel(photosQuery.data.day)}`
           }
           description="Review every photo from your recorded day."
           frames={photosQuery.data?.frames ?? []}

@@ -14,9 +14,11 @@ import {
 
 import {
   getStoredOnboardingRoutingState,
+  getStoredStudyRoutingState,
   getStoredToken,
   login,
   storeOnboardingRoutingState,
+  storeStudyRoutingState,
   storeToken,
 } from "@/lib/api-client";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -38,10 +40,12 @@ const LandingPage = () => {
   // Already signed in (e.g. returning the same evening): skip the login form.
   useEffect(() => {
     if (getStoredToken() === null) return;
+    if (getStoredOnboardingRoutingState() !== "complete") {
+      router.replace("/onboarding");
+      return;
+    }
     router.replace(
-      getStoredOnboardingRoutingState() === "complete"
-        ? "/reconstruct"
-        : "/onboarding",
+      getStoredStudyRoutingState() === "complete" ? "/done" : "/reconstruct",
     );
   }, [router]);
 
@@ -56,8 +60,13 @@ const LandingPage = () => {
       // blinks_token cookie so <img> requests to /frames/* are authenticated.
       storeToken(response.token);
       storeOnboardingRoutingState(response.onboarding.completed);
+      storeStudyRoutingState(response.study.completed);
       router.push(
-        response.onboarding.completed ? "/reconstruct" : "/onboarding",
+        !response.onboarding.completed
+          ? "/onboarding"
+          : response.study.completed
+            ? "/done"
+            : "/reconstruct",
       );
     },
   });

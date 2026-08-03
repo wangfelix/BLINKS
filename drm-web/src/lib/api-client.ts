@@ -20,7 +20,9 @@ import type {
   PhotoDayResponse,
   ProfileResponse,
   RoundResponse,
+  StudyCompletionMutationResponse,
   StudyStateResponse,
+  StudyStatusResponse,
   SubmitResponse,
 } from "@/lib/api-types";
 
@@ -29,8 +31,10 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 const TOKEN_STORAGE_KEY = "blinks_token";
 const TOKEN_COOKIE_NAME = "blinks_token";
 const ONBOARDING_COOKIE_NAME = "blinks_onboarding";
+const STUDY_COOKIE_NAME = "blinks_study";
 
 export type OnboardingRoutingState = "required" | "complete";
+export type StudyRoutingState = "active" | "complete";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -72,10 +76,28 @@ export const storeOnboardingRoutingState = (completed: boolean): void => {
   document.cookie = `${ONBOARDING_COOKIE_NAME}=${value}; path=/; SameSite=Lax; Max-Age=${oneYearSeconds}`;
 };
 
+export const getStoredStudyRoutingState = (): StudyRoutingState | null => {
+  if (typeof document === "undefined") return null;
+  const prefix = `${STUDY_COOKIE_NAME}=`;
+  const value = document.cookie
+    .split(";")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(prefix))
+    ?.slice(prefix.length);
+  return value === "active" || value === "complete" ? value : null;
+};
+
+export const storeStudyRoutingState = (completed: boolean): void => {
+  const oneYearSeconds = 60 * 60 * 24 * 365;
+  const value: StudyRoutingState = completed ? "complete" : "active";
+  document.cookie = `${STUDY_COOKIE_NAME}=${value}; path=/; SameSite=Lax; Max-Age=${oneYearSeconds}`;
+};
+
 export const clearStoredToken = (): void => {
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
   document.cookie = `${TOKEN_COOKIE_NAME}=; path=/; SameSite=Lax; Max-Age=0`;
   document.cookie = `${ONBOARDING_COOKIE_NAME}=; path=/; SameSite=Lax; Max-Age=0`;
+  document.cookie = `${STUDY_COOKIE_NAME}=; path=/; SameSite=Lax; Max-Age=0`;
 };
 
 /** Absolute src for an authenticated frame image (cookie carries the token). */
@@ -133,6 +155,15 @@ const apiFetch = async <T>(
         window.location.href = "/onboarding";
       }
     }
+    if (errorCode === "study_completed") {
+      storeStudyRoutingState(true);
+      if (
+        typeof window !== "undefined" &&
+        window.location.pathname !== "/done"
+      ) {
+        window.location.href = "/done";
+      }
+    }
     throw new ApiError(message, response.status);
   }
 
@@ -163,6 +194,14 @@ export const completeOnboarding = () =>
   });
 
 export const getProfile = () => apiFetch<ProfileResponse>("/api/profile");
+
+export const getStudyStatus = () =>
+  apiFetch<StudyStatusResponse>("/api/study/status");
+
+export const completeStudy = () =>
+  apiFetch<StudyCompletionMutationResponse>("/api/study/complete", {
+    method: "POST",
+  });
 
 export const getStudyState = () =>
   apiFetch<StudyStateResponse>("/api/reconstruction/state");

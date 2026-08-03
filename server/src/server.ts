@@ -10,6 +10,7 @@ import {
   hashPassword,
   issueToken,
   participantFromAuthHeader,
+  requireActiveStudy,
   requireAuth,
   requireCompletedOnboarding,
   requireAuthWithCookieFallback,
@@ -18,8 +19,10 @@ import {
 } from "./auth";
 import {
   completeOnboarding,
+  completeStudy,
   getUser,
   initAuthDb,
+  isStudyComplete,
   markPasswordChanged,
 } from "./auth-db";
 import {
@@ -163,6 +166,23 @@ const onboardingJson = (user: NonNullable<ReturnType<typeof getUser>>) => ({
     user.must_change_password === 0 && user.onboarding_completed_at !== null,
 });
 
+const studyCompletionJson = (
+  user: NonNullable<ReturnType<typeof getUser>>,
+) => ({
+  completedAt: user.study_completed_at,
+  completed: user.study_completed_at !== null,
+});
+
+const studyStatusJson = (participant: string) => {
+  const user = getUser(participant)!;
+  return {
+    username: participant,
+    ...studyCompletionJson(user),
+    canManagePhotos:
+      getRoundResponseList(participant, 1)?.status === "submitted",
+  };
+};
+
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body as {
     username?: string;
@@ -185,6 +205,7 @@ app.post("/api/login", async (req, res) => {
     token,
     username: cleanUsername,
     onboarding: onboardingJson(user),
+    study: studyCompletionJson(user),
   });
 });
 
@@ -257,6 +278,34 @@ app.post(
     const user = getUser(participant)!;
     console.log(`Onboarding completed: ${participant}`);
     res.json({ ok: true, ...onboardingJson(user) });
+  },
+);
+
+app.get("/api/study/status", requireAuth, (req: AuthenticatedRequest, res) => {
+  res.json(studyStatusJson(req.participant!));
+});
+
+app.post(
+  "/api/study/complete",
+  requireAuth,
+  requireCompletedOnboarding,
+  (req: AuthenticatedRequest, res) => {
+    const participant = req.participant!;
+    if (getRoundResponseList(participant, 2)?.status !== "submitted") {
+      res.status(409).json({
+        error: "submit both reconstruction steps before completing the study",
+      });
+      return;
+    }
+    const wasAlreadyComplete = isStudyComplete(participant);
+    if (completeStudy(participant) === undefined) {
+      res.status(404).json({ error: "user not found" });
+      return;
+    }
+    if (!wasAlreadyComplete) {
+      console.log(`Study completed: ${participant}`);
+    }
+    res.json({ ok: true, ...studyStatusJson(participant) });
   },
 );
 
@@ -865,6 +914,7 @@ app.get(
   "/api/reconstruction/state",
   requireAuth,
   requireCompletedOnboarding,
+  requireActiveStudy,
   (req: AuthenticatedRequest, res) => {
     const participant = req.participant!;
     const round1 = getRoundResponseList(participant, 1);
@@ -971,6 +1021,7 @@ app.get(
   "/api/reconstruction/round/:round",
   requireAuth,
   requireCompletedOnboarding,
+  requireActiveStudy,
   (req: AuthenticatedRequest, res) => {
     const guard = guardRound(req, res, false);
     if (!guard) return;
@@ -1192,6 +1243,7 @@ app.put(
   "/api/reconstruction/round/:round",
   requireAuth,
   requireCompletedOnboarding,
+  requireActiveStudy,
   (req: AuthenticatedRequest, res) => {
     const guard = guardRound(req, res, true);
     if (!guard) return;
@@ -1227,6 +1279,7 @@ app.post(
   "/api/reconstruction/round/:round/submit",
   requireAuth,
   requireCompletedOnboarding,
+  requireActiveStudy,
   (req: AuthenticatedRequest, res) => {
     const guard = guardRound(req, res, true);
     if (!guard) return;

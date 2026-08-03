@@ -6,10 +6,12 @@ import Database from "better-sqlite3";
 
 import {
   completeOnboarding,
+  completeStudy,
   getUser,
   initAuthDb,
   insertUser,
   isOnboardingComplete,
+  isStudyComplete,
   markPasswordChanged,
   resetOnboarding,
   resetPassword,
@@ -46,13 +48,17 @@ try {
   assert.ok(legacyUser);
   assert.strictEqual(legacyUser.must_change_password, 0);
   assert.strictEqual(legacyUser.onboarding_completed_at, 1234);
+  assert.strictEqual(legacyUser.study_completed_at, null);
   assert.strictEqual(isOnboardingComplete("legacy"), true);
+  assert.strictEqual(isStudyComplete("legacy"), false);
 
   insertUser("new-user", "initial-hash");
   let newUser = getUser("new-user")!;
   assert.strictEqual(newUser.must_change_password, 1);
   assert.strictEqual(newUser.onboarding_completed_at, null);
+  assert.strictEqual(newUser.study_completed_at, null);
   assert.strictEqual(isOnboardingComplete("new-user"), false);
+  assert.strictEqual(isStudyComplete("new-user"), false);
   assert.strictEqual(completeOnboarding("new-user"), undefined);
 
   markPasswordChanged("new-user", "private-hash");
@@ -61,6 +67,11 @@ try {
   assert.strictEqual(newUser.onboarding_completed_at, null);
   assert.ok(completeOnboarding("new-user") !== undefined);
   assert.strictEqual(isOnboardingComplete("new-user"), true);
+  const studyCompletedAt = completeStudy("new-user");
+  assert.ok(studyCompletedAt !== undefined);
+  assert.strictEqual(completeStudy("new-user"), studyCompletedAt);
+  assert.strictEqual(isStudyComplete("new-user"), true);
+  assert.strictEqual(completeStudy("missing-user"), undefined);
 
   const completedAt = getUser("new-user")!.onboarding_completed_at;
   resetPassword("new-user", "replacement-hash");
@@ -74,6 +85,8 @@ try {
   newUser = getUser("new-user")!;
   assert.strictEqual(newUser.must_change_password, 1);
   assert.strictEqual(newUser.onboarding_completed_at, null);
+  assert.strictEqual(newUser.study_completed_at, null);
+  assert.strictEqual(isStudyComplete("new-user"), false);
   assert.strictEqual(resetOnboarding("missing-user"), false);
 
   console.log("Auth onboarding migration/state tests passed.");

@@ -37,6 +37,21 @@ export interface LoginResponse {
   token: string;
   username: string;
   onboarding: OnboardingStatusResponse;
+  study: StudyCompletionResponse;
+}
+
+export interface StudyCompletionResponse {
+  completedAt: number | null;
+  completed: boolean;
+}
+
+export interface StudyStatusResponse extends StudyCompletionResponse {
+  username: string;
+  canManagePhotos: boolean;
+}
+
+export interface StudyCompletionMutationResponse extends StudyStatusResponse {
+  ok: true;
 }
 
 /** First-run state stored with the authenticated user in auth.db. */

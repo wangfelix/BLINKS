@@ -9,6 +9,7 @@ exports.authenticateToken = authenticateToken;
 exports.participantFromAuthHeader = participantFromAuthHeader;
 exports.requireAuth = requireAuth;
 exports.requireCompletedOnboarding = requireCompletedOnboarding;
+exports.requireActiveStudy = requireActiveStudy;
 exports.requireAuthWithCookieFallback = requireAuthWithCookieFallback;
 exports.verifyUserPassword = verifyUserPassword;
 const argon2_1 = __importDefault(require("argon2"));
@@ -62,6 +63,20 @@ function requireCompletedOnboarding(req, res, next) {
         res.status(403).json({
             error: "onboarding required",
             code: "onboarding_required",
+        });
+        return;
+    }
+    next();
+}
+// Completed participants retain authenticated access to their profile and
+// photo-management APIs, but the reconstruction workflow is permanently
+// closed after they confirm the final questionnaire.
+function requireActiveStudy(req, res, next) {
+    const participant = req.participant;
+    if (participant && (0, auth_db_1.isStudyComplete)(participant)) {
+        res.status(403).json({
+            error: "the study is already complete",
+            code: "study_completed",
         });
         return;
     }

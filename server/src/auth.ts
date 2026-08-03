@@ -7,6 +7,7 @@ import {
   getUsernameForTokenHash,
   insertToken,
   isOnboardingComplete,
+  isStudyComplete,
 } from "./auth-db";
 
 // argon2id is the OWASP-recommended password hash; library defaults are sane
@@ -82,6 +83,25 @@ export function requireCompletedOnboarding(
     res.status(403).json({
       error: "onboarding required",
       code: "onboarding_required",
+    });
+    return;
+  }
+  next();
+}
+
+// Completed participants retain authenticated access to their profile and
+// photo-management APIs, but the reconstruction workflow is permanently
+// closed after they confirm the final questionnaire.
+export function requireActiveStudy(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): void {
+  const participant = req.participant;
+  if (participant && isStudyComplete(participant)) {
+    res.status(403).json({
+      error: "the study is already complete",
+      code: "study_completed",
     });
     return;
   }

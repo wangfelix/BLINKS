@@ -1,9 +1,10 @@
 "use client";
 
-import { CheckCircle2Icon } from "lucide-react";
+import { CheckCircle2Icon, ImagesIcon } from "lucide-react";
 
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { StudyWorkspaceShell } from "@/components/study-workspace-shell";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const DoneContent = () => {
   return (
@@ -19,13 +20,22 @@ const DoneContent = () => {
           Please bring the glasses and the study phone back to the lab as
           arranged.
         </p>
+        <Alert className="mt-5 border-sky-300/70 bg-sky-500/5 text-left dark:border-sky-400/30">
+          <ImagesIcon aria-hidden />
+          <AlertTitle>Your study photos remain available</AlertTitle>
+          <AlertDescription>
+            You can return to this page at any time to view and delete the
+            photos that were taken during the study. Use “Manage Photos” in the
+            navigation bar.
+          </AlertDescription>
+        </Alert>
       </div>
     </StudyWorkspaceShell>
   );
 };
 
 const DonePage = () => {
-  const ready = useRequireAuth();
+  const ready = useRequireAuth("completed");
   if (!ready) return null;
   return <DoneContent />;
 };

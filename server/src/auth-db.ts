@@ -17,6 +17,7 @@ export interface UserRow {
   password_hash: string;
   must_change_password: number;
   onboarding_completed_at: number | null;
+  study_completed_at: number | null;
   created_at: number;
 }
 
@@ -38,6 +39,7 @@ export function initAuthDb(dbPath: string): void {
   const hadOnboardingCompletedAt = existingUserColumns.has(
     "onboarding_completed_at",
   );
+  const hadStudyCompletedAt = existingUserColumns.has("study_completed_at");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -46,6 +48,7 @@ export function initAuthDb(dbPath: string): void {
       must_change_password    INTEGER NOT NULL DEFAULT 1
                                       CHECK (must_change_password IN (0, 1)),
       onboarding_completed_at INTEGER,
+      study_completed_at      INTEGER,
       created_at              INTEGER NOT NULL
     );
     -- Opaque bearer tokens, stored as sha256(token) so a leaked DB copy does
@@ -73,6 +76,9 @@ export function initAuthDb(dbPath: string): void {
     if (hadUsersTable && !hadOnboardingCompletedAt) {
       db.exec("ALTER TABLE users ADD COLUMN onboarding_completed_at INTEGER");
     }
+    if (hadUsersTable && !hadStudyCompletedAt) {
+      db.exec("ALTER TABLE users ADD COLUMN study_completed_at INTEGER");
+    }
     if (hadUsersTable && (!hadMustChangePassword || !hadOnboardingCompletedAt)) {
       db.exec(`
         UPDATE users
@@ -86,8 +92,8 @@ export function initAuthDb(dbPath: string): void {
 export function insertUser(username: string, passwordHash: string): void {
   db.prepare(
     `INSERT INTO users
-       (username, password_hash, must_change_password, onboarding_completed_at, created_at)
-     VALUES (?, ?, 1, NULL, ?)`,
+       (username, password_hash, must_change_password, onboarding_completed_at, study_completed_at, created_at)
+     VALUES (?, ?, 1, NULL, NULL, ?)`,
   ).run(username, passwordHash, Date.now());
 }
 
@@ -95,7 +101,7 @@ export function getUser(username: string): UserRow | undefined {
   return db
     .prepare(
       `SELECT username, password_hash, must_change_password,
-              onboarding_completed_at, created_at
+              onboarding_completed_at, study_completed_at, created_at
        FROM users WHERE username = ?`,
     )
     .get(username) as UserRow | undefined;
@@ -137,11 +143,29 @@ export function resetOnboarding(username: string): boolean {
     db
       .prepare(
         `UPDATE users
-         SET must_change_password = 1, onboarding_completed_at = NULL
+         SET must_change_password = 1, onboarding_completed_at = NULL,
+             study_completed_at = NULL
          WHERE username = ?`,
       )
       .run(username).changes === 1
   );
+}
+
+export function completeStudy(username: string): number | undefined {
+  const result = db
+    .prepare(
+      `UPDATE users
+       SET study_completed_at = COALESCE(study_completed_at, ?)
+       WHERE username = ?`,
+    )
+    .run(Date.now(), username);
+  if (result.changes !== 1) return undefined;
+  return getUser(username)!.study_completed_at!;
+}
+
+export function isStudyComplete(username: string): boolean {
+  const user = getUser(username);
+  return user !== undefined && user.study_completed_at !== null;
 }
 
 export function isOnboardingComplete(username: string): boolean {
