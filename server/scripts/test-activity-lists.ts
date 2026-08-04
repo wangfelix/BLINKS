@@ -239,12 +239,39 @@ const runNaturalKeyMigrationTest = (): void => {
     "vlm_activity_confidences_json",
     "vlm_category_confidence",
     "vlm_category_confidences_json",
+    "vlm_attempt_count",
+    "vlm_retry_count",
+    "vlm_next_attempt_at",
+    "vlm_last_error_type",
   ]) {
     assert.ok(
       chunkColumns.some((column) => column.name === added),
       `chunks.${added} added during migration`,
     );
   }
+  assert.deepStrictEqual(
+    migratedSchemaDb
+      .prepare("PRAGMA table_info(vlm_attempts)")
+      .all()
+      .map((column: any) => column.name),
+    [
+      "id",
+      "participant",
+      "chunk_start_ms",
+      "attempt_number",
+      "retry_number",
+      "model",
+      "started_at",
+      "completed_at",
+      "duration_ms",
+      "frames_sent",
+      "timeout_seconds",
+      "outcome",
+      "error_class",
+      "http_status",
+    ],
+    "VLM attempt audit table is created during migration",
+  );
   assert.deepStrictEqual(
     migratedSchemaDb
       .prepare(

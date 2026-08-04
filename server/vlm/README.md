@@ -48,9 +48,9 @@ still being face-blurred (pipeline parallelism).
 
 OpenAI-compatible endpoint (`https://ki-toolbox.scc.kit.edu/api/v1`), the same
 service and key the sibling KARMA project uses. Default model
-**`kit.gemma4-31b-it`** (Gemma is the vision-capable model exposed over the API).
-The endpoint is **KIT-hosted**, so even the anonymized frames stay inside KIT
-infrastructure rather than going to a public cloud.
+**`kit.qwen3.5-397b-A17b`** (Qwen3.5 is multimodal and accepts the worker's full
+20-image request). The endpoint is **KIT-hosted**, so even the anonymized
+frames stay inside KIT infrastructure rather than going to a public cloud.
 
 ## Setup
 
@@ -75,12 +75,14 @@ via `EnvironmentFile=` instead (see below).
 Offline output-contract test (does not need the API client or a key):
 
 ```bash
-python3 -m unittest test_vlm_contract.py
+python3 -m unittest test_vlm_contract.py test_vlm_retry.py
 ```
 
 The worker reads `recordings.db` and the JPEGs written by the Node server, so it
 must run on the same host. It only claims chunks whose frames are all through
-the face-blur worker.
+the face-blur worker. Production must use daemon mode: `--once` exits when no
+attempt is currently eligible and intentionally does not wait minutes for a
+persisted future retry time.
 
 ## Config (environment variables)
 
@@ -88,15 +90,16 @@ the face-blur worker.
 |---|---|---|
 | `KIT_API_KEY` | *(required)* | KIT SCC AI toolbox API key |
 | `KIT_BASE_URL` | `https://ki-toolbox.scc.kit.edu/api/v1` | OpenAI-compatible base URL |
-| `VLM_MODEL` | `kit.gemma4-31b-it` | model name |
+| `VLM_MODEL` | `kit.qwen3.5-397b-A17b` | model name |
 | `RECORDINGS_DIR` | `../recordings` | recordings tree (matches the server's env) |
 | `RECORDINGS_DB` | `<RECORDINGS_DIR>/recordings.db` | the SQLite index |
 | `VLM_TIMEOUT` | `120` | per-request timeout (s; multi-image requests are bigger) |
 | `VLM_TEMPERATURE` | `0.0` | sampling temperature; deterministic by default for the probability-elicitation contract |
-| `VLM_MAX_RETRIES` | `3` | retries per chunk on API/parse error before marking `failed` |
+| `VLM_MAX_ATTEMPTS` | `5` | total automatic endpoint attempts in one retry cycle |
+| `VLM_RETRY_DELAYS_S` | `30,120,300,600` | persisted delay after attempts 1–4 before the next attempt |
 | `VLM_CHUNK_MAX_FRAMES` | `20` | frames sent per chunk, evenly sampled across the window (a full window at the 15 s study interval) |
 | `POLL_INTERVAL_S` | `3.0` | sleep between polls when the queue is empty |
-| `BATCH_SIZE` | `8` | chunks claimed per poll |
+| `BATCH_SIZE` | `8` | maximum chunks claimed during one concurrency refill |
 | `VLM_CONCURRENCY` | `8` | endpoint calls in flight at once (in-process thread pool) |
 | `DRM_TZ` | `Europe/Berlin` | study timezone for current-day-first ordering (match the server) |
 
@@ -112,9 +115,23 @@ data is unavailable it degrades to newest-first (still today-before-older).
 The endpoint calls are I/O-bound, so the worker runs up to `VLM_CONCURRENCY`
 of them in parallel within the single process (a thread pool). Only the network
 calls run in threads; every DB read/write stays on the main thread (a `sqlite3`
-connection is not shareable across threads), so the batch claim stays atomic and
-there are no concurrent-write hazards. The KIT Gemma endpoint was measured to
-parallelize cleanly with no rate-limit wall or latency penalty at 8 concurrent.
+connection is not shareable across threads), so the claim stays atomic and there
+are no concurrent-write hazards. When one call finishes, its slot is immediately
+refilled; the worker does not wait for the other calls from the same refill.
+
+Qwen capacity was checked live on 2026-08-04 with the production schema,
+`VLM_CONCURRENCY=8`, and 20 distinct synthetic 640x480 JPEGs per request. All
+eight endpoint calls completed in 81.6 seconds without an image-count or rate
+limit error; seven passed local probability validation immediately and one
+returned an activity distribution summing to 1.05. Ten participants create ten
+chunks per five-minute boundary. The continuously refilled pool starts the ninth
+chunk as soon as any of the first eight finishes. A timeout occupies one slot for
+at most the configured 120-second attempt, then becomes a persisted delayed retry
+instead of blocking that slot through multiple immediate attempts. Keep the
+local validation and retries enabled; this is a capacity check, not a
+label-accuracy validation. Re-evaluate the timeout and concurrency from the
+stored attempt durations/outcomes after the pilot rather than increasing either
+without measurements.
 
 **Scale with `VLM_CONCURRENCY`, not by launching multiple processes.** A second
 process would double-process chunks (the claim is a non-atomic
@@ -184,10 +201,23 @@ the paper first reconstructs logits with an inverse-softmax step.
 - `vlm_category_confidence`: the maximum category probability.
 - `vlm_category_confidences_json`: a normalized dictionary containing one
   verbalized probability for each of `work`, `break`, and `other`.
+- `vlm_attempt_count`: lifetime endpoint-attempt count for the chunk.
+- `vlm_retry_count`, `vlm_next_attempt_at`, and `vlm_last_error_type`: current
+  automatic retry-cycle state. The worker makes at most five attempts, with
+  persisted 30 s, 2 min, 5 min, and 10 min delays.
 - Both distributions require their exact key sets, finite values in `[0, 1]`,
   and an approximate sum of 1. Accepted rounding is normalized exactly before
   persistence. These black-box self-assessments are not logits or calibrated
   probabilities.
+
+Every endpoint call also has a retained row in `vlm_attempts`: attempt/retry
+number, model, start/end/duration, images sent, configured timeout, outcome,
+error class, and HTTP status when available. This supports later latency and
+failure-rate analysis without storing raw responses or error bodies. A worker
+crash leaves an open attempt row; startup closes it as `interrupted` and
+immediately requeues the chunk. Attempt rows remain when deleting the final
+photo removes its now-empty chunk, so non-image reliability evidence remains
+available alongside the retained frame tombstones.
 
 The **Node server owns the `chunks` migration** (`server/src/db.ts` `initDb`).
 If the table is missing (server not yet deployed/restarted with the chunk
@@ -204,12 +234,18 @@ validation rejects missing, extra, malformed, or non-normalized distributions.
 The `work` category is relative to the participant's own job, so the prompt
 includes their **occupation + work description** from the `participants` table
 in `recordings.db` (written by the Node server via `PUT /api/profile`; queried
-once per participant per batch). If the table, the row, or the values are
+once per participant per concurrency refill). If the table, the row, or the values are
 missing, the prompt states the occupation is unknown — the worker never crashes
 over it. Chunks processed before a participant filled in their profile keep the
-occupation-less classification; requeue them (`UPDATE chunks SET
-status='ready' WHERE participant='...' AND status IN ('done','failed')`) if you
-want them re-classified with context.
+occupation-less classification. Requeue them with a fresh automatic retry cycle
+if you want them re-classified with context:
+
+```sql
+UPDATE chunks
+SET status='ready', vlm_retry_count=0, vlm_next_attempt_at=NULL,
+    vlm_last_error_type=NULL
+WHERE participant='...' AND status IN ('done','failed');
+```
 
 ## Operational notes
 
@@ -219,9 +255,17 @@ want them re-classified with context.
   same chunks.
 - **`failed` chunks** never get a label (their frames stay served, since they
   are already anonymized). They remain countable through `chunks.status` and
-  bootstrap as blank activity rows in the assisted reconstruction. Periodically
-  requeue them — `UPDATE chunks SET status='ready' WHERE status='failed'` —
-  once the cause (transient API outage, etc.) is gone.
+  bootstrap as blank activity rows in the assisted reconstruction. A chunk only
+  reaches `failed` after five automatic attempts, or immediately for a
+  non-retryable input failure. To manually start a new retry cycle after fixing
+  the cause, reset `vlm_retry_count` while retaining the lifetime attempt audit:
+
+  ```sql
+  UPDATE chunks
+  SET status='ready', vlm_retry_count=0, vlm_next_attempt_at=NULL,
+      vlm_last_error_type=NULL
+  WHERE status='failed';
+  ```
 - Reachability: the toolbox must be reachable from the host. On the KIT VM both
   are inside KIT, so it should resolve directly; verify with a quick `--once` run.
 

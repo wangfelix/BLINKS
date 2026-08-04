@@ -262,6 +262,10 @@ export interface ChunkRow {
   vlm_category_confidence: number | null;
   vlm_category_confidences_json: string | null;
   vlm_completed_at: number | null;
+  vlm_attempt_count: number;
+  vlm_retry_count: number;
+  vlm_next_attempt_at: number | null;
+  vlm_last_error_type: string | null;
   created_at: number;
   updated_at: number | null;
 }
@@ -493,6 +497,12 @@ export function initDb(dbPath: string): void {
       vlm_category_confidence REAL,
       vlm_category_confidences_json TEXT,
       vlm_completed_at INTEGER,
+      -- Retry scheduling stays on the chunk; immutable per-attempt evidence is
+      -- retained separately in vlm_attempts for later reliability analysis.
+      vlm_attempt_count INTEGER NOT NULL DEFAULT 0,
+      vlm_retry_count INTEGER NOT NULL DEFAULT 0,
+      vlm_next_attempt_at INTEGER,
+      vlm_last_error_type TEXT,
       created_at      INTEGER NOT NULL,
       updated_at      INTEGER,
       PRIMARY KEY (participant, chunk_start_ms)
@@ -520,6 +530,57 @@ export function initDb(dbPath: string): void {
     "vlm_category_confidences_json",
     "vlm_category_confidences_json TEXT",
   );
+  migrateAddTableColumn(
+    "chunks",
+    "vlm_attempt_count",
+    "vlm_attempt_count INTEGER NOT NULL DEFAULT 0",
+  );
+  migrateAddTableColumn(
+    "chunks",
+    "vlm_retry_count",
+    "vlm_retry_count INTEGER NOT NULL DEFAULT 0",
+  );
+  migrateAddTableColumn(
+    "chunks",
+    "vlm_next_attempt_at",
+    "vlm_next_attempt_at INTEGER",
+  );
+  migrateAddTableColumn(
+    "chunks",
+    "vlm_last_error_type",
+    "vlm_last_error_type TEXT",
+  );
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_chunks_vlm_queue
+      ON chunks (status, vlm_next_attempt_at, chunk_start_ms);
+    CREATE TABLE IF NOT EXISTS vlm_attempts (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      participant     TEXT    NOT NULL,
+      chunk_start_ms  INTEGER NOT NULL,
+      attempt_number  INTEGER NOT NULL,
+      retry_number    INTEGER NOT NULL,
+      model           TEXT    NOT NULL,
+      started_at      INTEGER NOT NULL,
+      completed_at    INTEGER,
+      duration_ms     INTEGER,
+      frames_sent     INTEGER NOT NULL,
+      timeout_seconds REAL    NOT NULL,
+      outcome         TEXT
+        CHECK (outcome IS NULL OR outcome IN (
+          'done', 'timeout', 'rate_limit', 'server_error', 'api_error',
+          'validation_error', 'input_error', 'interrupted'
+        )),
+      error_class     TEXT,
+      http_status     INTEGER,
+      -- Deliberately no chunks FK: deleting a chunk after its last photo is
+      -- removed must not erase non-image reliability evidence used in analysis.
+      UNIQUE (participant, chunk_start_ms, attempt_number)
+    );
+    CREATE INDEX IF NOT EXISTS idx_vlm_attempts_chunk
+      ON vlm_attempts (participant, chunk_start_ms, attempt_number);
+    CREATE INDEX IF NOT EXISTS idx_vlm_attempts_outcome
+      ON vlm_attempts (outcome, started_at);
+  `);
   db.transaction(() => {
     [
       "vlm_description",

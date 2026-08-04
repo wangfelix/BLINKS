@@ -6,13 +6,10 @@
 // BLINKS — ESP32-S3 BLE camera peripheral (production firmware).
 //
 // Captures one VGA JPEG every CAPTURE_INTERVAL_MS and streams it to a connected
-// phone over BLE (NimBLE). No WiFi, no NTP — the phone (blinks-edge-app) is the
+// phone over BLE (NimBLE). The phone (blinks-edge-app/) is the
 // BLE central + relay: it reassembles frames, stamps capture time on header
-// receipt, and forwards them to the KIT-internal server over its VPN. A
-// writable control characteristic lets the phone pause/resume capture.
-//
-// Started as the feasibility spike (overnight-validated 2026-06, see
-// feasibility/README.md) and promoted to production.
+// receipt, and forwards them to the server. A
+// writable control characteristic lets the phone pause/resume capture..
 //
 // Requires:
 //   - board_config.h + camera_pins.h copied from the CameraWebServer example
@@ -20,7 +17,7 @@
 //     like the legacy xiao-camera-ws-client sketch.
 //   - Library: "NimBLE-Arduino" (Library Manager). Targets NimBLE 2.x API.
 //     (NimBLE is used instead of the built-in Bluedroid BLE because it has a
-//     much smaller RAM footprint, which matters next to the camera driver.)
+//     much smaller RAM footprint.)
 //
 // IDE settings: Board XIAO_ESP32S3, PSRAM "OPI PSRAM", Partition "Huge APP".
 // ===========================================================================
@@ -36,11 +33,8 @@
 #define CONTROL_OP_PAUSE  0x01
 #define CONTROL_OP_RESUME 0x02
 
-// One frame every 30 s is the real target. For first bring-up you may want to
-// lower this (e.g. 5000) to see frames quickly, then set it back to 30000 for
-// the overnight background-reliability run.
-#define CAPTURE_INTERVAL_MS 5000
-// 30000
+// ---- Sampling rate --------------------------------------------------------
+#define CAPTURE_INTERVAL_MS 15000
 
 // On-board user LED (GPIO21, active-low): fast ~2 Hz blink = searching for a
 // phone, solid = connected + paused, slow ~1 Hz blink = connected + recording.
@@ -124,8 +118,8 @@ bool initCamera() {
 
 // Self-heal a wedged camera without a physical power cycle. If the driver stops
 // returning frames (esp_camera_fb_get -> NULL), deinit + reinit it in place
-// after a few consecutive failures so an unattended overnight run recovers on
-// its own. Throttling (above) should prevent the wedge; this is the backstop.
+// after a few consecutive failures so a run recovers on its own.
+// Throttling (above) should prevent the wedge; this is the backstop.
 uint8_t captureFailures = 0;
 void recoverCameraIfWedged() {
   if (++captureFailures < 3) return;

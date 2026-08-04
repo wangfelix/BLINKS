@@ -1,4 +1,4 @@
-import express, { Response } from "express";
+import express, { NextFunction, Response } from "express";
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import fs from "fs";
@@ -183,6 +183,29 @@ const studyStatusJson = (participant: string) => {
   };
 };
 
+// Photos are deliberately hidden until the participant has submitted the
+// memory-only Self DRM round. This is authoritative for every mobile/web
+// listing, image response, and deletion path so a client-side bug or direct
+// URL cannot contaminate unaided recall.
+const requirePhotoAccess = (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): void => {
+  const participant = req.participant;
+  if (
+    !participant ||
+    getRoundResponseList(participant, 1)?.status !== "submitted"
+  ) {
+    res.status(403).json({
+      error: "step 1 must be submitted first",
+      code: "photo_access_locked",
+    });
+    return;
+  }
+  next();
+};
+
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body as {
     username?: string;
@@ -361,6 +384,8 @@ app.get("/api/sessions", requireAuth, (req: AuthenticatedRequest, res) => {
 app.get(
   "/api/sessions/:device/:session/frames",
   requireAuth,
+  requireCompletedOnboarding,
+  requirePhotoAccess,
   (req: AuthenticatedRequest, res) => {
     const device = sanitize(req.params.device);
     const session = Number(req.params.session);
@@ -471,6 +496,8 @@ const deleteFrames = (
 app.delete(
   "/api/sessions/:device/:session/frames/:frameIndex",
   requireAuth,
+  requireCompletedOnboarding,
+  requirePhotoAccess,
   (req: AuthenticatedRequest, res) => {
     const device = sanitize(req.params.device);
     const session = Number(req.params.session);
@@ -495,6 +522,8 @@ app.delete(
 app.delete(
   "/api/sessions/:device/:session/frames",
   requireAuth,
+  requireCompletedOnboarding,
+  requirePhotoAccess,
   (req: AuthenticatedRequest, res) => {
     const device = sanitize(req.params.device);
     const session = Number(req.params.session);
@@ -530,28 +559,34 @@ app.delete(
 // requested path belongs to the authenticated participant (these are images
 // of people and their homes). Cookie fallback (blinks_token) is for the DRM
 // website's <img> tags only; all JSON APIs remain header-authenticated.
-app.get("/frames/*", requireAuthWithCookieFallback, (req: AuthenticatedRequest, res) => {
-  const relativePath = decodeURIComponent(req.path.slice("/frames/".length));
-  const normalized = path.normalize(relativePath);
-  if (
-    normalized.startsWith("..") ||
-    path.isAbsolute(normalized) ||
-    !normalized.startsWith(`${req.participant!}${path.sep}`)
-  ) {
-    res.status(403).json({ error: "forbidden" });
-    return;
-  }
-  // Serving gate: never hand back a frame whose face has not been blurred yet.
-  // Anonymization happens in place shortly after ingestion (face-blur worker);
-  // until face_status='done' the image is withheld, even from its owner.
-  if (getFrameStatusByPath(req.participant!, normalized) !== "done") {
-    res.status(404).json({ error: "frame not available yet" });
-    return;
-  }
-  res.sendFile(normalized, { root: RECORDINGS_DIR }, (err) => {
-    if (err && !res.headersSent) res.status(404).json({ error: "not found" });
-  });
-});
+app.get(
+  "/frames/*",
+  requireAuthWithCookieFallback,
+  requireCompletedOnboarding,
+  requirePhotoAccess,
+  (req: AuthenticatedRequest, res) => {
+    const relativePath = decodeURIComponent(req.path.slice("/frames/".length));
+    const normalized = path.normalize(relativePath);
+    if (
+      normalized.startsWith("..") ||
+      path.isAbsolute(normalized) ||
+      !normalized.startsWith(`${req.participant!}${path.sep}`)
+    ) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
+    // Serving gate: never hand back a frame whose face has not been blurred yet.
+    // Anonymization happens in place shortly after ingestion (face-blur worker);
+    // until face_status='done' the image is withheld, even from its owner.
+    if (getFrameStatusByPath(req.participant!, normalized) !== "done") {
+      res.status(404).json({ error: "frame not available yet" });
+      return;
+    }
+    res.sendFile(normalized, { root: RECORDINGS_DIR }, (err) => {
+      if (err && !res.headersSent) res.status(404).json({ error: "not found" });
+    });
+  },
+);
 
 // On-demand CSV export from the DB, for the authenticated participant's own
 // sessions (analysis on the VM reads the SQLite file directly instead).
@@ -955,13 +990,10 @@ app.get(
   "/api/photos",
   requireAuth,
   requireCompletedOnboarding,
+  requirePhotoAccess,
   (req: AuthenticatedRequest, res) => {
     const participant = req.participant!;
-    const round1 = getRoundResponseList(participant, 1);
-    if (round1?.status !== "submitted") {
-      res.status(403).json({ error: "step 1 must be submitted first" });
-      return;
-    }
+    const round1 = getRoundResponseList(participant, 1)!;
     res.json({
       day: round1.day,
       frames: listPhotoFramesOnDay(participant, round1.day).map((frame) =>

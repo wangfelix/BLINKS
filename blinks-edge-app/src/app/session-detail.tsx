@@ -1,11 +1,17 @@
 import { Stack } from "expo-router";
-import { ImageSquareIcon } from "phosphor-react-native";
+import {
+  ImageSquareIcon,
+  LockSimpleIcon,
+  WarningCircleIcon,
+} from "phosphor-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from "react-native";
 
@@ -18,12 +24,16 @@ import { FullScreenImageViewer } from "@/history/components/full-screen-image-vi
 import { useSessionDetailModel } from "@/history/model/use-session-detail-model";
 
 const FLOATING_ACTION_HEIGHT = 52;
+const GRID_COLUMN_COUNT = 3;
+const GRID_GAP = spacing.xs;
 
 const SessionDetailScreen = () => {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const {
     screenTitle,
     frames,
+    photoAccessState,
     isLoading,
     isRefetching,
     refetch,
@@ -41,46 +51,82 @@ const SessionDetailScreen = () => {
     confirmDeleteSelected,
     isDeletingSelection,
   } = useSessionDetailModel();
+  const gridWidth = windowWidth - spacing.md * 2 - spacing.sm * 2;
+  const tileSize =
+    (gridWidth - GRID_GAP * (GRID_COLUMN_COUNT - 1)) / GRID_COLUMN_COUNT;
+
+  const emptyState = (() => {
+    if (isLoading) {
+      return <ActivityIndicator size="large" color={colors.primary} />;
+    }
+    if (photoAccessState === "restricted") {
+      return (
+        <EmptyState
+          icon={<LockSimpleIcon size={40} color={colors.textMuted} />}
+          title="Photos available after Self DRM"
+          message="To protect your memory-based reconstruction, photos stay hidden until you submit the first Self DRM round on the study website. Return here and refresh after submitting it."
+        />
+      );
+    }
+    if (photoAccessState === "error") {
+      return (
+        <EmptyState
+          icon={<WarningCircleIcon size={40} color={colors.textMuted} />}
+          title="Photo access unavailable"
+          message="We could not check whether your photos are available. Pull down to try again."
+        />
+      );
+    }
+    return (
+      <EmptyState
+        icon={<ImageSquareIcon size={40} color={colors.textMuted} />}
+        title="No photos"
+        message="This session has no remaining photos."
+      />
+    );
+  })();
 
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ title: screenTitle }} />
-      <View style={styles.toolbar}>
-        {isSelectionMode ? (
-          <>
-            <AppText variant="label">{selectedCount} selected</AppText>
-            <Pressable
-              onPress={exitSelectionMode}
-              disabled={isDeletingSelection}
-              hitSlop={spacing.sm}
-            >
-              <AppText variant="subheading" style={styles.cancelLabel}>
-                Cancel
-              </AppText>
-            </Pressable>
-          </>
-        ) : (
-          <AppButton
-            label="Choose Multiple"
-            variant="secondary"
-            onPress={enterSelectionMode}
-            disabled={frames.length === 0}
-            style={styles.chooseButton}
-          />
-        )}
-      </View>
+      {photoAccessState === "available" ? (
+        <View style={styles.toolbar}>
+          {isSelectionMode ? (
+            <>
+              <AppText variant="label">{selectedCount} selected</AppText>
+              <Pressable
+                onPress={exitSelectionMode}
+                disabled={isDeletingSelection}
+                hitSlop={spacing.sm}
+              >
+                <AppText variant="subheading" style={styles.cancelLabel}>
+                  Cancel
+                </AppText>
+              </Pressable>
+            </>
+          ) : (
+            <AppButton
+              label="Choose Multiple"
+              variant="secondary"
+              onPress={enterSelectionMode}
+              disabled={frames.length === 0}
+              style={styles.chooseButton}
+            />
+          )}
+        </View>
+      ) : null}
 
       <View style={styles.listSurface}>
         <FlatList
           data={frames}
+          numColumns={GRID_COLUMN_COUNT}
           keyExtractor={(frame) => String(frame.frameIndex)}
           extraData={{ isSelectionMode, selectedFrameIndexes }}
           renderItem={({ item }) => (
             <FrameListItem
               frame={item}
+              size={tileSize}
               onOpen={() => openFramePreview(item)}
-              onDelete={() => confirmDeleteFrame(item)}
-              isDeleting={deletingFrameIndex === item.frameIndex}
               selectionMode={isSelectionMode}
               isSelected={selectedFrameIndexes.has(item.frameIndex)}
               onToggleSelection={() =>
@@ -88,8 +134,9 @@ const SessionDetailScreen = () => {
               }
             />
           )}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          columnWrapperStyle={styles.gridRow}
           contentContainerStyle={[
+            styles.gridContent,
             frames.length === 0 && styles.emptyListContent,
             isSelectionMode && {
               paddingBottom:
@@ -98,15 +145,7 @@ const SessionDetailScreen = () => {
                 spacing.xl * 2,
             },
           ]}
-          ListEmptyComponent={
-            isLoading ? null : (
-              <EmptyState
-                icon={<ImageSquareIcon size={40} color={colors.textMuted} />}
-                title="No frames"
-                message="This session has no remaining images."
-              />
-            )
-          }
+          ListEmptyComponent={emptyState}
           refreshControl={
             <RefreshControl
               refreshing={isRefetching}
@@ -114,11 +153,15 @@ const SessionDetailScreen = () => {
               tintColor={colors.primary}
             />
           }
+          initialNumToRender={18}
+          maxToRenderPerBatch={18}
+          windowSize={7}
+          removeClippedSubviews
           showsVerticalScrollIndicator={false}
         />
       </View>
 
-      {isSelectionMode ? (
+      {photoAccessState === "available" && isSelectionMode ? (
         <View
           style={[
             styles.selectionOverlay,
@@ -136,7 +179,7 @@ const SessionDetailScreen = () => {
         </View>
       ) : null}
 
-      {previewFrame ? (
+      {photoAccessState === "available" && previewFrame ? (
         <FullScreenImageViewer
           frame={previewFrame}
           onClose={closeFramePreview}
@@ -167,14 +210,21 @@ const styles = StyleSheet.create({
     flex: 1,
     marginHorizontal: spacing.md,
     marginBottom: spacing.xl,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    overflow: "hidden",
   },
-  separator: { height: 1, backgroundColor: colors.border },
-  emptyListContent: { flexGrow: 1, justifyContent: "center" },
+  gridContent: {
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xl,
+  },
+  gridRow: {
+    gap: GRID_GAP,
+    marginBottom: GRID_GAP,
+  },
+  emptyListContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingBottom: spacing.xxl,
+  },
   selectionOverlay: {
     position: "absolute",
     left: spacing.xl,

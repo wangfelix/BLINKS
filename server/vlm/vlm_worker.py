@@ -46,24 +46,27 @@ inline with WS ingestion, so VLM latency / API errors can never cost a frame
 and old days can be re-processed later with a better model or prompt.
 
 Model: the KIT SCC AI toolbox, an OpenAI-compatible endpoint (same client as
-the sibling KARMA project). Default model `kit.gemma4-31b-it` (Gemma,
-vision-capable over the API). The endpoint is KIT-hosted, so even the
-anonymized frames stay inside KIT infrastructure rather than a public cloud.
+the sibling KARMA project). Default model `kit.qwen3.5-397b-A17b` (Qwen3.5,
+vision-capable over the API and verified with 20 VGA images per request). The
+endpoint is KIT-hosted, so even the anonymized frames stay inside KIT
+infrastructure rather than a public cloud.
 
 Config (environment variables; a local .env next to this file is auto-loaded):
     KIT_API_KEY           required: KIT SCC AI toolbox API key
     KIT_BASE_URL          OpenAI-compatible base URL
                             (default: https://ki-toolbox.scc.kit.edu/api/v1)
-    VLM_MODEL             model name           (default: kit.gemma4-31b-it)
+    VLM_MODEL             model name           (default: kit.qwen3.5-397b-A17b)
     RECORDINGS_DIR        recordings tree      (default: ../recordings)
     RECORDINGS_DB         path to recordings.db (default: <RECORDINGS_DIR>/recordings.db)
     VLM_TIMEOUT           per-request timeout seconds (default: 120)
     VLM_TEMPERATURE       sampling temperature        (default: 0.0)
-    VLM_MAX_RETRIES       retries per chunk on API/parse error (default: 3)
+    VLM_MAX_ATTEMPTS      total automatic attempts per retry cycle (default: 5)
+    VLM_RETRY_DELAYS_S    comma-separated delays after attempts 1..N-1
+                            (default: 30,120,300,600)
     VLM_CHUNK_MAX_FRAMES  frames sent per chunk, evenly sampled (default: 20;
                             covers a full window at the 15 s study interval)
     POLL_INTERVAL_S       sleep between polls when the queue is empty (default: 3.0)
-    BATCH_SIZE            chunks claimed per poll     (default: 8)
+    BATCH_SIZE            maximum chunks claimed in one refill (default: 8)
     VLM_CONCURRENCY       endpoint calls in flight at once (default: 8)
     DRM_TZ                study timezone for current-day-first ordering
                             (default: Europe/Berlin; match the server's DRM_TZ)
@@ -71,15 +74,19 @@ Config (environment variables; a local .env next to this file is auto-loaded):
 CLI:
     python vlm_worker.py            # daemon: poll forever
     python vlm_worker.py --once     # process the current backlog, then exit
-    python vlm_worker.py --max 50   # stop after N chunks (testing)
+    python vlm_worker.py --max 50   # stop after N endpoint attempts (testing)
 
 Requeue failed chunks once the cause is fixed:
-    UPDATE chunks SET status='ready' WHERE status='failed';
+    UPDATE chunks
+    SET status='ready', vlm_retry_count=0, vlm_next_attempt_at=NULL,
+        vlm_last_error_type=NULL
+    WHERE status='failed';
 
 Concurrency: endpoint calls are I/O-bound, so up to VLM_CONCURRENCY run in
 parallel (thread pool); only the network calls run in threads — every DB
 read/write stays on the main thread (a sqlite3 connection is not shareable
-across threads), so the batch claim stays atomic.
+across threads). A completed call immediately frees a slot for another eligible
+chunk; slow calls do not hold an entire fixed batch behind them.
 
 Single-worker assumption (one PROCESS): on startup any chunk left in
 'processing' (from a crash) is reclaimed to 'ready'. Scale via
@@ -97,7 +104,8 @@ import signal
 import sqlite3
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -119,11 +127,21 @@ RECORDINGS_DB = Path(
 
 KIT_API_KEY = os.environ.get("KIT_API_KEY")
 KIT_BASE_URL = os.environ.get("KIT_BASE_URL", "https://ki-toolbox.scc.kit.edu/api/v1")
-VLM_MODEL = os.environ.get("VLM_MODEL", "kit.gemma4-31b-it")
+VLM_MODEL = os.environ.get("VLM_MODEL", "kit.qwen3.5-397b-A17b")
 
 VLM_TIMEOUT = float(os.environ.get("VLM_TIMEOUT", "120"))
 VLM_TEMPERATURE = float(os.environ.get("VLM_TEMPERATURE", "0.0"))
-VLM_MAX_RETRIES = int(os.environ.get("VLM_MAX_RETRIES", "3"))
+VLM_MAX_ATTEMPTS = max(
+    1,
+    int(os.environ.get("VLM_MAX_ATTEMPTS", os.environ.get("VLM_MAX_RETRIES", "5"))),
+)
+VLM_RETRY_DELAYS_S = tuple(
+    max(0.0, float(value.strip()))
+    for value in os.environ.get("VLM_RETRY_DELAYS_S", "30,120,300,600").split(",")
+    if value.strip()
+)
+if not VLM_RETRY_DELAYS_S:
+    VLM_RETRY_DELAYS_S = (30.0,)
 VLM_CHUNK_MAX_FRAMES = max(1, int(os.environ.get("VLM_CHUNK_MAX_FRAMES", "20")))
 POLL_INTERVAL_S = float(os.environ.get("POLL_INTERVAL_S", "3.0"))
 VLM_CONCURRENCY = max(1, int(os.environ.get("VLM_CONCURRENCY", "8")))
@@ -133,6 +151,22 @@ DRM_TZ = os.environ.get("DRM_TZ", "Europe/Berlin")
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "8"))
 
 CHUNK_WINDOW_MS = 5 * 60 * 1000  # keep in sync with server/src/db.ts
+
+
+@dataclass(frozen=True)
+class AttemptResult:
+    outcome: str
+    payload: dict | None
+    duration_ms: int
+    error_class: str | None = None
+    http_status: int | None = None
+    log_detail: str | None = None
+
+
+@dataclass(frozen=True)
+class InFlightAttempt:
+    row: sqlite3.Row
+    attempt_id: int
 
 # --- Activity vocabulary -----------------------------------------------------
 # Closed, visually grounded activity enum. Keep the keys synchronized with
@@ -428,6 +462,7 @@ def infer(client: OpenAI, images: list[bytes], user_prompt: str) -> dict:
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(str(RECORDINGS_DB), timeout=30.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA busy_timeout = 5000")
@@ -460,6 +495,10 @@ def _ensure_chunks_table(conn: sqlite3.Connection) -> bool:
         "vlm_activity_confidences_json",
         "vlm_category_confidence",
         "vlm_category_confidences_json",
+        "vlm_attempt_count",
+        "vlm_retry_count",
+        "vlm_next_attempt_at",
+        "vlm_last_error_type",
     }
     missing_columns = required_columns - chunk_columns
     if missing_columns:
@@ -467,6 +506,15 @@ def _ensure_chunks_table(conn: sqlite3.Connection) -> bool:
             "FATAL: recordings.db is missing the new chunk confidence columns "
             f"{sorted(missing_columns)}. Start the updated Node server once to "
             "run its migration, then restart this worker."
+        )
+        sys.exit(2)
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='vlm_attempts'"
+    ).fetchone():
+        _log(
+            "FATAL: recordings.db is missing the vlm_attempts audit table. "
+            "Start the updated Node server once to run its migration, then "
+            "restart this worker."
         )
         sys.exit(2)
     return True
@@ -493,11 +541,29 @@ def _fetch_participant_context(
 
 
 def _reclaim_stale_processing(conn: sqlite3.Connection) -> int:
-    """Single-worker crash recovery: any chunk stuck 'processing' is ours to retry."""
-    info = conn.execute(
-        "UPDATE chunks SET status = 'ready' WHERE status = 'processing'"
-    )
-    conn.commit()
+    """Record interrupted attempts and immediately requeue their chunks."""
+    now_ms = int(time.time() * 1000)
+    with conn:
+        conn.execute(
+            """
+            UPDATE vlm_attempts
+            SET completed_at = ?,
+                duration_ms = MAX(0, ? - started_at),
+                outcome = 'interrupted',
+                error_class = 'WorkerInterrupted'
+            WHERE outcome IS NULL
+            """,
+            (now_ms, now_ms),
+        )
+        info = conn.execute(
+            """
+            UPDATE chunks
+            SET status = 'ready', vlm_next_attempt_at = ?,
+                vlm_last_error_type = 'interrupted', updated_at = ?
+            WHERE status = 'processing'
+            """,
+            (now_ms, now_ms),
+        )
     return info.rowcount
 
 
@@ -511,7 +577,9 @@ def _today_start_ms() -> int | None:
     return int(midnight.timestamp() * 1000)
 
 
-def _claim_batch(conn: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
+def _claim_batch(
+    conn: sqlite3.Connection, limit: int, now_ms: int | None = None
+) -> list[sqlite3.Row]:
     """Atomically mark up to `limit` inferable chunks 'processing' and return them.
 
     Inferable = the server closed the window (status='ready') AND none of its
@@ -524,6 +592,7 @@ def _claim_batch(conn: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
     behind days of catch-up; within each group it's oldest-first. If TZ data
     is unavailable it degrades to newest-first.
     """
+    eligible_at = int(time.time() * 1000) if now_ms is None else now_ms
     face_gate = """
         NOT EXISTS (
           SELECT 1 FROM frames f
@@ -537,31 +606,47 @@ def _claim_batch(conn: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
     if today_start is not None:
         rows = conn.execute(
             f"""
-            SELECT c.participant, c.chunk_start_ms, c.chunk_end_ms
+            SELECT c.participant, c.chunk_start_ms, c.chunk_end_ms,
+                   c.vlm_attempt_count + 1 AS attempt_number,
+                   c.vlm_retry_count + 1 AS retry_number
             FROM chunks c
-            WHERE c.status = 'ready' AND {face_gate}
+            WHERE c.status = 'ready'
+              AND c.vlm_retry_count < ?
+              AND (c.vlm_next_attempt_at IS NULL OR c.vlm_next_attempt_at <= ?)
+              AND {face_gate}
             ORDER BY (c.chunk_start_ms >= ?) DESC, c.chunk_start_ms ASC
             LIMIT ?
             """,
-            (today_start, limit),
+            (VLM_MAX_ATTEMPTS, eligible_at, today_start, limit),
         ).fetchall()
     else:
         rows = conn.execute(
             f"""
-            SELECT c.participant, c.chunk_start_ms, c.chunk_end_ms
+            SELECT c.participant, c.chunk_start_ms, c.chunk_end_ms,
+                   c.vlm_attempt_count + 1 AS attempt_number,
+                   c.vlm_retry_count + 1 AS retry_number
             FROM chunks c
-            WHERE c.status = 'ready' AND {face_gate}
+            WHERE c.status = 'ready'
+              AND c.vlm_retry_count < ?
+              AND (c.vlm_next_attempt_at IS NULL OR c.vlm_next_attempt_at <= ?)
+              AND {face_gate}
             ORDER BY c.chunk_start_ms DESC
             LIMIT ?
             """,
-            (limit,),
+            (VLM_MAX_ATTEMPTS, eligible_at, limit),
         ).fetchall()
-    for row in rows:
-        conn.execute(
-            "UPDATE chunks SET status = 'processing' WHERE participant = ? AND chunk_start_ms = ?",
-            (row["participant"], row["chunk_start_ms"]),
-        )
-    conn.commit()
+    with conn:
+        for row in rows:
+            conn.execute(
+                """
+                UPDATE chunks
+                SET status = 'processing',
+                    vlm_next_attempt_at = NULL,
+                    updated_at = ?
+                WHERE participant = ? AND chunk_start_ms = ? AND status = 'ready'
+                """,
+                (eligible_at, row["participant"], row["chunk_start_ms"]),
+            )
     return rows
 
 
@@ -579,50 +664,151 @@ def _chunk_frame_paths(conn: sqlite3.Connection, row: sqlite3.Row) -> list[str]:
     return [frame["file_path"] for frame in frames]
 
 
-def _write_result(conn: sqlite3.Connection, row: sqlite3.Row, result: dict) -> None:
-    conn.execute(
-        """
-        UPDATE chunks
-        SET status = 'done', vlm_model = ?, vlm_label = ?, vlm_category = ?,
-            vlm_activity_confidence = ?, vlm_activity_confidences_json = ?,
-            vlm_category_confidence = ?,
-            vlm_category_confidences_json = ?, vlm_completed_at = ?, updated_at = ?
-        WHERE participant = ? AND chunk_start_ms = ?
-        """,
-        (
-            VLM_MODEL,
-            result["activity"],
-            result["category"],
-            result["activity_confidence"],
-            json.dumps(result["activity_confidences"], separators=(",", ":")),
-            result["category_confidence"],
-            json.dumps(result["category_confidences"], separators=(",", ":")),
-            int(time.time() * 1000),
-            int(time.time() * 1000),
-            row["participant"], row["chunk_start_ms"],
-        ),
-    )
-    conn.commit()
+def _start_attempt(
+    conn: sqlite3.Connection, row: sqlite3.Row, frames_sent: int
+) -> int:
+    started_at = int(time.time() * 1000)
+    with conn:
+        conn.execute(
+            """
+            UPDATE chunks
+            SET vlm_attempt_count = ?, vlm_retry_count = ?, updated_at = ?
+            WHERE participant = ? AND chunk_start_ms = ? AND status = 'processing'
+            """,
+            (
+                row["attempt_number"],
+                row["retry_number"],
+                started_at,
+                row["participant"],
+                row["chunk_start_ms"],
+            ),
+        )
+        info = conn.execute(
+            """
+            INSERT INTO vlm_attempts (
+              participant, chunk_start_ms, attempt_number, retry_number, model,
+              started_at, frames_sent, timeout_seconds
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["participant"],
+                row["chunk_start_ms"],
+                row["attempt_number"],
+                row["retry_number"],
+                VLM_MODEL,
+                started_at,
+                frames_sent,
+                VLM_TIMEOUT,
+            ),
+        )
+    return int(info.lastrowid)
 
 
-def _mark_failed(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
-    conn.execute(
-        """
-        UPDATE chunks
-        SET status = 'failed', vlm_activity_confidence = NULL,
-            vlm_activity_confidences_json = NULL,
-            vlm_category_confidence = NULL,
-            vlm_category_confidences_json = NULL,
-            vlm_completed_at = ?, updated_at = ?
-        WHERE participant = ? AND chunk_start_ms = ?
-        """,
-        (
-            int(time.time() * 1000),
-            int(time.time() * 1000),
-            row["participant"], row["chunk_start_ms"],
-        ),
-    )
-    conn.commit()
+def _retry_delay_ms(retry_number: int) -> int:
+    delay_index = min(max(retry_number - 1, 0), len(VLM_RETRY_DELAYS_S) - 1)
+    return int(VLM_RETRY_DELAYS_S[delay_index] * 1000)
+
+
+def _settle_attempt(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    attempt_id: int,
+    attempt: AttemptResult,
+) -> tuple[str, int | None]:
+    """Persist one attempt and return (done|retry|failed, retry_delay_ms)."""
+    now_ms = int(time.time() * 1000)
+    retryable = attempt.outcome not in {"done", "input_error"}
+    should_retry = retryable and row["retry_number"] < VLM_MAX_ATTEMPTS
+
+    with conn:
+        conn.execute(
+            """
+            UPDATE vlm_attempts
+            SET completed_at = ?, duration_ms = ?, outcome = ?,
+                error_class = ?, http_status = ?
+            WHERE id = ? AND outcome IS NULL
+            """,
+            (
+                now_ms,
+                attempt.duration_ms,
+                attempt.outcome,
+                attempt.error_class,
+                attempt.http_status,
+                attempt_id,
+            ),
+        )
+
+        if attempt.outcome == "done":
+            result = attempt.payload
+            assert result is not None
+            conn.execute(
+                """
+                UPDATE chunks
+                SET status = 'done', vlm_model = ?, vlm_label = ?, vlm_category = ?,
+                    vlm_activity_confidence = ?, vlm_activity_confidences_json = ?,
+                    vlm_category_confidence = ?,
+                    vlm_category_confidences_json = ?, vlm_completed_at = ?,
+                    vlm_next_attempt_at = NULL, vlm_last_error_type = NULL,
+                    updated_at = ?
+                WHERE participant = ? AND chunk_start_ms = ?
+                """,
+                (
+                    VLM_MODEL,
+                    result["activity"],
+                    result["category"],
+                    result["activity_confidence"],
+                    json.dumps(result["activity_confidences"], separators=(",", ":")),
+                    result["category_confidence"],
+                    json.dumps(result["category_confidences"], separators=(",", ":")),
+                    now_ms,
+                    now_ms,
+                    row["participant"],
+                    row["chunk_start_ms"],
+                ),
+            )
+            return ("done", None)
+
+        if should_retry:
+            delay_ms = _retry_delay_ms(row["retry_number"])
+            conn.execute(
+                """
+                UPDATE chunks
+                SET status = 'ready', vlm_next_attempt_at = ?,
+                    vlm_last_error_type = ?, vlm_completed_at = NULL,
+                    updated_at = ?
+                WHERE participant = ? AND chunk_start_ms = ?
+                """,
+                (
+                    now_ms + delay_ms,
+                    attempt.outcome,
+                    now_ms,
+                    row["participant"],
+                    row["chunk_start_ms"],
+                ),
+            )
+            return ("retry", delay_ms)
+
+        conn.execute(
+            """
+            UPDATE chunks
+            SET status = 'failed', vlm_model = NULL, vlm_label = NULL,
+                vlm_category = NULL, vlm_activity_confidence = NULL,
+                vlm_activity_confidences_json = NULL,
+                vlm_category_confidence = NULL,
+                vlm_category_confidences_json = NULL,
+                vlm_completed_at = ?, vlm_next_attempt_at = NULL,
+                vlm_last_error_type = ?, updated_at = ?
+            WHERE participant = ? AND chunk_start_ms = ?
+            """,
+            (
+                now_ms,
+                attempt.outcome,
+                now_ms,
+                row["participant"],
+                row["chunk_start_ms"],
+            ),
+        )
+    return ("failed", None)
 
 
 def _chunk_desc(row: sqlite3.Row) -> str:
@@ -634,66 +820,71 @@ def _chunk_desc(row: sqlite3.Row) -> str:
 
 # --- Worker -----------------------------------------------------------------
 
-# Runs in a worker thread: reads the images and calls the endpoint (with
-# retry). Deliberately does NO database access — the sqlite3 connection lives
-# on the main thread, which writes the outcome this returns. Returns one of:
-#   ("done", result_dict) | ("failed", reason_str) | ("skip", reason_str)
-def _infer_chunk(
+# Runs in a worker thread: reads images and makes exactly one endpoint attempt.
+# Delayed retries are persisted/scheduled by the main thread so a timeout frees
+# its concurrency slot instead of sleeping/retrying inside it.
+def _classify_exception(exc: Exception) -> tuple[str, str, int | None]:
+    error_class = type(exc).__name__
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    http_status = status if isinstance(status, int) else None
+    lower_name = error_class.lower()
+
+    if isinstance(exc, ValueError):
+        return ("validation_error", error_class, http_status)
+    if isinstance(exc, TimeoutError) or "timeout" in lower_name:
+        return ("timeout", error_class, http_status)
+    if http_status == 429 or "ratelimit" in lower_name or "rate_limit" in lower_name:
+        return ("rate_limit", error_class, http_status)
+    if http_status is not None and http_status >= 500:
+        return ("server_error", error_class, http_status)
+    return ("api_error", error_class, http_status)
+
+
+def _infer_chunk_once(
     client: OpenAI, paths: list[str], user_prompt: str
-) -> tuple[str, object]:
+) -> AttemptResult:
+    started = time.monotonic()
     images: list[bytes] = []
     for path in paths:
         try:
             images.append((RECORDINGS_DIR / path).read_bytes())
         except OSError as exc:
-            return ("failed", f"unreadable {path}: {exc}")
+            return AttemptResult(
+                outcome="input_error",
+                payload=None,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                error_class=type(exc).__name__,
+                log_detail=f"unreadable {path}: {exc}",
+            )
 
-    last_err = None
-    for attempt in range(1, VLM_MAX_RETRIES + 1):
-        if _shutdown:
-            return ("skip", "shutdown")
-        try:
-            return ("done", infer(client, images, user_prompt))
-        except Exception as exc:  # noqa: BLE001 - API or parse error; retry then fail
-            last_err = exc
-            if attempt < VLM_MAX_RETRIES:
-                time.sleep(min(2 ** attempt, 10))  # 2s, 4s, 8s backoff
+    if _shutdown:
+        return AttemptResult(
+            outcome="interrupted",
+            payload=None,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            error_class="WorkerInterrupted",
+            log_detail="shutdown before endpoint call",
+        )
 
-    return ("failed", f"after {VLM_MAX_RETRIES} tries: {repr(last_err)[:200]}")
-
-
-# Main thread: run a claimed batch through the endpoint VLM_CONCURRENCY-at-a-
-# time and persist each outcome as it returns. Returns how many chunks reached
-# a terminal state (done/failed); 'skip' chunks (shutdown mid-flight) are left
-# 'processing' and reclaimed on the next start. All DB writes happen here.
-def _process_batch(
-    conn: sqlite3.Connection,
-    client: OpenAI,
-    jobs: list[tuple[sqlite3.Row, list[str], str]],
-) -> int:
-    settled = 0
-    with ThreadPoolExecutor(max_workers=VLM_CONCURRENCY) as pool:
-        future_to_row = {
-            pool.submit(_infer_chunk, client, paths, prompt): row
-            for row, paths, prompt in jobs
-        }
-        for future in as_completed(future_to_row):
-            row = future_to_row[future]
-            status, payload = future.result()
-            if status == "done":
-                result = payload  # type: ignore[assignment]
-                _write_result(conn, row, result)
-                _log(
-                    f"done {_chunk_desc(row)} -> "
-                    f"{result['activity']!r} [{result['category']}]"
-                )
-                settled += 1
-            elif status == "failed":
-                _log(f"FAILED {_chunk_desc(row)} {payload}")
-                _mark_failed(conn, row)
-                settled += 1
-            # status == "skip": leave 'processing' for the startup reclaim
-    return settled
+    try:
+        result = infer(client, images, user_prompt)
+        return AttemptResult(
+            outcome="done",
+            payload=result,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+    except Exception as exc:  # noqa: BLE001 - classified and persisted by type
+        outcome, error_class, http_status = _classify_exception(exc)
+        return AttemptResult(
+            outcome=outcome,
+            payload=None,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            error_class=error_class,
+            http_status=http_status,
+            log_detail=repr(exc)[:200],
+        )
 
 
 def run(once: bool, max_chunks: int | None) -> None:
@@ -706,7 +897,8 @@ def run(once: bool, max_chunks: int | None) -> None:
     _log(f"model={VLM_MODEL} via {KIT_BASE_URL}")
     _log(
         f"concurrency={VLM_CONCURRENCY} (in-flight endpoint calls), "
-        f"batch={BATCH_SIZE}, frames/chunk<={VLM_CHUNK_MAX_FRAMES}"
+        f"refill<={BATCH_SIZE}, frames/chunk<={VLM_CHUNK_MAX_FRAMES}, "
+        f"attempts<={VLM_MAX_ATTEMPTS}, timeout={VLM_TIMEOUT:g}s"
     )
     client = OpenAI(api_key=KIT_API_KEY, base_url=KIT_BASE_URL, timeout=VLM_TIMEOUT, max_retries=0)
 
@@ -720,78 +912,140 @@ def run(once: bool, max_chunks: int | None) -> None:
                 _log(f"reclaimed {reclaimed} interrupted 'processing' chunk(s)")
         conn.close()
 
-    processed = 0
-    while not _shutdown:
-        if not RECORDINGS_DB.exists():
-            time.sleep(POLL_INTERVAL_S)
-            continue
-        conn = _connect()
-        if not schema_checked:
-            schema_checked = _ensure_chunks_table(conn)
-            if not schema_checked:
-                conn.close()
+    settled_attempts = 0
+    in_flight: dict[Future[AttemptResult], InFlightAttempt] = {}
+
+    with ThreadPoolExecutor(max_workers=VLM_CONCURRENCY) as pool:
+        while not _shutdown or in_flight:
+            if not RECORDINGS_DB.exists():
                 time.sleep(POLL_INTERVAL_S)
                 continue
-        # Never claim more than --max still allows, so a capped run leaves no
-        # extra chunks stranded in 'processing'.
-        claim_limit = BATCH_SIZE
-        if max_chunks is not None:
-            claim_limit = min(BATCH_SIZE, max_chunks - processed)
-            if claim_limit <= 0:
-                conn.close()
+
+            conn = _connect()
+            if not schema_checked:
+                schema_checked = _ensure_chunks_table(conn)
+                if not schema_checked:
+                    conn.close()
+                    time.sleep(POLL_INTERVAL_S)
+                    continue
+
+            # Persist completed calls before claiming replacements. Removing a
+            # future only after the transaction succeeds makes a DB failure
+            # recoverable through the startup reclaim path.
+            for future in [candidate for candidate in in_flight if candidate.done()]:
+                job = in_flight[future]
+                try:
+                    attempt = future.result()
+                except Exception as exc:  # defensive: worker wrapper should catch
+                    attempt = AttemptResult(
+                        outcome="api_error",
+                        payload=None,
+                        duration_ms=0,
+                        error_class=type(exc).__name__,
+                        log_detail=repr(exc)[:200],
+                    )
+                disposition, delay_ms = _settle_attempt(
+                    conn, job.row, job.attempt_id, attempt
+                )
+                del in_flight[future]
+                settled_attempts += 1
+
+                if disposition == "done":
+                    result = attempt.payload
+                    assert result is not None
+                    _log(
+                        f"done {_chunk_desc(job.row)} attempt "
+                        f"{job.row['retry_number']}/{VLM_MAX_ATTEMPTS} -> "
+                        f"{result['activity']!r} [{result['category']}] "
+                        f"({attempt.duration_ms} ms)"
+                    )
+                elif disposition == "retry":
+                    _log(
+                        f"retry {_chunk_desc(job.row)} after "
+                        f"{attempt.outcome} on attempt "
+                        f"{job.row['retry_number']}/{VLM_MAX_ATTEMPTS}; "
+                        f"next in {delay_ms / 1000:g}s"
+                    )
+                else:
+                    _log(
+                        f"FAILED {_chunk_desc(job.row)} after attempt "
+                        f"{job.row['retry_number']}/{VLM_MAX_ATTEMPTS}: "
+                        f"{attempt.outcome} {attempt.log_detail or ''}".rstrip()
+                    )
+
+            claimed_count = 0
+            if not _shutdown:
+                available_slots = VLM_CONCURRENCY - len(in_flight)
+                if max_chunks is not None:
+                    remaining = max_chunks - settled_attempts - len(in_flight)
+                    available_slots = min(available_slots, max(0, remaining))
+                claim_limit = min(BATCH_SIZE, available_slots)
+
+                try:
+                    rows = _claim_batch(conn, claim_limit) if claim_limit > 0 else []
+                except sqlite3.OperationalError as exc:
+                    _log(f"db not ready ({exc}); retrying")
+                    rows = []
+
+                # Build jobs on the DB-owning main thread. Caches only cover
+                # this refill so a profile edited between refills is observed.
+                prompt_cache: dict[tuple[str, int], str] = {}
+                occupation_cache: dict[str, tuple[str | None, str | None]] = {}
+                for row in rows:
+                    claimed_count += 1
+                    paths = sample_evenly(
+                        _chunk_frame_paths(conn, row), VLM_CHUNK_MAX_FRAMES
+                    )
+                    attempt_id = _start_attempt(conn, row, len(paths))
+                    if not paths:
+                        attempt = AttemptResult(
+                            outcome="input_error",
+                            payload=None,
+                            duration_ms=0,
+                            error_class="NoAnonymizedFrames",
+                            log_detail="no anonymized frames in chunk",
+                        )
+                        _settle_attempt(conn, row, attempt_id, attempt)
+                        settled_attempts += 1
+                        _log(
+                            f"FAILED {_chunk_desc(row)} no anonymized frames in chunk"
+                        )
+                        continue
+
+                    participant = row["participant"]
+                    if participant not in occupation_cache:
+                        occupation_cache[participant] = _fetch_participant_context(
+                            conn, participant
+                        )
+                    prompt_key = (participant, len(paths))
+                    if prompt_key not in prompt_cache:
+                        occupation, work_description = occupation_cache[participant]
+                        prompt_cache[prompt_key] = _build_user_prompt(
+                            occupation, work_description, len(paths)
+                        )
+                    future = pool.submit(
+                        _infer_chunk_once, client, paths, prompt_cache[prompt_key]
+                    )
+                    in_flight[future] = InFlightAttempt(row, attempt_id)
+
+            conn.close()
+
+            if max_chunks is not None and settled_attempts >= max_chunks and not in_flight:
+                _log(f"reached --max {max_chunks} endpoint attempt(s)")
+                break
+            if once and not in_flight and claimed_count == 0:
                 break
 
-        try:
-            rows = _claim_batch(conn, claim_limit)
-        except sqlite3.OperationalError as exc:
-            _log(f"db not ready ({exc}); retrying")
-            conn.close()
-            time.sleep(POLL_INTERVAL_S)
-            continue
-
-        if not rows:
-            conn.close()
-            if once:
-                break
-            time.sleep(POLL_INTERVAL_S)
-            continue
-
-        # Build each chunk's inference job on the main thread: sampled frame
-        # paths + the per-participant prompt (occupation context, cached per
-        # batch). A chunk with zero anonymized frames (all blurs failed, or
-        # every frame deleted) is failed here without an API call.
-        prompt_cache: dict[tuple[str, int], str] = {}
-        occupation_cache: dict[str, tuple[str | None, str | None]] = {}
-        jobs: list[tuple[sqlite3.Row, list[str], str]] = []
-        for row in rows:
-            paths = sample_evenly(_chunk_frame_paths(conn, row), VLM_CHUNK_MAX_FRAMES)
-            if not paths:
-                _log(f"FAILED {_chunk_desc(row)} no anonymized frames in chunk")
-                _mark_failed(conn, row)
-                processed += 1
-                continue
-            participant = row["participant"]
-            if participant not in occupation_cache:
-                occupation_cache[participant] = _fetch_participant_context(
-                    conn, participant
+            if in_flight:
+                wait(
+                    tuple(in_flight),
+                    timeout=POLL_INTERVAL_S,
+                    return_when=FIRST_COMPLETED,
                 )
-            prompt_key = (participant, len(paths))
-            if prompt_key not in prompt_cache:
-                occupation, work_description = occupation_cache[participant]
-                prompt_cache[prompt_key] = _build_user_prompt(
-                    occupation, work_description, len(paths)
-                )
-            jobs.append((row, paths, prompt_cache[prompt_key]))
+            else:
+                time.sleep(POLL_INTERVAL_S)
 
-        if jobs:
-            processed += _process_batch(conn, client, jobs)
-        conn.close()
-
-        if max_chunks is not None and processed >= max_chunks:
-            _log(f"reached --max {max_chunks}")
-            break
-
-    _log(f"stopping. processed {processed} chunk(s) this run.")
+    _log(f"stopping. completed {settled_attempts} endpoint attempt(s) this run.")
 
 
 def main() -> None:
@@ -804,7 +1058,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--max", type=int, default=None, metavar="N",
-        help="stop after processing N chunks (for testing)",
+        help="stop after completing N endpoint attempts (for testing)",
     )
     args = parser.parse_args()
 

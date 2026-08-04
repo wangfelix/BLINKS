@@ -194,16 +194,22 @@ cp .env.example .env        # then put the real KIT_API_KEY in .env (gitignored)
 ```
 
 Needs `KIT_API_KEY` in `.env` and the **KIT network / VPN** (endpoint is
-KIT-internal). Env: `VLM_MODEL` (default `kit.gemma4-31b-it`),
-`VLM_CHUNK_MAX_FRAMES` (`20`, evenly sampled per chunk), `VLM_MAX_RETRIES`
-(default `3`, then the chunk is marked `failed`), `BATCH_SIZE` (`8` chunks per
-poll), `POLL_INTERVAL_S` (`3.0`).
+KIT-internal). Env: `VLM_MODEL` (default `kit.qwen3.5-397b-A17b`),
+`VLM_CHUNK_MAX_FRAMES` (`20`, evenly sampled per chunk), `VLM_MAX_ATTEMPTS`
+(`5` total), `VLM_RETRY_DELAYS_S` (`30,120,300,600` seconds),
+`VLM_CONCURRENCY` (`8` calls in flight), and `POLL_INTERVAL_S` (`3.0`). A
+completed call immediately refills its slot; timeouts are persisted and retried
+later rather than tying up the same slot through immediate retries.
 
 Requeue failed chunks after fixing the cause:
 
 ```bash
-sqlite3 recordings/recordings.db "UPDATE chunks SET status='ready' WHERE status='failed'"
+sqlite3 recordings/recordings.db "UPDATE chunks SET status='ready', vlm_retry_count=0, vlm_next_attempt_at=NULL, vlm_last_error_type=NULL WHERE status='failed'"
 ```
+
+Attempt timing/outcomes for reliability analysis are retained in
+`vlm_attempts`; the manual requeue above starts a new retry cycle without
+deleting that audit history.
 
 ---
 
@@ -259,8 +265,9 @@ npx expo run:android                                   # local (Android SDK on t
 npx eas build --profile development --platform android  # cloud build (APK)
 
 # then run Metro so the dev client can load JS:
-npm start                   # LAN — phone must be on the same WiFi
-npm run start-tunnel        # tunnel via ngrok — when phone is on a different network
+npm start                   # LAN — phone must be on the same WiFi (not eduroam)
+EXPO_PACKAGER_PROXY_URL=https://<name>.ngrok-free.dev npm start   # via our own ngrok tunnel
+npm run start-tunnel        # Expo's shared ngrok account — often unavailable
 ```
 
 **Pointing the app at a server** — edit `blinks-edge-app/.env.local` (gitignored),
@@ -281,8 +288,8 @@ EXPO_PUBLIC_SERVER_URL=https://<name>.ngrok-free.dev        # ngrok-tunneled ser
 
 ## Quick "everything up for a full local test"
 
-From the repo root, start the server, its `ngrok http 3000` tunnel, both Python
-workers, DRM web app, and Metro together:
+From the repo root, start the server, the single-origin dev proxy and its ngrok
+tunnel, both Python workers, DRM web app, and Metro together:
 
 ```bash
 ./dev-all.sh
@@ -291,10 +298,21 @@ DRM_DEV_MODE=1 ./dev-all.sh   # floating DRM dev navigator + direct round access
 
 The output uses a different color/name prefix for each background service.
 Metro remains attached directly to the terminal, so its QR code and keyboard
-shortcuts still work. The launcher first requests Expo's dev-client tunnel. If
-that shared tunnel service is unavailable, it keeps the other services running
-and restarts Metro in LAN mode; connect the phone to the same WiFi and scan the
-replacement QR code. `Ctrl+C` stops the whole stack. The launcher defaults to
+shortcuts still work. `Ctrl+C` stops the whole stack.
+
+**How the phone reaches this machine.** Expo's own `--tunnel` is not used: it
+runs on Expo's shared ngrok account, which is frequently unavailable ("remote
+gone away"). Instead `dev-proxy.mjs` serves the API server and Metro on one port
+(`DEV_PROXY_PORT`, default 8090) using the production path split — `/api`,
+`/frames`, `/health`, and the `/ingest` WebSocket go to the server, everything
+else goes to Metro — and the single reserved ngrok endpoint fronts that proxy.
+The launcher reads the public URL from the local ngrok API and passes it to
+Metro as `EXPO_PACKAGER_PROXY_URL`, so the QR code and dev-client deep link
+point at the tunnel. The phone then works on eduroam (which blocks
+client-to-client traffic, so LAN mode cannot work there) or on mobile data.
+Keep `EXPO_PUBLIC_SERVER_URL` in `blinks-edge-app/.env.local` set to the same
+ngrok URL. If the ngrok URL cannot be read, the launcher falls back to LAN mode.
+The launcher defaults to
 `DRM_AVAILABLE_FROM_HOUR=0` and `DISABLE_PUSH=1`; either can still be overridden:
 
 ```bash
@@ -312,8 +330,9 @@ Manual fallback (six terminals):
 # 1) server (gate open, push off)
 cd server && DRM_AVAILABLE_FROM_HOUR=0 DISABLE_PUSH=1 npm run dev
 
-# 2) public backend tunnel
-ngrok http 3000
+# 2) single-origin proxy (API + Metro) and its public tunnel
+node dev-proxy.mjs               # http://localhost:8090
+ngrok http 8090
 
 # 3) face-blur worker
 cd server/face-blur && .venv/bin/python blur_worker.py
@@ -324,8 +343,8 @@ cd server/vlm && .venv/bin/python vlm_worker.py
 # 5) web app
 cd drm-web && npm run dev        # http://localhost:3002
 
-# 6) Metro + tunnel (keeps the QR code visible)
-cd blinks-edge-app && npm run start-tunnel
+# 6) Metro advertising the tunnel URL (keeps the QR code visible)
+cd blinks-edge-app && EXPO_PACKAGER_PROXY_URL=https://<name>.ngrok-free.dev npm start
 ```
 
 Then `npm run create-user -- <user> <pw>`, record from the

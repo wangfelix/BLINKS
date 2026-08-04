@@ -13,6 +13,7 @@ import {
   sessionKeys,
 } from "@/sessions/query-options/session-queries";
 import { SessionFrame } from "@/sessions/types/session-types";
+import { studyStatusQueryOptions } from "@/study/query-options/study-queries";
 
 const DELETE_BATCH_SIZE = 500;
 
@@ -28,7 +29,16 @@ export const useSessionDetailModel = () => {
 
   // ---- STATE ----
 
-  const framesQuery = useQuery(sessionFramesQueryOptions(device, session));
+  const studyStatusQuery = useQuery(studyStatusQueryOptions());
+  const canManagePhotos = studyStatusQuery.data?.canManagePhotos === true;
+  const framesQuery = useQuery({
+    ...sessionFramesQueryOptions(device, session),
+    enabled:
+      canManagePhotos &&
+      Boolean(device) &&
+      Number.isInteger(session) &&
+      session > 0,
+  });
   const [previewFrame, setPreviewFrame] = useState<SessionFrame | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedFrameIndexes, setSelectedFrameIndexes] = useState<Set<number>>(
@@ -91,6 +101,21 @@ export const useSessionDetailModel = () => {
     );
   }, [framesQuery.data]);
 
+  useEffect(() => {
+    if (canManagePhotos) return;
+    setSelectedFrameIndexes(new Set());
+    setIsSelectionMode(false);
+    setPreviewFrame(null);
+  }, [canManagePhotos]);
+
+  const photoAccessState = studyStatusQuery.isError
+    ? "error"
+    : studyStatusQuery.isPending
+      ? "loading"
+      : canManagePhotos
+        ? "available"
+        : "restricted";
+
   // ---- ACTIONS ----
 
   const confirmDeleteFrame = (frame: SessionFrame) => {
@@ -114,6 +139,13 @@ export const useSessionDetailModel = () => {
 
   const closeFramePreview = () => {
     setPreviewFrame(null);
+  };
+
+  const refetch = async () => {
+    const accessResult = await studyStatusQuery.refetch();
+    if (accessResult.data?.canManagePhotos) {
+      await framesQuery.refetch();
+    }
   };
 
   const enterSelectionMode = () => {
@@ -157,10 +189,14 @@ export const useSessionDetailModel = () => {
 
   return {
     screenTitle,
-    frames: framesQuery.data ?? [],
-    isLoading: framesQuery.isLoading,
-    isRefetching: framesQuery.isRefetching,
-    refetch: framesQuery.refetch,
+    frames: canManagePhotos ? (framesQuery.data ?? []) : [],
+    photoAccessState,
+    isLoading:
+      studyStatusQuery.isPending ||
+      (canManagePhotos && framesQuery.isLoading),
+    isRefetching:
+      studyStatusQuery.isRefetching || framesQuery.isRefetching,
+    refetch,
     confirmDeleteFrame,
     previewFrame,
     openFramePreview,

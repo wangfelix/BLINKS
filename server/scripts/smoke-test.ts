@@ -130,6 +130,32 @@ const markAllAnonymized = (): number =>
         .run(Date.now()).changes,
   );
 
+const markFramePending = (
+  participant: string,
+  device: string,
+  session: number,
+  frameIndex: number,
+): string =>
+  withDb((db) => {
+    const row = db
+      .prepare(
+        "SELECT file_path FROM frames " +
+          "WHERE participant = ? AND device = ? AND session = ? AND frame_index = ?",
+      )
+      .get(participant, device, session, frameIndex) as
+      | { file_path: string }
+      | undefined;
+    assert.ok(row?.file_path, "expected a live frame path");
+    const changes = db
+      .prepare(
+        "UPDATE frames SET face_status = 'pending', face_completed_at = NULL " +
+          "WHERE participant = ? AND device = ? AND session = ? AND frame_index = ?",
+      )
+      .run(participant, device, session, frameIndex).changes;
+    assert.strictEqual(changes, 1, "one frame returned to pending");
+    return row!.file_path;
+  });
+
 // Ingestion-built 5-minute chunks of one participant, ascending.
 const getChunks = (
   username: string,
@@ -537,47 +563,39 @@ const main = async (): Promise<void> => {
 
   const device = sessions[0].device;
 
-  // Serving gate: until the face-blur worker marks a frame done, it is withheld
-  // from both the frame list and direct /frames serving (defense in depth).
-  const pendingList = await api(
-    `/api/sessions/${device}/${session}/frames`,
-    { token },
-  );
-  assert.strictEqual(
-    pendingList.frames.length,
-    0,
-    "frames withheld until face-blurred",
-  );
+  // Recall-protection gate: session summaries remain visible, but every photo
+  // listing, direct image response, and deletion stays locked until the
+  // participant submits the memory-only Self DRM round.
+  const lockedStudyStatus = await api("/api/study/status", { token });
+  assert.strictEqual(lockedStudyStatus.canManagePhotos, false);
+  await api(`/api/sessions/${device}/${session}/frames`, {
+    token,
+    expectStatus: 403,
+  });
   const pendingPath = peekPendingFilePath();
-  await api(`/frames/${pendingPath}`, { token, expectStatus: 404 });
+  await api(`/frames/${pendingPath}`, { token, expectStatus: 403 });
+  await api(`/api/sessions/${device}/${session}/frames/2`, {
+    method: "DELETE",
+    token,
+    expectStatus: 403,
+  });
+  await api(`/api/sessions/${device}/${session}/frames`, {
+    method: "DELETE",
+    token,
+    body: { frameIndexes: [2, 3] },
+    expectStatus: 403,
+  });
 
-  // Stand in for the worker finishing, then the same frames become available.
+  // Stand in for the worker finishing. The recall gate remains authoritative
+  // even after anonymization is complete.
   assert.strictEqual(markAllAnonymized(), 4, "worker marked 4 frames done");
-
-  const { frames } = await api(
-    `/api/sessions/${device}/${session}/frames`,
-    { token },
-  );
-  assert.strictEqual(frames.length, 4);
-  assert.strictEqual(frames[3].frameIndex, 4, "numbering continued");
-  // Anti-leak: the mobile app must never receive VLM output.
-  assert.ok(!("vlmStatus" in frames[0]), "no vlmStatus in sessions frames");
-  assert.ok(!("vlmLabel" in frames[0]), "no vlmLabel in sessions frames");
-  assert.ok(typeof frames[0].captureEpochMs === "number");
-  assert.ok(typeof frames[0].imageUrl === "string");
-
-  // image serving with ownership check
-  const imageBytes = await api(frames[0].imageUrl, { token });
-  assert.strictEqual(imageBytes.byteLength, FAKE_JPEG.length, "jpeg served");
-  await api(frames[0].imageUrl, { expectStatus: 401 });
+  await api(`/api/sessions/${device}/${session}/frames`, {
+    token,
+    expectStatus: 403,
+  });
   await api(`/frames/otheruser/some/path.jpg`, { token, expectStatus: 403 });
 
-  // cookie fallback (DRM website <img> tags): /frames/* accepts blinks_token
-  const cookieResponse = await fetch(`${BASE_URL}${frames[0].imageUrl}`, {
-    headers: { Cookie: `blinks_token=${token}` },
-  });
-  assert.strictEqual(cookieResponse.status, 200, "cookie auth serves image");
-  const badCookieResponse = await fetch(`${BASE_URL}${frames[0].imageUrl}`, {
+  const badCookieResponse = await fetch(`${BASE_URL}/frames/${pendingPath}`, {
     headers: { Cookie: "blinks_token=not-a-real-token" },
   });
   assert.strictEqual(badCookieResponse.status, 401, "bad cookie rejected");
@@ -586,109 +604,6 @@ const main = async (): Promise<void> => {
     headers: { Cookie: `blinks_token=${token}` },
   });
   assert.strictEqual(cookieJsonResponse.status, 401, "cookie rejected on JSON API");
-
-  // Single delete removes the JPEG, retains a soft-deleted row, clears its
-  // serving path, and is idempotent on retry.
-  const deletedImageUrl = frames[1].imageUrl;
-  const deletedRelativePath = decodeURIComponent(
-    deletedImageUrl.slice("/frames/".length),
-  );
-  const deletedAbsolutePath = path.join(RECORDINGS_DIR!, deletedRelativePath);
-  assert.ok(fs.existsSync(deletedAbsolutePath), "frame file exists before delete");
-  const singleDelete = await api(
-    `/api/sessions/${device}/${session}/frames/2`,
-    {
-      method: "DELETE",
-      token,
-    },
-  );
-  assert.strictEqual(singleDelete.deletedCount, 1);
-  assert.strictEqual(singleDelete.alreadyDeletedCount, 0);
-  assert.ok(!fs.existsSync(deletedAbsolutePath), "frame file removed");
-  const deletedFrameRow = getFrameDeletionState(
-    MAIN_USER,
-    device,
-    session,
-    2,
-  );
-  assert.strictEqual(
-    deletedFrameRow.file_path,
-    "",
-    "soft-deleted row has no serving path",
-  );
-  assert.ok(
-    typeof deletedFrameRow.deleted_at === "number",
-    "soft-deleted row carries deletion timestamp",
-  );
-  await api(deletedImageUrl, { token, expectStatus: 404 });
-
-  const repeatedSingleDelete = await api(
-    `/api/sessions/${device}/${session}/frames/2`,
-    {
-      method: "DELETE",
-      token,
-    },
-  );
-  assert.strictEqual(repeatedSingleDelete.deletedCount, 0);
-  assert.strictEqual(repeatedSingleDelete.alreadyDeletedCount, 1);
-
-  // Batch delete uses the same soft-delete path, collapses duplicate indexes,
-  // and repeated requests do not decrement chunks or counts twice.
-  const batchDelete = await api(
-    `/api/sessions/${device}/${session}/frames`,
-    {
-      method: "DELETE",
-      token,
-      body: { frameIndexes: [3, 4, 4] },
-    },
-  );
-  assert.strictEqual(batchDelete.requestedCount, 2);
-  assert.strictEqual(batchDelete.deletedCount, 2);
-  assert.strictEqual(batchDelete.alreadyDeletedCount, 0);
-  const repeatedBatchDelete = await api(
-    `/api/sessions/${device}/${session}/frames`,
-    {
-      method: "DELETE",
-      token,
-      body: { frameIndexes: [3, 4] },
-    },
-  );
-  assert.strictEqual(repeatedBatchDelete.deletedCount, 0);
-  assert.strictEqual(repeatedBatchDelete.alreadyDeletedCount, 2);
-  await api(`/api/sessions/${device}/${session}/frames`, {
-    method: "DELETE",
-    token,
-    body: { frameIndexes: [1, 999_999] },
-    expectStatus: 404,
-  });
-  await api(`/api/sessions/${device}/${session}/frames`, {
-    method: "DELETE",
-    token,
-    body: { frameIndexes: [] },
-    expectStatus: 400,
-  });
-
-  const afterDelete = await api(
-    `/api/sessions/${device}/${session}/frames`,
-    { token },
-  );
-  assert.strictEqual(afterDelete.frames.length, 1, "deleted frames excluded");
-  assert.strictEqual(
-    countSessionFrameRows(MAIN_USER, device, session),
-    4,
-    "all database rows retained",
-  );
-  const afterDeleteSessions = await api("/api/sessions", { token });
-  assert.strictEqual(afterDeleteSessions.sessions[0].frameCount, 1);
-  assert.strictEqual(afterDeleteSessions.sessions[0].deletedFrameCount, 3);
-  const baseSessionCsv = Buffer.from(
-    await api(`/api/export.csv?device=${device}&session=${session}`, { token }),
-  ).toString("utf8");
-  assert.strictEqual(
-    baseSessionCsv.trim().split("\n").length,
-    2,
-    "participant CSV contains only its header and one live frame",
-  );
 
   // Recording events are append-only and idempotent; a pause event also drives
   // the defense-in-depth ingestion gate.
@@ -715,11 +630,12 @@ const main = async (): Promise<void> => {
     "replaying an event does not duplicate it",
   );
   await sendFramesOverWs(token, session, [{ t: baseT + 120_000, n: 5 }]);
-  const whilePaused = await api(
-    `/api/sessions/${device}/${session}/frames`,
-    { token },
+  const whilePaused = await api("/api/sessions", { token });
+  assert.strictEqual(
+    whilePaused.sessions[0].frameCount,
+    4,
+    "paused frame dropped",
   );
-  assert.strictEqual(whilePaused.frames.length, 1, "paused frame dropped");
   const resumed = await api("/api/resume", {
     method: "POST",
     token,
@@ -838,7 +754,7 @@ const main = async (): Promise<void> => {
   // state: study day resolved, round 1 open, round 2 locked.
   let state = await api("/api/reconstruction/state", { token });
   assert.strictEqual(state.day, TODAY);
-  assert.strictEqual(state.frameCount, 8, "1 base + 7 fixture frames today");
+  assert.strictEqual(state.frameCount, 11, "4 base + 7 fixture frames today");
   assert.strictEqual(state.available, true, "DRM_AVAILABLE_FROM_HOUR=0");
   assert.deepStrictEqual(
     state.rounds.map((r: any) => [r.round, r.status, r.locked]),
@@ -1042,8 +958,157 @@ const main = async (): Promise<void> => {
   );
   assert.ok(round1Submit.submittedAt >= round1Submit.lastDraftSavedAt);
 
+  const unlockedStudyStatus = await api("/api/study/status", { token });
+  assert.strictEqual(unlockedStudyStatus.canManagePhotos, true);
+
+  // With recall protection lifted, face anonymization is still an independent
+  // serving gate. Temporarily return one frame to pending to exercise it.
+  const postUnlockPendingPath = markFramePending(
+    MAIN_USER,
+    device,
+    session,
+    1,
+  );
+  const pendingList = await api(
+    `/api/sessions/${device}/${session}/frames`,
+    { token },
+  );
+  assert.strictEqual(
+    pendingList.frames.length,
+    10,
+    "one pending frame withheld after photo access unlocks",
+  );
+  await api(`/frames/${postUnlockPendingPath}`, { token, expectStatus: 404 });
+  assert.strictEqual(markAllAnonymized(), 1, "pending frame anonymized again");
+
+  const { frames } = await api(
+    `/api/sessions/${device}/${session}/frames`,
+    { token },
+  );
+  assert.strictEqual(frames.length, 11);
+  assert.strictEqual(frames[3].frameIndex, 4, "numbering continued");
+  // Anti-leak: the mobile app must never receive VLM output.
+  assert.ok(!("vlmStatus" in frames[0]), "no vlmStatus in sessions frames");
+  assert.ok(!("vlmLabel" in frames[0]), "no vlmLabel in sessions frames");
+  assert.ok(typeof frames[0].captureEpochMs === "number");
+  assert.ok(typeof frames[0].imageUrl === "string");
+
+  // Image serving retains participant ownership and cookie fallback for the
+  // DRM website's <img> tags after Self DRM submission.
+  const imageBytes = await api(frames[0].imageUrl, { token });
+  assert.strictEqual(imageBytes.byteLength, FAKE_JPEG.length, "jpeg served");
+  await api(frames[0].imageUrl, { expectStatus: 401 });
+  await api(`/frames/otheruser/some/path.jpg`, { token, expectStatus: 403 });
+  const cookieResponse = await fetch(`${BASE_URL}${frames[0].imageUrl}`, {
+    headers: { Cookie: `blinks_token=${token}` },
+  });
+  assert.strictEqual(cookieResponse.status, 200, "cookie auth serves image");
+
+  // Single delete removes the JPEG, retains a soft-deleted row, clears its
+  // serving path, and is idempotent on retry.
+  const deletedImageUrl = frames[1].imageUrl;
+  const deletedRelativePath = decodeURIComponent(
+    deletedImageUrl.slice("/frames/".length),
+  );
+  const deletedAbsolutePath = path.join(RECORDINGS_DIR!, deletedRelativePath);
+  assert.ok(fs.existsSync(deletedAbsolutePath), "frame file exists before delete");
+  const singleDelete = await api(
+    `/api/sessions/${device}/${session}/frames/2`,
+    {
+      method: "DELETE",
+      token,
+    },
+  );
+  assert.strictEqual(singleDelete.deletedCount, 1);
+  assert.strictEqual(singleDelete.alreadyDeletedCount, 0);
+  assert.ok(!fs.existsSync(deletedAbsolutePath), "frame file removed");
+  const deletedFrameRow = getFrameDeletionState(
+    MAIN_USER,
+    device,
+    session,
+    2,
+  );
+  assert.strictEqual(
+    deletedFrameRow.file_path,
+    "",
+    "soft-deleted row has no serving path",
+  );
+  assert.ok(
+    typeof deletedFrameRow.deleted_at === "number",
+    "soft-deleted row carries deletion timestamp",
+  );
+  await api(deletedImageUrl, { token, expectStatus: 404 });
+
+  const repeatedSingleDelete = await api(
+    `/api/sessions/${device}/${session}/frames/2`,
+    {
+      method: "DELETE",
+      token,
+    },
+  );
+  assert.strictEqual(repeatedSingleDelete.deletedCount, 0);
+  assert.strictEqual(repeatedSingleDelete.alreadyDeletedCount, 1);
+
+  // Batch delete uses the same soft-delete path, collapses duplicate indexes,
+  // and repeated requests do not decrement chunks or counts twice.
+  const batchDelete = await api(
+    `/api/sessions/${device}/${session}/frames`,
+    {
+      method: "DELETE",
+      token,
+      body: { frameIndexes: [3, 4, 4] },
+    },
+  );
+  assert.strictEqual(batchDelete.requestedCount, 2);
+  assert.strictEqual(batchDelete.deletedCount, 2);
+  assert.strictEqual(batchDelete.alreadyDeletedCount, 0);
+  const repeatedBatchDelete = await api(
+    `/api/sessions/${device}/${session}/frames`,
+    {
+      method: "DELETE",
+      token,
+      body: { frameIndexes: [3, 4] },
+    },
+  );
+  assert.strictEqual(repeatedBatchDelete.deletedCount, 0);
+  assert.strictEqual(repeatedBatchDelete.alreadyDeletedCount, 2);
+  await api(`/api/sessions/${device}/${session}/frames`, {
+    method: "DELETE",
+    token,
+    body: { frameIndexes: [1, 999_999] },
+    expectStatus: 404,
+  });
+  await api(`/api/sessions/${device}/${session}/frames`, {
+    method: "DELETE",
+    token,
+    body: { frameIndexes: [] },
+    expectStatus: 400,
+  });
+
+  const afterDelete = await api(
+    `/api/sessions/${device}/${session}/frames`,
+    { token },
+  );
+  assert.strictEqual(afterDelete.frames.length, 8, "deleted frames excluded");
+  assert.strictEqual(
+    countSessionFrameRows(MAIN_USER, device, session),
+    11,
+    "all database rows retained",
+  );
+  const afterDeleteSessions = await api("/api/sessions", { token });
+  assert.strictEqual(afterDeleteSessions.sessions[0].frameCount, 8);
+  assert.strictEqual(afterDeleteSessions.sessions[0].deletedFrameCount, 3);
+  const baseSessionCsv = Buffer.from(
+    await api(`/api/export.csv?device=${device}&session=${session}`, { token }),
+  ).toString("utf8");
+  assert.strictEqual(
+    baseSessionCsv.trim().split("\n").length,
+    9,
+    "participant CSV contains its header and eight live frames",
+  );
+
   // Global photo management unlocks with Step 2 and returns live frames plus
-  // timestamped tombstones for the three earlier soft deletions. Tombstones
+  // timestamped tombstones for the three soft deletions. Tombstones
   // retain their database identity but never regain a serving path.
   const managedPhotos = await api("/api/photos", { token });
   assert.strictEqual(managedPhotos.day, TODAY);

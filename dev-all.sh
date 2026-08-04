@@ -114,6 +114,39 @@ preflight() {
 
   check_port 3000 "server"
   check_port 3002 "DRM web app"
+  check_port "$PROXY_PORT" "dev proxy"
+}
+
+# The free ngrok plan reserves one endpoint, so a single tunnel fronts the dev
+# proxy, which splits traffic between the API server and Metro. Ask the local
+# ngrok agent API for the public URL it actually got.
+resolve_tunnel_url() {
+  local attempt
+  local url
+
+  for attempt in $(seq 1 30); do
+    url="$(curl -fsS http://127.0.0.1:4040/api/tunnels 2>/dev/null \
+      | "$APP_NODE_BIN/node" -e '
+        let raw = "";
+        process.stdin.on("data", (chunk) => (raw += chunk));
+        process.stdin.on("end", () => {
+          try {
+            const tunnels = JSON.parse(raw).tunnels ?? [];
+            const https = tunnels.find((tunnel) => tunnel.public_url?.startsWith("https://"));
+            process.stdout.write((https ?? tunnels[0])?.public_url ?? "");
+          } catch {
+            process.stdout.write("");
+          }
+        });
+      ' 2>/dev/null)"
+    if [[ -n "$url" ]]; then
+      printf '%s\n' "$url"
+      return 0
+    fi
+    sleep 1
+  done
+
+  return 1
 }
 
 start_prefixed() {
@@ -164,6 +197,8 @@ cleanup() {
   fi
 }
 
+PROXY_PORT="${DEV_PROXY_PORT:-8090}"
+
 SERVER_NODE_BIN="$(resolve_node_bin "${SERVER_NODE_BIN:-}" "$HOME/.nvm/versions/node/v20.18.0/bin")" || \
   fail "No working Node installation found for the server"
 APP_NODE_BIN="$(resolve_node_bin "${APP_NODE_BIN:-}" "$HOME/.nvm/versions/node/v22.22.0/bin")" || \
@@ -184,9 +219,10 @@ trap cleanup EXIT
 
 info "Starting BLINKS local development stack..."
 printf '%sServer%s   http://localhost:3000  (DRM gate open, push disabled)\n' "$CYAN" "$RESET"
-printf '%sBackend%s  ngrok http 3000\n' "$MAGENTA" "$RESET"
+printf '%sProxy%s    http://localhost:%s  (API + Metro on one origin)\n' "$YELLOW" "$RESET" "$PROXY_PORT"
+printf '%sBackend%s  ngrok http %s\n' "$MAGENTA" "$RESET" "$PROXY_PORT"
 printf '%sDRM web%s  http://localhost:3002\n' "$BLUE" "$RESET"
-printf '%sMobile%s   Expo dev-client tunnel (LAN fallback); QR code will appear below\n' "$MAGENTA" "$RESET"
+printf '%sMobile%s   Expo dev client over the ngrok tunnel (LAN fallback); QR code will appear below\n' "$MAGENTA" "$RESET"
 printf '%sStop everything with Ctrl+C.%s\n\n' "$DIM" "$RESET"
 
 start_prefixed "SERVER" "$CYAN" "server" \
@@ -195,8 +231,11 @@ start_prefixed "SERVER" "$CYAN" "server" \
   DISABLE_PUSH="${DISABLE_PUSH:-1}" \
   "$SERVER_NODE_BIN/npm" run dev
 
+start_prefixed "PROXY" "$YELLOW" "." \
+  env DEV_PROXY_PORT="$PROXY_PORT" "$APP_NODE_BIN/node" dev-proxy.mjs
+
 start_prefixed "NGROK" "$MAGENTA" "." \
-  ngrok http 3000 --log stdout --log-format term
+  ngrok http "$PROXY_PORT" --log stdout --log-format term
 
 start_prefixed "FACE" "$YELLOW" "server/face-blur" \
   .venv/bin/python blur_worker.py
@@ -217,20 +256,31 @@ for index in "${!PIDS[@]}"; do
   fi
 done
 
+TUNNEL_URL="$(resolve_tunnel_url || true)"
+
+if [[ -n "$TUNNEL_URL" ]]; then
+  info "Tunnel ready: $TUNNEL_URL (Metro and the API share this origin)."
+  printf '%sThe QR code below points at the tunnel, so the phone works on eduroam or mobile data.%s\n' \
+    "$DIM" "$RESET"
+else
+  printf '\n'
+  info "Could not read the ngrok URL from http://127.0.0.1:4040; starting Metro in LAN mode."
+  printf '%sLAN mode needs the phone on a network that allows client-to-client traffic (eduroam does not).%s\n' \
+    "$YELLOW" "$RESET"
+fi
+
 printf '\n%s%s[MOBILE / METRO]%s Interactive output starts here; QR and shortcuts remain usable.\n\n' \
   "$BOLD" "$MAGENTA" "$RESET"
 
 cd "$ROOT_DIR/blinks-edge-app" || fail "Could not enter blinks-edge-app"
-env PATH="$APP_NODE_BIN:$PATH" "$APP_NODE_BIN/npm" run start-tunnel
-METRO_STATUS=$?
 
-if (( METRO_STATUS != 0 && METRO_STATUS != 130 && METRO_STATUS != 143 )); then
-  printf '\n'
-  info "Expo's shared tunnel is unavailable; restarting Metro in LAN mode."
-  printf '%sConnect the phone to the same WiFi as this computer, then scan the new QR code.%s\n\n' \
-    "$YELLOW" "$RESET"
-  env PATH="$APP_NODE_BIN:$PATH" "$APP_NODE_BIN/npm" run start
-  METRO_STATUS=$?
-fi
+# EXPO_PACKAGER_PROXY_URL overrides the advertised dev-server URL, so Metro keeps
+# listening on 8081 locally while the QR code and dev-client deep link point at
+# the tunnel. Expo's own --tunnel is not used: it runs on Expo's shared ngrok
+# account, which is what failed here.
+env PATH="$APP_NODE_BIN:$PATH" \
+  ${TUNNEL_URL:+EXPO_PACKAGER_PROXY_URL="$TUNNEL_URL"} \
+  "$APP_NODE_BIN/npm" run start
+METRO_STATUS=$?
 
 exit "$METRO_STATUS"

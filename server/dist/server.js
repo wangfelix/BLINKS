@@ -103,6 +103,22 @@ const studyStatusJson = (participant) => {
         canManagePhotos: (0, db_1.getRoundResponseList)(participant, 1)?.status === "submitted",
     };
 };
+// Photos are deliberately hidden until the participant has submitted the
+// memory-only Self DRM round. This is authoritative for every mobile/web
+// listing, image response, and deletion path so a client-side bug or direct
+// URL cannot contaminate unaided recall.
+const requirePhotoAccess = (req, res, next) => {
+    const participant = req.participant;
+    if (!participant ||
+        (0, db_1.getRoundResponseList)(participant, 1)?.status !== "submitted") {
+        res.status(403).json({
+            error: "step 1 must be submitted first",
+            code: "photo_access_locked",
+        });
+        return;
+    }
+    next();
+};
 app.post("/api/login", async (req, res) => {
     const { username, password } = req.body;
     if (typeof username !== "string" || typeof password !== "string") {
@@ -244,7 +260,7 @@ app.get("/api/sessions", auth_1.requireAuth, (req, res) => {
     }));
     res.json({ sessions });
 });
-app.get("/api/sessions/:device/:session/frames", auth_1.requireAuth, (req, res) => {
+app.get("/api/sessions/:device/:session/frames", auth_1.requireAuth, auth_1.requireCompletedOnboarding, requirePhotoAccess, (req, res) => {
     const device = sanitize(req.params.device);
     const session = Number(req.params.session);
     if (!device || !Number.isInteger(session)) {
@@ -325,7 +341,7 @@ const deleteFrames = (participant, device, session, frameIndexes) => {
 };
 // GDPR-relevant: delete the JPEG bytes while retaining a soft-deleted audit
 // row. Repeating a successful deletion is idempotent.
-app.delete("/api/sessions/:device/:session/frames/:frameIndex", auth_1.requireAuth, (req, res) => {
+app.delete("/api/sessions/:device/:session/frames/:frameIndex", auth_1.requireAuth, auth_1.requireCompletedOnboarding, requirePhotoAccess, (req, res) => {
     const device = sanitize(req.params.device);
     const session = Number(req.params.session);
     const frameIndex = Number(req.params.frameIndex);
@@ -341,7 +357,7 @@ app.delete("/api/sessions/:device/:session/frames/:frameIndex", auth_1.requireAu
 });
 // Bounded, participant-scoped batch deletion. Duplicates are collapsed and a
 // repeated request succeeds without changing counts or chunk bookkeeping.
-app.delete("/api/sessions/:device/:session/frames", auth_1.requireAuth, (req, res) => {
+app.delete("/api/sessions/:device/:session/frames", auth_1.requireAuth, auth_1.requireCompletedOnboarding, requirePhotoAccess, (req, res) => {
     const device = sanitize(req.params.device);
     const session = Number(req.params.session);
     const rawFrameIndexes = req.body?.frameIndexes;
@@ -364,7 +380,7 @@ app.delete("/api/sessions/:device/:session/frames", auth_1.requireAuth, (req, re
 // requested path belongs to the authenticated participant (these are images
 // of people and their homes). Cookie fallback (blinks_token) is for the DRM
 // website's <img> tags only; all JSON APIs remain header-authenticated.
-app.get("/frames/*", auth_1.requireAuthWithCookieFallback, (req, res) => {
+app.get("/frames/*", auth_1.requireAuthWithCookieFallback, auth_1.requireCompletedOnboarding, requirePhotoAccess, (req, res) => {
     const relativePath = decodeURIComponent(req.path.slice("/frames/".length));
     const normalized = path_1.default.normalize(relativePath);
     if (normalized.startsWith("..") ||
@@ -692,13 +708,9 @@ app.get("/api/reconstruction/state", auth_1.requireAuth, auth_1.requireCompleted
 // starts only after Self DRM is submitted so photos cannot contaminate the
 // from-memory round. Soft-deleted rows remain as timestamped tombstones, but
 // their cleared file paths are never returned.
-app.get("/api/photos", auth_1.requireAuth, auth_1.requireCompletedOnboarding, (req, res) => {
+app.get("/api/photos", auth_1.requireAuth, auth_1.requireCompletedOnboarding, requirePhotoAccess, (req, res) => {
     const participant = req.participant;
     const round1 = (0, db_1.getRoundResponseList)(participant, 1);
-    if (round1?.status !== "submitted") {
-        res.status(403).json({ error: "step 1 must be submitted first" });
-        return;
-    }
     res.json({
         day: round1.day,
         frames: (0, db_1.listPhotoFramesOnDay)(participant, round1.day).map((frame) => toPhotoFrameJson(frame)),

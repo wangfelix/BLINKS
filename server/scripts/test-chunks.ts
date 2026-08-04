@@ -61,6 +61,46 @@ const check = (name: string, actual: unknown, expected: unknown): void => {
   }
 };
 
+check(
+  "chunk retry columns are present",
+  (db.prepare("PRAGMA table_info(chunks)").all() as { name: string }[])
+    .map((column) => column.name)
+    .filter(
+      (name) =>
+        (name.startsWith("vlm_") && name.includes("attempt")) ||
+        name === "vlm_retry_count" ||
+        name === "vlm_last_error_type",
+    ),
+  [
+    "vlm_attempt_count",
+    "vlm_retry_count",
+    "vlm_next_attempt_at",
+    "vlm_last_error_type",
+  ],
+);
+check(
+  "VLM attempt audit table is present",
+  (db.prepare("PRAGMA table_info(vlm_attempts)").all() as { name: string }[]).map(
+    (column) => column.name,
+  ),
+  [
+    "id",
+    "participant",
+    "chunk_start_ms",
+    "attempt_number",
+    "retry_number",
+    "model",
+    "started_at",
+    "completed_at",
+    "duration_ms",
+    "frames_sent",
+    "timeout_seconds",
+    "outcome",
+    "error_class",
+    "http_status",
+  ],
+);
+
 // Fixed, 5-min-aligned base so window membership is deterministic.
 const now = Date.now();
 const w0 = chunkStartOf(now - 60 * 60_000); // an hour ago, aligned
@@ -80,6 +120,21 @@ check(
   "frames of one window share one filling chunk",
   chunks().map((c) => [c.chunk_start_ms - w0, c.frame_count, c.status]),
   [[0, 3, "filling"]],
+);
+check(
+  "new chunks start with clean retry state",
+  db
+    .prepare(
+      "SELECT vlm_attempt_count, vlm_retry_count, vlm_next_attempt_at, " +
+        "vlm_last_error_type FROM chunks WHERE chunk_start_ms = ?",
+    )
+    .get(w0),
+  {
+    vlm_attempt_count: 0,
+    vlm_retry_count: 0,
+    vlm_next_attempt_at: null,
+    vlm_last_error_type: null,
+  },
 );
 
 // A frame in window 2 (skipping window 1 entirely): closes window 0. Its
@@ -105,6 +160,13 @@ check(
   ["ready", "ready"],
 );
 
+db.prepare(
+  "INSERT INTO vlm_attempts " +
+    "(participant, chunk_start_ms, attempt_number, retry_number, model, " +
+    "started_at, completed_at, duration_ms, frames_sent, timeout_seconds, outcome) " +
+    "VALUES ('p', ?, 1, 1, 'test-model', ?, ?, 100, 1, 120, 'done')",
+).run(w0 + 2 * CHUNK_WINDOW_MS, now, now + 100);
+
 // GDPR soft delete: the audit row remains, but the active chunk count drops;
 // the last live frame of a window removes the chunk row entirely (a label
 // must not outlive its imagery).
@@ -113,6 +175,11 @@ check(
   "soft-deleting a window's last frame deletes its chunk",
   chunks().map((c) => [c.chunk_start_ms - w0, c.frame_count]),
   [[0, 3]],
+);
+check(
+  "attempt analysis survives deletion of an empty chunk",
+  db.prepare("SELECT COUNT(*) AS count FROM vlm_attempts").get(),
+  { count: 1 },
 );
 check(
   "soft-deleted frame keeps an audit row with no serving path",

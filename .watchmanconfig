@@ -1,0 +1,8 @@
+{
+  "ignore_dirs": [
+    "server/recordings",
+    "server/face-blur/.venv",
+    "server/vlm/.venv",
+    "drm-web/.next"
+  ]
+}

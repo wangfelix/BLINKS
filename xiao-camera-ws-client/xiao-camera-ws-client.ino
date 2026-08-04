@@ -7,10 +7,8 @@
 
 // ===========================================================================
 // Select camera model in board_config.h
-// Copy board_config.h AND camera_pins.h from the CameraWebServer example
-// into this sketch folder. board_config.h must have:
+// board_config.h must have:
 //   #define CAMERA_MODEL_XIAO_ESP32S3
-// (Reusing your working files guarantees the correct pin mapping.)
 // ===========================================================================
 #include "board_config.h"
 

@@ -32,15 +32,15 @@ const HistoryScreen = () => {
         ]}
         ListHeaderComponent={
           <AppText variant="title" style={styles.title}>
-            History
+            Photos
           </AppText>
         }
         ListEmptyComponent={
           isLoading ? null : (
             <EmptyState
               icon={<ImageSquareIcon size={40} color={colors.textMuted} />}
-              title="No sessions yet"
-              message="Your recorded sessions appear here after you start one from the Dashboard."
+              title="No recording sessions yet"
+              message="Your recording sessions will appear here after you start one from the Dashboard."
             />
           )
         }

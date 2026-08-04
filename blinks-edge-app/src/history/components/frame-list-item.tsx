@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
-import { CheckIcon, TrashIcon } from "phosphor-react-native";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { CheckIcon } from "phosphor-react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 
 import { AppText } from "@/application/components/app-text";
 import { formatTimeOfDay } from "@/application/utils/format-time";
@@ -10,9 +10,8 @@ import { SessionFrame } from "@/sessions/types/session-types";
 
 interface FrameListItemProps {
   frame: SessionFrame;
+  size: number;
   onOpen: () => void;
-  onDelete: () => void;
-  isDeleting: boolean;
   selectionMode: boolean;
   isSelected: boolean;
   onToggleSelection: () => void;
@@ -20,34 +19,42 @@ interface FrameListItemProps {
 
 export const FrameListItem = ({
   frame,
+  size,
   onOpen,
-  onDelete,
-  isDeleting,
   selectionMode,
   isSelected,
   onToggleSelection,
 }: FrameListItemProps) => {
   const formattedTime = formatTimeOfDay(frame.captureEpochMs);
-  const thumbnail = (
-    <Image
-      source={getFrameImageSource(frame)}
-      style={styles.thumbnail}
-      contentFit="cover"
-      transition={150}
-    />
-  );
 
   return (
     <Pressable
-      onPress={selectionMode ? onToggleSelection : undefined}
-      accessibilityRole={selectionMode ? "checkbox" : undefined}
+      onPress={selectionMode ? onToggleSelection : onOpen}
+      accessibilityRole={selectionMode ? "checkbox" : "button"}
+      accessibilityLabel={
+        selectionMode
+          ? `Select photo captured at ${formattedTime}`
+          : `View photo captured at ${formattedTime}`
+      }
       accessibilityState={selectionMode ? { checked: isSelected } : undefined}
       style={({ pressed }) => [
-        styles.row,
-        isSelected && styles.selectedRow,
-        pressed && selectionMode && styles.pressedRow,
+        styles.tile,
+        { width: size, height: size * 0.75 },
+        pressed && styles.pressedTile,
       ]}
     >
+      <Image
+        source={getFrameImageSource(frame)}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        recyclingKey={`${frame.frameIndex}`}
+      />
+      <View style={styles.timeChip}>
+        <AppText variant="caption" style={styles.timeLabel}>
+          {formattedTime}
+        </AppText>
+      </View>
       {selectionMode ? (
         <View style={[styles.checkbox, isSelected && styles.checkedCheckbox]}>
           {isSelected ? (
@@ -55,81 +62,50 @@ export const FrameListItem = ({
           ) : null}
         </View>
       ) : null}
-      {selectionMode ? (
-        thumbnail
-      ) : (
-        <Pressable
-          onPress={onOpen}
-          accessibilityRole="button"
-          accessibilityLabel={`View image captured at ${formattedTime}`}
-          style={({ pressed }) => [
-            styles.thumbnailButton,
-            pressed && styles.pressedThumbnail,
-          ]}
-        >
-          {thumbnail}
-        </Pressable>
-      )}
-      <View style={styles.textColumn}>
-        <AppText variant="subheading">{formattedTime}</AppText>
-      </View>
-      {!selectionMode ? (
-        <Pressable
-          onPress={onDelete}
-          disabled={isDeleting}
-          hitSlop={spacing.sm}
-          accessibilityLabel="Delete image"
-          style={({ pressed }) => [
-            styles.deleteButton,
-            pressed && { opacity: 0.6 },
-          ]}
-        >
-          {isDeleting ? (
-            <ActivityIndicator size="small" color={colors.danger} />
-          ) : (
-            <TrashIcon size={22} color={colors.danger} />
-          )}
-        </Pressable>
-      ) : null}
+      {isSelected ? <View pointerEvents="none" style={styles.selectionRing} /> : null}
     </Pressable>
   );
 };
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  selectedRow: { backgroundColor: colors.primaryMuted },
-  pressedRow: { opacity: 0.8 },
-  checkbox: {
-    width: 24,
-    height: 24,
+  tile: {
+    overflow: "hidden",
     borderRadius: radius.sm,
+    backgroundColor: colors.surfaceMuted,
+  },
+  pressedTile: { opacity: 0.82 },
+  timeChip: {
+    position: "absolute",
+    left: spacing.xs,
+    bottom: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    backgroundColor: "rgba(24, 24, 27, 0.78)",
+  },
+  timeLabel: { color: colors.textOnAccent },
+  checkbox: {
+    position: "absolute",
+    top: spacing.xs,
+    right: spacing.xs,
+    width: 28,
+    height: 28,
+    borderRadius: radius.pill,
     borderWidth: 2,
-    borderColor: colors.textMuted,
+    borderColor: colors.surface,
+    backgroundColor: "rgba(24, 24, 27, 0.58)",
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 2,
   },
   checkedCheckbox: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  thumbnail: {
-    width: 72,
-    height: 54,
+  selectionRing: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 3,
+    borderColor: colors.primary,
     borderRadius: radius.sm,
-    backgroundColor: colors.surfaceMuted,
   },
-  thumbnailButton: {
-    borderRadius: radius.sm,
-    overflow: "hidden",
-  },
-  pressedThumbnail: { opacity: 0.7 },
-  textColumn: { flex: 1, alignItems: "flex-start" },
-  deleteButton: { padding: spacing.sm },
 });

@@ -1,6 +1,6 @@
 import {
-  ClockCounterClockwiseIcon,
   HouseIcon,
+  ImageSquareIcon,
   IconProps,
   UserCircleIcon,
 } from "phosphor-react-native";
@@ -15,6 +15,6 @@ export interface BottomTabConfigEntry {
 
 export const bottomTabConfig: BottomTabConfigEntry[] = [
   { key: "index", label: "Dashboard", icon: HouseIcon },
-  { key: "history", label: "History", icon: ClockCounterClockwiseIcon },
+  { key: "history", label: "Photos", icon: ImageSquareIcon },
   { key: "profile", label: "Profile", icon: UserCircleIcon },
 ];

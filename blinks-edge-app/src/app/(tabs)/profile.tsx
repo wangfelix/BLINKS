@@ -28,7 +28,7 @@ const ProfileScreen = () => {
   } = useProfileModel();
 
   return (
-    <ScreenContainer scrollable keyboardAware bottomSpacing={tabBarHeight}>
+    <ScreenContainer scrollable keyboardAware>
       <AppText variant="title">Profile</AppText>
 
       <AppCard style={styles.identityCard}>
@@ -78,6 +78,11 @@ const ProfileScreen = () => {
         onPress={confirmSignOut}
         variant="danger"
         icon={<SignOutIcon size={20} color={colors.danger} />}
+      />
+      <View
+        collapsable={false}
+        pointerEvents="none"
+        style={{ height: tabBarHeight + spacing.xl }}
       />
     </ScreenContainer>
   );
