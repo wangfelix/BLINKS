@@ -1,0 +1,17 @@
+[Unit]
+Description=BLINKS VLM scene-understanding worker
+Wants=network-online.target
+After=network-online.target blinks.service
+
+[Service]
+WorkingDirectory=/root/BLINKS/server/vlm
+ExecStart=/root/BLINKS/server/vlm/.venv/bin/python vlm_worker.py
+# KIT_API_KEY lives here; the file is gitignored and must never be committed.
+EnvironmentFile=/root/BLINKS/server/vlm/.env
+Environment=RECORDINGS_DIR=/root/BLINKS/server/recordings
+Restart=always
+RestartSec=10
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=BLINKS face-anonymization worker
+Wants=network-online.target
+After=network-online.target blinks.service
+
+[Service]
+WorkingDirectory=/root/BLINKS/server/face-blur
+ExecStart=/root/BLINKS/server/face-blur/.venv/bin/python blur_worker.py
+Environment=RECORDINGS_DIR=/root/BLINKS/server/recordings
+Restart=always
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

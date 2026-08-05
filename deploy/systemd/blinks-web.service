@@ -1,0 +1,19 @@
+[Unit]
+Description=BLINKS DRM web app (Next.js)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+# next.config.ts sets output: "standalone", so `next start` (npm start) refuses
+# to run. Serve the bundled server instead. After every build, copy public/ and
+# .next/static into .next/standalone/ — see drm-web/README.md.
+WorkingDirectory=/root/BLINKS/drm-web/.next/standalone
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3001
+Environment=HOSTNAME=127.0.0.1
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,24 @@
+[Unit]
+Description=BLINKS ingestion + API server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+WorkingDirectory=/root/BLINKS/server
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=5
+UMask=0077
+Environment=NODE_ENV=production
+Environment=CAMERA_HOST=127.0.0.1
+Environment=CAMERA_PORT=3000
+Environment=WEB_URL=https://blinks.win.kit.edu
+Environment=DRM_TZ=Europe/Berlin
+Environment=DRM_AVAILABLE_FROM_HOUR=19
+Environment=DRM_DEFAULT_BEDTIME=22:00
+Environment=DISABLE_PUSH=0
+# Never set DRM_DEV_MODE here. It bypasses the evening gate and the
+# round-1-before-round-2 gate, and exposes the injected-annotation marker.
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "416864274562",
+    "project_id": "blinks-e10f7",
+    "storage_bucket": "blinks-e10f7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:416864274562:android:684d9771780d83be2d0c9b",
+        "android_client_info": {
+          "package_name": "edu.kit.blinks.edge"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBInEmsxqORiK0BFS2S0z3iaFutA_vhu8A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
