@@ -1,2 +1,7 @@
 *.jpg
 CLAUDE.md
+
+# Participant data must never be committed.
+recordings.db
+recordings.db-shm
+recordings.db-wal

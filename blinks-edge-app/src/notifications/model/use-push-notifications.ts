@@ -7,6 +7,8 @@ import { Platform } from "react-native";
 import { useAuth } from "@/authentication/context/auth-context";
 import { registerPushToken } from "@/notifications/api/notifications-api";
 
+const REGISTRATION_RETRY_MS = 60_000;
+
 // Show reminders even while the app is foregrounded (without a handler,
 // foreground notifications are silently dropped).
 Notifications.setNotificationHandler({
@@ -63,15 +65,30 @@ export const usePushNotifications = () => {
       hasRegisteredRef.current = false;
       return;
     }
-    if (hasRegisteredRef.current) return;
-    hasRegisteredRef.current = true;
-    registerForPushNotifications().catch((error) => {
-      console.warn("[push] registration failed", error);
-      // A transient failure (no network, VPN down) must not permanently
-      // silence the evening reminders: allow a retry on the next
-      // sign-in/app-start effect run.
-      hasRegisteredRef.current = false;
-    });
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const register = async () => {
+      if (hasRegisteredRef.current) return;
+      hasRegisteredRef.current = true;
+      try {
+        await registerForPushNotifications();
+      } catch (error) {
+        console.warn("[push] registration failed", error);
+        hasRegisteredRef.current = false;
+        if (!cancelled) {
+          retryTimer = setTimeout(() => {
+            void register();
+          }, REGISTRATION_RETRY_MS);
+        }
+      }
+    };
+
+    void register();
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
+    };
   }, [isSignedIn]);
 
   useEffect(() => {

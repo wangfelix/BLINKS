@@ -33,7 +33,7 @@ Time pressure has narrowed the study scope for now. The full adaptive-EMA versio
 Then they do the **end-of-day surveys on LimeSurvey** (external; Flow / Workload / Mental fatigue [scales TBD], Emotions = SAM, DRM burden + completion time **per round**). It is **within-subject** (every participant does both T1 and T2 on their one day); the fixed order is deliberate — the memory-based Self DRM must be **submitted before the assisted round unlocks**, so the VLM's proposals never contaminate the from-memory recall.
 
 - **No control arm:** the previously considered round-2 self-only/control path is retired and is not part of the planned study workflow. Every participant follows the same fixed sequence: round 1 Self DRM, then round 2 VLM-assisted DRM. Therefore every completed participant/day has exactly three logical lists: the round-1 `self` response, the immutable round-2 `vlm_proposal`, and the editable/final round-2 `assisted` response.
-- **Timeline:** Day 0 lab onboarding (consent, receive glasses + study phone + test run; first web login replaces the lab-issued password and opens the pre-study LimeSurvey; the participant also enters occupation / work description / **usual wake + bed times in the app onboarding**, stored server-side); Day 1 field day + evening reconstruction; Day 2 return devices + debrief. **No biosignals in this study.** Participants are instructed in the lab to do the evening on their own; the **fallback reminder** is a single push at the reported **bedtime − 10 min** (decided 2026-07-12; replaces the earlier fixed 19:00/21:00 pair).
+- **Timeline:** Day 0 lab onboarding (consent, receive glasses + study phone + test run; first web login replaces the lab-issued password and opens the pre-study LimeSurvey; the participant also enters occupation / work description / **usual wake + bed times in the app onboarding**, stored server-side); Day 1 field day + evening reconstruction; Day 2 return devices + debrief. **No biosignals in this study.** Participants are instructed in the lab to do the evening on their own; the **fallback reminder** is a single push at the reported **bedtime − 30 min** (updated 2026-08-05; replaces the earlier 10-minute lead and the historical fixed 19:00/21:00 pair).
 - **Analysis targets** (external to this repo): activity count Self vs. assisted (resolution), perceived burden per round, end-of-day fatigue vs. number/kind of breaks — the assisted round surfaces small breaks the participant would forget from memory.
 
 **Per component (as built after the 2026-07-12 two-round rewrite):**
@@ -61,11 +61,12 @@ Implementation decisions (beyond the spec above):
 - **Evening gate:** if the pinned/derived study day is today, the reconstruction opens at `DRM_AVAILABLE_FROM_HOUR` (default 19) local, **server-enforced on GET and writes** (404-for-no-frames before 403-for-gated); a past study day is always open (morning-after catch-up), `submitted_at` recorded per round for recall-delay analysis. **Submit is final per round** (409 after; researcher unlocks via DB, see COMMANDS.md).
 - **Label-quality and overreliance data:** the complete genuine VLM result lives in the immutable `vlm_proposal` list and the submitted participant result lives in the `assisted` list. After segmentation, `ceil(10% × valid VLM-labelled activities)` of the highest mean-confidence activities at or above `0.8` are selected; if none reaches `0.8`, the single highest-confidence valid activity is selected, and rows are never backfilled below the threshold. Each selected row receives a uniformly random different activity label and different category for initial presentation. Proposal `raw_label/category_label` always equal its genuine `vlm_raw_label/vlm_category`; `presented_raw_label/presented_category_label` and `is_incorrect_annotation_injected` preserve what was shown. The assisted row begins with the presented annotation and retains genuine VLM provenance through `proposal_activity_id`. Production APIs expose neither the genuine hidden annotation nor the injection marker; `DRM_DEV_MODE=1` exposes only the marker so the web app highlights injected rows light yellow. The assisted-round instruction screen—not the login page—warns participants that some Step-2 labels/types are deliberately incorrect. No `user_corrected_*` copy is stored on frames or chunks.
 - **Web auth and first-run/terminal gating:** bearer token + `blinks_token` cookie is accepted **only for `GET /frames/*`** (browser `<img>` cannot send headers); JSON APIs stay header-only (CSRF hygiene). `users.must_change_password`, nullable `onboarding_completed_at`, and nullable `study_completed_at` are persisted in the separate auth DB. New users must replace the lab password and confirm the pre-study link; existing users are grandfathered during the additive onboarding migration. The token-authenticated first-run password endpoint does not ask for the just-used lab password, whereas the general password-change endpoint still requires the current password. The client mirrors server state in `blinks_onboarding`/`blinks_study` routing cookies for fast Next.js redirects, but `GET /api/study/status` and the reconstruction middleware remain authoritative. The web client calls `queryClient.clear()` on sign-in and sign-out so cached data never crosses accounts. `npm run reset-onboarding -- <username>` clears both onboarding flags and `study_completed_at` for testing, but intentionally leaves submitted reconstruction lists intact.
-- **Push reminder:** in-server scheduler (60 s tick, `DISABLE_PUSH=1` for dev), Expo push API. Single **bedtime fallback**: fires at the participant's reported bedtime − 10 min (bedtimes before noon clamp to 23:50; missing bedtime → `DRM_DEFAULT_BEDTIME`, default 22:00) when they have a token + ≥1 frame today + round 2 not submitted; dedup per day via `participants.last_reminder_day`; payload `data.url` opens the site (env `WEB_URL`). The old 19:00/21:00 pair and `last_followup_day` are gone.
+- **Research admin (`/admin`):** a persisted `users.role = participant | admin` keeps admin and participant bearer tokens mutually exclusive. Admins have a separate login/token cookie and can page through the raw `frames`, `chunks`, `activity_lists`, and `activities` tables, download each complete table as CSV, and inspect only live face-anonymized images with participant/session filters. The panel also provisions participant auth + recordings-profile rows with a temporary password and mandatory first-login onboarding; duplicate IDs are never overwritten. Admin profiles live only in `auth.db` and are created/reset with `npm run create-admin -- <username> <password> [--reset]`.
+- **Push reminder:** in-server scheduler (60 s tick, `DISABLE_PUSH=1` for dev), Expo push API. Single **bedtime fallback**: fires at the participant's reported bedtime − 30 min (bedtimes before noon clamp to 23:50; missing bedtime → `DRM_DEFAULT_BEDTIME`, default 22:00) when they have a token + ≥1 frame today + round 2 not submitted. `participants.last_reminder_day` is written only after Expo accepts that participant's push ticket, so a transport failure remains retryable; payload `data.url` opens the site (env `WEB_URL`). The old 19:00/21:00 pair and `last_followup_day` are gone.
 - **App:** onboarding blocks the tabs only after the profile has _loaded_ with occupation OR wake/bed times missing (offline never locks the recorder); wake/bed are HH:MM text inputs validated client- and server-side. Dashboard shows the single recording day (no N-day circles; `studyDurationDays` removed from `/api/profile` and `appConfig`). **expo-notifications is a new native module → the phones need a fresh dev build** (`npx expo run:android`).
 - Chunks processed before a participant filled in their occupation were classified with "occupation unknown" — requeue them (`UPDATE chunks SET status='ready' WHERE ...`) if occupation-conditioned labels matter retroactively.
 
-`drm-web/` deploy (VM): `cd drm-web && npm ci && npm run build`, run `next start -p 3001` under a `blinks-web` systemd unit (sketch in `drm-web/README.md`); Apache routes `/api`, `/ingest`, `/frames`, `/health` → `127.0.0.1:3000` and everything else → `127.0.0.1:3001`. Web env: `NEXT_PUBLIC_ONBOARDING_SURVEY_URL` and `NEXT_PUBLIC_FINAL_SURVEY_URL`; `drm-web/src/lib/study-config.ts` appends `participant_id` only to the former and `participantId` only to the latter. Server env: `WEB_URL`, `DRM_TZ`, `DRM_AVAILABLE_FROM_HOUR`, `DRM_DEFAULT_BEDTIME`, `DISABLE_PUSH`. Current DRM migrations preserve the round/list data transactionally and remove the obsolete `reconstructions` table only after successful parent/child backfill and validation.
+`drm-web/` deploy (VM): `cd drm-web && npm ci && npm run build`, then run the **standalone bundle** (`node .next/standalone/server.js` with `PORT=3001`) under the `blinks-web` systemd unit in `deploy/systemd/`. `next start` / `npm start` **cannot** be used because `next.config.ts` sets `output: "standalone"`, and `public/` + `.next/static` must be copied into `.next/standalone/` after every build. Apache routes `/api`, `/ingest`, `/frames`, `/health` → `127.0.0.1:3000` and everything else → `127.0.0.1:3001`. Web env: `NEXT_PUBLIC_ONBOARDING_SURVEY_URL` and `NEXT_PUBLIC_FINAL_SURVEY_URL`; `drm-web/src/lib/study-config.ts` appends `participant_id` only to the former and `participantId` only to the latter. Server env: `WEB_URL`, `DRM_TZ`, `DRM_AVAILABLE_FROM_HOUR`, `DRM_DEFAULT_BEDTIME`, `DISABLE_PUSH`. Current DRM migrations preserve the round/list data transactionally and remove the obsolete `reconstructions` table only after successful parent/child backfill and validation.
 
 **Local testing aids for the web app:** `drm-web` dev (`npm run dev`, port 3002) **proxies** `/api`, `/frames`, `/health` to the server via `next.config.ts` rewrites (`API_PROXY_TARGET`, default `:3000`) — so dev is same-origin like prod and there is **no CORS setup** (the documented `NEXT_PUBLIC_API_URL` cross-origin path hits CORS and fails at login; the server has no CORS headers by design). `server/scripts/seed-demo-data.ts` seeds two clickable demo participants with one fully labeled field day each — `demo`/`demo12345` and `demo2`/`demo12345` — and both follow the same self-then-assisted flow without a camera/VLM run. Run the server with `DRM_AVAILABLE_FROM_HOUR=0` to test before 19:00. Everyday commands are collected in **`COMMANDS.md`** at the repo root (tracked).
 
@@ -75,11 +76,13 @@ Implementation decisions (beyond the spec above):
 
 ## Current architecture (BLE phone-relay; production stack BUILT 2026-06-10)
 
-The original design (the XIAO joins WiFi and opens a WebSocket **directly** to the server) is **superseded**. On the `new-architecture` branch the full production stack is now implemented: fixed BLE camera firmware (`camera-firmware/`), the participant app (`blinks-edge-app/`), and the authenticated server (`server/`). The legacy WiFi firmware (`xiao-camera-ws-client/`) is kept for reference but **no longer matches the server** (the `/camera/{mac}` path and `/assign` model were removed).
+The original design (the XIAO joins WiFi and opens a WebSocket **directly** to the server) is **superseded**. On the `new-architecture` branch the full production stack is now implemented: fixed BLE camera firmware (`camera-firmware/`), the participant app (`blinks-edge-app/`), and the authenticated server (`server/`). The incompatible implementation was removed; the `/camera/{mac}` path and `/assign` model no longer exist.
 
 ### Why the pivot
 
-The production server lives on a **dedicated KIT VM reachable only from inside the KIT network** (the perimeter firewall blocks inbound public access; the VM has routable IPs but Let's Encrypt / participants' devices on the public internet cannot reach it). KIT remote access is **OpenVPN only** (SCC: `https://www.scc.kit.edu/dienste/vpn.php`). An ESP32-S3 **cannot run an OpenVPN client**, so the camera cannot reach the server from a participant's home. A **phone can** run KIT OpenVPN.
+**Historical constraint, lifted 2026-08-04.** The production server originally lived on a **KIT VM reachable only from inside the KIT network** (the perimeter firewall blocked inbound public access). KIT remote access was **OpenVPN only** (SCC: `https://www.scc.kit.edu/dienste/vpn.php`), and an ESP32-S3 **cannot run an OpenVPN client**, so the camera could not reach the server from a participant's home while a phone could. That inbound block has since been removed: `blinks.win.kit.edu` is **publicly reachable over HTTPS** and the study phones no longer need the KIT VPN.
+
+The BLE phone-relay architecture stays regardless. It still removes WiFi provisioning from the camera and still matches the wearable use case (camera + phone move together); only the VPN half of the original justification expired.
 
 **Decision — the phone relays.** The camera is a **BLE peripheral**; the participant's phone is the **BLE central + relay**: it connects to the camera over Bluetooth LE and forwards frames to the server over the phone's KIT VPN. This removes both the on-device-VPN problem and the WiFi-provisioning problem (the camera never joins WiFi), and fits the **wearable** use case (camera + phone move together). Data path:
 
@@ -93,7 +96,6 @@ The production server lives on a **dedicated KIT VM reachable only from inside t
 - `camera-firmware/` — production ESP32-S3 BLE peripheral firmware (promoted from `feasibility/esp32-ble-camera`; sketch file is `camera-firmware.ino` because Arduino requires sketch = folder name).
 - `blinks-edge-app/` — production Expo (Android) participant app.
 - `feasibility/` — the validated spike (`blinks-ble-app` phone side; its firmware half moved to `camera-firmware/`). Keep for reference; superseded.
-- `xiao-camera-ws-client/` — legacy WiFi-direct firmware. Reference only; incompatible with the current server.
 
 ### Study + hardware decisions
 
@@ -123,7 +125,7 @@ Built to de-risk the make-or-break question: can an Android **foreground service
 
 - Service `9a8b7c6d-0001-...`, frame char `...0002` (notify), control char `...0003` (write).
 - Frame framing: header `[0x01][jpeg len BE 4B][camera frame counter BE 4B]`, data `[0x02][payload ≤180 B]`. The counter lets the server detect captured-but-undelivered frames (`device_frame` gaps). Receivers that read only bytes 1–4 of the header (the old spike app) remain compatible.
-- `CAPTURE_INTERVAL_MS` 5000 for bring-up, 30000 for the study. Firmware stability hardware-verified 2026-06-20 (10.4 h, no wedge, all 7,511 frames captured + sent).
+- `CAPTURE_INTERVAL_MS` is 15000 for the study (20 frames per complete 5-minute VLM window). The 2026-06-20 hardware test used 5000 and ran for 10.4 h without a wedge, capturing and sending all 7,511 frames.
 
 ### Camera→phone BLE frame loss (diagnosed 2026-06-20/22 — NEXT HARDWARE TASK, fix pending)
 
@@ -131,7 +133,7 @@ Overnight Motorola run (Android 13, 5 s interval, 10.4 h): the firmware captured
 
 Investigation/fix ladder (in order; steps 1–2 diagnose, 3+ fix):
 
-1. **Free baselines:** (a) 10 min foreground + screen on vs. 10 min backgrounded — compares camera frame counter vs. server rows; (b) the real **30 s study interval** backgrounded (more idle per frame may already shrink loss; measure before over-engineering).
+1. **Free baselines:** (a) 10 min foreground + screen on vs. 10 min backgrounded — compares camera frame counter vs. server rows; (b) the real **15 s study interval** backgrounded (more idle per frame may already shrink loss; measure before over-engineering).
 2. **Instrument:** firmware counts failed `notify()` returns per frame (NimBLE returns false when the stack buffer is full — Serial-only, no adb needed); app logs abandoned frames in `FrameAssembler` (header seen, next header before completion) — write app diagnostics to file/server, backgrounded JS `console.log` is unreliable.
 3. **Main fix candidate — firmware flow control:** check `notify()`'s return and retry the same chunk after a short wait instead of fire-and-forget `delay(8)`; the firmware then self-paces to the throttled link.
 4. **App:** `requestConnectionPriority(High)` after connect (ble-plx supports it on Android).
@@ -188,20 +190,36 @@ The context layer is **chunk-based**: ingestion groups frames into clock-aligned
 - **Concurrency (added 2026-07-08; continuously refilled 2026-08-04):** the endpoint calls are I/O-bound, so the worker runs up to `VLM_CONCURRENCY` (default **8**) in parallel via one in-process thread pool. Only network calls run in threads; all DB reads/writes stay on the main thread. A completed call immediately refills its slot, so a slow request no longer blocks the other chunks from its former fixed batch. One timeout occupies one slot for the configured 120-second attempt, then becomes a delayed retry. The Qwen endpoint completed eight concurrent production-schema requests with 20 distinct synthetic VGA images each in 81.6 s: seven passed immediately and one invalid distribution entered the retry policy. Scale through `VLM_CONCURRENCY`, not multiple processes; multi-process first requires an atomic claim and time-based reclaim.
 - Setup/run/env/systemd in `server/vlm/README.md`. A terminal failed chunk's anonymized frames stay served but have no label. Manual requeue starts a new cycle by setting `status='ready', vlm_retry_count=0, vlm_next_attempt_at=NULL, vlm_last_error_type=NULL`; lifetime `vlm_attempts` history remains.
 
-### TLS (open question)
+### TLS (RESOLVED 2026-08-04)
 
-Traffic rides inside the KIT VPN to a KIT-internal server, so the VPN encrypts transport. Both LimeSurvey questionnaires now open as top-level HTTPS pages, which removes the iframe/cross-site-cookie CSRF failure. Browser-level TLS for BLINKS is still desirable for defense in depth and should be covered by the data-protection decision, but LimeSurvey no longer depends on an embedded third-party cookie context.
+The VM is now reachable from the public internet, so a **Let's Encrypt certificate was issued through certbot's HTTP-01 challenge** (`certbot --apache -d blinks.win.kit.edu`) and Apache terminates TLS. Port 80 does nothing but redirect to HTTPS; renewal runs unattended from `certbot.timer`. The DFN/Sectigo certificate via SCC and the DNS-01 fallback were the alternatives considered and are only needed if public reachability is ever withdrawn. Both LimeSurvey questionnaires open as top-level HTTPS pages, so nothing depends on an embedded third-party cookie context.
 
-### Deployment status (KIT VM, set up 2026-06-07 — needs one-time migration for the restructure)
+### Deployment status (KIT VM — DEPLOYED 2026-08-04)
 
-- VM: **Ubuntu 26.04**, IPv4 `129.13.238.199`, IPv6 `2a00:1398:4:5802::20`, `root` via Felix's SSH key (admin "Jadon"). DNS **`blinks.win.kit.edu`** resolves to the VM (A + AAAA).
-- Installed: **Node 22** (NodeSource), build-essential, **Apache 2.4** (`proxy`, `proxy_http`, `proxy_wstunnel`, `headers`, `ssl`, `rewrite` enabled). **ufw**: only 22/80/443 inbound; raw Node port 3000 is closed.
-- Repo on **GitHub** (`github.com/wangfelix/BLINKS`, public) cloned to **`/root/BLINKS`**; runs under **systemd** unit **`blinks`** (`/etc/systemd/system/blinks.service`, `127.0.0.1:3000`, auto-restart, starts on boot).
-- **One-time migration on next deploy** (the server moved from repo root to `server/`):
+- VM: **Ubuntu 26.04**, IPv4 `129.13.238.199`, IPv6 `2a00:1398:4:5802::20`, `root` via Felix's SSH key (admin "Jadon"). DNS **`blinks.win.kit.edu`** resolves to the VM (A + AAAA) and is **publicly reachable over HTTPS**.
+- Installed: **Node 22** (NodeSource), build-essential, **Apache 2.4** (`proxy`, `proxy_http`, `proxy_wstunnel`, `headers`, `ssl`, `rewrite` enabled), Python venvs for both workers plus `libgl1`/`libglib2.0-0` for OpenCV. **ufw**: only 22/80/443 inbound; 3000 and 3001 are localhost-only.
+- Repo on **GitHub** (`github.com/wangfelix/BLINKS`, public) cloned to **`/root/BLINKS`**. **Four systemd units**, all enabled on boot:
+
+| Unit | Port | What it is |
+| --- | --- | --- |
+| `blinks` | 3000 | `server/` — API + WebSocket ingestion |
+| `blinks-web` | 3001 | `drm-web/` — participant website (Next.js standalone) |
+| `blinks-face-blur` | — | `server/face-blur/` — Python worker, polls the DB |
+| `blinks-vlm` | — | `server/vlm/` — Python worker, polls the DB |
+
+- **Deployment config is tracked in `deploy/`** and is the source of truth: `deploy/systemd/*.service`, `deploy/apache/*.conf`, `deploy/deploy.sh`, `deploy/README.md`. `deploy.sh` syncs them into `/etc`, so **do not hand-edit the `/etc` copies** — the next deploy overwrites them.
+- **Routine deploy = `/root/BLINKS/deploy/deploy.sh`** (`--pull` to git pull first, `--skip-python`, `--skip-config`). It accepts only a clean tracked checkout, validates the production survey/VLM/TLS prerequisites, builds both Node apps and runs the push regression test **before** restarting anything, then takes `quick_check`-verified online backups of both SQLite databases under `/root/BLINKS-backups/`. It syncs/enables systemd + Apache config, restarts all four services, and health-checks them locally and through HTTPS, including `pushScheduler.enabled=true` with a 30-minute lead. Apache vhost changes are backed up, `configtest`ed, and rolled back automatically if rejected.
+- Apache routes `/api`, `/ingest`, `/frames`, `/health` → `127.0.0.1:3000` and everything else → `127.0.0.1:3001`; the specific paths must be declared **before** the catch-all `/`. `/ingest` proxies to `ws://` upstream — Apache terminates TLS, so clients connect with `wss://`.
+- **`drm-web` runs the standalone bundle, never `next start`.** `next.config.ts` sets `output: "standalone"`, which makes `npm start` refuse to run. After every build, `public/` and `.next/static` must be copied into `.next/standalone/`, and the destinations **deleted first** — `cp -r public .next/standalone/` onto an existing directory nests it as `public/public` instead of merging, which breaks assets on the *second* deploy rather than the first.
+- **A stopped `blinks-face-blur` means no images anywhere.** The serving gate hides every frame whose `face_status` is not `done`, so the app and website show nothing while everything else looks healthy. `deploy.sh` treats it as a failure, not a warning.
+- **Migration performed 2026-08-04:** the old `blinks.service` had been running June-era code from a stale `/root/BLINKS/dist` (pre-restructure layout). Recordings moved to `server/recordings/`; the VM turned out to hold only an empty June-6 test database and no JPEGs, so production started from a fresh `recordings.db` created with the current schema. The old root-level `dist/` and `node_modules/` were deleted.
+- Historical one-time setup, for reference (superseded by `deploy/deploy.sh`):
 
 ```bash
 cd /root/BLINKS && git pull
-mv recordings server/recordings              # keep existing data next to the server
+mv recordings server/recordings              # CAUTION: if server/recordings already
+                                             # exists, mv NESTS the source inside it as
+                                             # server/recordings/recordings (hit 2026-08-04).
 # edit /etc/systemd/system/blinks.service:
 #   WorkingDirectory=/root/BLINKS/server
 #   ExecStart=/usr/bin/node dist/server.js   # (path unchanged relative to WorkingDirectory)
@@ -225,9 +243,8 @@ sudo cp <blinks-vlm.service> /etc/systemd/system/        # unit in README.md
 sudo systemctl daemon-reload && sudo systemctl enable --now blinks-vlm
 ```
 
-- Routine deploy = `cd /root/BLINKS && git pull && cd server && npm ci && npm run build && systemctl restart blinks` (also `systemctl restart blinks-face-blur` / `blinks-vlm` if those workers changed).
-- Apache vhost `blinks.conf` (port 80) reverse-proxies to `127.0.0.1:3000`. The WebSocket upgrade rule must cover **`/ingest`** (it was written for `/camera/...` — update `mod_proxy_wstunnel` matching accordingly).
-- **Reachable only from inside KIT** (the pivot reason): `http://blinks.win.kit.edu/health` returns OK on VPN/KIT-internal.
+- Verify a deploy: `systemctl is-active blinks blinks-web blinks-face-blur blinks-vlm`, `curl -s https://blinks.win.kit.edu/health` (JSON from :3000), `curl -sI https://blinks.win.kit.edu/` (HTML from :3001), `journalctl -u blinks -f`.
+- Pulling data off the VM: `recordings.db` runs in WAL mode, so **never `scp` the `.db` alone** — take a `sqlite3 .backup` snapshot first, or `rsync` the whole `server/recordings/` tree. Commands in `COMMANDS.md`.
 
 ---
 
@@ -235,14 +252,15 @@ sudo systemctl daemon-reload && sudo systemctl enable --now blinks-vlm
 
 - **XIAO ESP32S3 Sense** with OV2640 camera on the Sense extension board; PSRAM 8 MB (OPI), needed for the camera framebuffer. External IPEX antenna required for radio stability.
 - Sketch folders must contain `board_config.h` (with `#define CAMERA_MODEL_XIAO_ESP32S3` active) and `camera_pins.h`, copied from the stock `CameraWebServer` example.
-- `camera-firmware/` needs the **NimBLE-Arduino** library (2.x API); the legacy `xiao-camera-ws-client/` needs **WebSockets** by Markus Sattler (links2004).
+- `camera-firmware/` needs the **NimBLE-Arduino** library (2.x API).
 - IDE settings: Board **XIAO_ESP32S3**, PSRAM **"OPI PSRAM"** (else `esp_camera_init()` fails), Partition **"Huge APP (3MB No OTA / 1MB SPIFFS)"**, Serial Monitor **115200 baud**.
-- Camera config: VGA (640x480), JPEG quality 12, `CAMERA_GRAB_LATEST`, 2 PSRAM framebuffers.
+- Camera config: VGA (640x480), JPEG quality 12, `CAMERA_GRAB_WHEN_EMPTY`, 1 PSRAM framebuffer.
 
 ---
 
 ## Verified status
 
+- **2026-08-04: production deployment verified on the KIT VM.** All four services (`blinks`, `blinks-web`, `blinks-face-blur`, `blinks-vlm`) are active and enabled on boot; the API answers on `:3000` with the current build (push scheduler up, `/ingest` advertised, no removed `/devices` route), the web app answers on `:3001`, and `recordings.db` was created fresh with the current schema. The face-blur worker loaded CenterFace and the VLM worker connected to the KIT toolbox with `kit.qwen3.5-397b-A17b` at concurrency 8. TLS is live via Let's Encrypt. **Not yet verified:** `deploy/deploy.sh` has been syntax-checked and its guard paths exercised locally, but has not run against the VM; no camera has ingested a frame through the deployed stack, so ingestion, face-blur, and VLM have not been exercised end to end in production.
 - **2026-07-30: recording-event audit trail and schema cleanup verified.** Start/pause/resume/end are append-only, idempotent, and durably queued on the phone; ending while paused clears the ingestion gate and closes only that recording session's trailing chunk. The active database migration preserved 8,004 frames, 258 chunks, 6 activity lists, 18 activities, every chunk/activity label and category, and removed the obsolete per-frame VLM plus frame/chunk `user_corrected_*` columns. Server build, focused database/chunk/segmentation/vocabulary tests, full disposable API/WS/DRM smoke test, active app typecheck/lint, SQLite foreign-key check, and `quick_check` pass.
 - **2026-07-30: DRM web photo contract restored and regression-tested.** Round-2 and `/api/photos` responses again include stable frame identity and deletion state, preventing undefined React keys and restoring demo2's images. The seeded demo2 day returned 87 frames with no missing identity fields; a live frame URL served JPEG successfully. The disposable full smoke test, server build, web typecheck/build/lint, and focused photo-response assertions pass.
 - **2026-07-25: Activity-list-owned round workflow simplified.** `activity_lists` owns both list identity and round workflow; no `reconstructions` table remains and redundant `mode` is removed. Transactional migration preserves legacy reconstruction status/timing, stable parent/child IDs, the immutable proposal, and empty opened rounds, while converting the retired round-2 self response role to `kind=assisted`. Database constraints enforce round 1 `self` and round 2 `vlm_proposal|assisted`.
@@ -265,14 +283,14 @@ sudo systemctl daemon-reload && sudo systemctl enable --now blinks-vlm
 - SQLite frame index (see below), pause/resume across all three layers, GDPR per-frame delete.
 - **Automatic face anonymization** (`server/face-blur/`, 2026-06-24): CenterFace detect + pixelate in place before serving/VLM, with a read-API serving gate. See the Face anonymization section above.
 - **VLM scene-understanding worker** (`server/vlm/`, 2026-06-25; chunk rework 2026-07-19): KIT SCC AI toolbox (Qwen3.5 `kit.qwen3.5-397b-A17b`, OpenAI-compatible) writes activity and category probability distributions plus their argmax labels per completed 5-minute chunk after face processing. See the VLM worker section above.
+- **Production deployment** (KIT VM, 2026-08-04): HTTPS via Let's Encrypt, four systemd services behind Apache, tracked config and a one-command deploy script in `deploy/`. See the Deployment status section above.
 
 ### Next
 
-- **DRM Subproject — remaining before the study:** verify LimeSurvey Panel Integration maps pre-study `participant_id` and final `participantId` to the correct hidden participant-ID questions, and test both external-link submissions on the study browser; pilot-test the shared 17-label taxonomy and dropdown comprehension, then freeze the matching server/web/VLM definitions (`server/src/activity-vocabulary.ts`, `drm-web/src/lib/activity-vocabulary.ts`, and `server/vlm/vlm_worker.py`); run a live structured-output VLM check; make a fresh app dev build; deploy the current migrations.
+- **DRM Subproject — remaining before the study:** verify LimeSurvey Panel Integration maps pre-study `participant_id` and final `participantId` to the correct hidden participant-ID questions, and test both external-link submissions on the study browser; pilot-test the shared 17-label taxonomy and dropdown comprehension, then freeze the matching server/web/VLM definitions (`server/src/activity-vocabulary.ts`, `drm-web/src/lib/activity-vocabulary.ts`, and `server/vlm/vlm_worker.py`); run a live structured-output VLM check; make a fresh app dev build against production.
 - **BLE frame-loss fix** (see the fix ladder in the firmware area): ~45% of frames are dropped camera→phone while the app is backgrounded; firmware flow control on `notify()` is the main candidate.
-- **VM migration + first real deploy** of the restructured repo (steps above), incl. Apache `/ingest` upgrade rule, web-app routing, and participant account provisioning.
-- **TLS decision** (VPN-only vs. Apache TLS with DNS-01/DFN cert) for the data-protection documentation.
-- Optional hardening: disk-backed upload queue in the app (currently in-memory, bounded at 500 frames), pagination for `/api/sessions/...` (a full session day at 30 s spacing is ~2.9 k frames — fine unpaginated for v1).
+- **Fresh app dev build against production:** `blinks-edge-app` now defaults to `https://blinks.win.kit.edu` (`webSocketUrl` derives `wss://` from it), but the phones still run a build baked with the old URL. Rebuild and re-verify ingestion end to end before the study.
+- Optional hardening: disk-backed upload queue in the app (currently in-memory, bounded at 500 frames), pagination for `/api/sessions/...` (24 hours at 15 s spacing is ~5.8 k frames — fine unpaginated for v1).
 - **Deferred to the full version (post-DRM):** design the EMA/CPD representation and adaptive-push logic separately; overnight-relay re-test at the study interval.
 
 ### Storage and VLM metadata (implemented 2026-06-06; chunk rework 2026-07-19)
@@ -342,7 +360,7 @@ CREATE TABLE recording_events (
 ### VLM inference and biosignal alignment
 
 - **VLM worker BUILT + verified 2026-06-25, chunk-based since 2026-07-19 (`server/vlm/`).** Reads face-processed frames from a ready chunk, sends a bounded multi-image sample, and writes the result to that chunk. It remains asynchronous, so inference latency or crashes never cost captured frames.
-- Alignment with biosignals (Cardioban EKG, Mendi fNIRS, planned camera-glasses frame) uses `capture_epoch_ms`. In the relay architecture this is the **phone's clock at BLE header receipt** (≤ ~100 ms after true capture at 30 s spacing — sufficient for session-level alignment; the phone is NTP-synced by Android). The Mendi raw-optical-channel question and the larger longitudinal study (questionnaires, GDPR documentation) are tracked separately.
+- Alignment with biosignals (Cardioban EKG, Mendi fNIRS, planned camera-glasses frame) uses `capture_epoch_ms`. In the relay architecture this is the **phone's clock at BLE header receipt** (≤ ~100 ms after true capture at 15 s spacing — sufficient for session-level alignment; the phone is NTP-synced by Android). The Mendi raw-optical-channel question and the larger longitudinal study (questionnaires, GDPR documentation) are tracked separately.
 - An internal **admin panel** to review frames + labels in time order is the read path plus a small static page. No separate backend needed.
 
 ### Adaptive EMA notifications (design decision, not yet implemented)
@@ -435,4 +453,4 @@ Find the laptop IP for `EXPO_PUBLIC_SERVER_URL` during LAN development:
 ipconfig getifaddr en0
 ```
 
-Serial Monitor baud rate: **115200**. Firmware capture interval: `CAPTURE_INTERVAL_MS` in `camera-firmware/camera-firmware.ino` (5 s bring-up / 30 s study).
+Serial Monitor baud rate: **115200**. The study capture interval is `CAPTURE_INTERVAL_MS = 15000` in `camera-firmware/camera-firmware.ino`.

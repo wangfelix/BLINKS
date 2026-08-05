@@ -95,16 +95,16 @@ finality remain enforced. Never enable this flag during the study.
 ```bash
 npm ci
 npm run build          # standalone output (.next/standalone)
-npm start              # next start -p 3001
 ```
 
-`next.config.ts` uses `output: "standalone"`, so the build can also be run
-without `node_modules` via the bundled server:
+`next.config.ts` uses `output: "standalone"`, so `next start` (i.e. `npm start`)
+does **not** work here. Run the bundled server instead, after copying the two
+asset trees the standalone output does not include:
 
 ```bash
 cp -r public .next/standalone/
 cp -r .next/static .next/standalone/.next/
-PORT=3001 node .next/standalone/server.js
+PORT=3001 HOSTNAME=127.0.0.1 node .next/standalone/server.js
 ```
 
 ## Deployment on the KIT VM (blinks.win.kit.edu)
@@ -148,21 +148,33 @@ Description=BLINKS DRM web app (Next.js)
 After=network.target
 
 [Service]
-WorkingDirectory=/root/BLINKS/drm-web
-ExecStart=/usr/bin/npm start
+WorkingDirectory=/root/BLINKS/drm-web/.next/standalone
+ExecStart=/usr/bin/node server.js
 Restart=always
+RestartSec=5
 Environment=NODE_ENV=production
+Environment=PORT=3001
+Environment=HOSTNAME=127.0.0.1
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+The unit runs the standalone bundle, not `npm start` — see the build note
+above. `HOSTNAME=127.0.0.1` keeps the app off the public interface; Apache is
+the only thing that should reach it.
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now blinks-web
 ```
 
-Deploy update: `cd /root/BLINKS && git pull && cd drm-web && npm ci && npm run build && systemctl restart blinks-web`.
+Deploy update (the asset copies are required after every build, because
+`.next/standalone` is regenerated without `public/` and `.next/static`):
+
+```bash
+cd /root/BLINKS && git pull && cd drm-web && npm ci && npm run build && cp -r public .next/standalone/ && cp -r .next/static .next/standalone/.next/ && systemctl restart blinks-web
+```
 
 ## Before the study
 

@@ -38,13 +38,14 @@ const time_1 = require("./time");
 // participant can only ever read or delete their own frames.
 // ===========================================================================
 const PORT = Number(process.env.CAMERA_PORT ?? 3000);
+const HOST = process.env.CAMERA_HOST ?? "0.0.0.0";
 const RECORDINGS_DIR = process.env.RECORDINGS_DIR ?? path_1.default.join(__dirname, "..", "recordings");
 const DATA_DIR = process.env.DATA_DIR ?? path_1.default.join(__dirname, "..", "data");
 const MAX_BATCH_DELETE_FRAMES = 500;
 // DRM: where the reconstruction website lives (linked from the app + pushes),
 // and the local hour from which TODAY's reconstruction opens (past days are
 // always available; the gate is enforced server-side).
-const WEB_URL = process.env.WEB_URL ?? "http://blinks.win.kit.edu";
+const WEB_URL = process.env.WEB_URL ?? "https://blinks.win.kit.edu";
 const AVAILABLE_FROM_HOUR = Number(process.env.DRM_AVAILABLE_FROM_HOUR ?? 19);
 const DRM_DEV_MODE = process.env.DRM_DEV_MODE === "1";
 function ensureDir(dir) {
@@ -82,7 +83,11 @@ const pausedParticipants = new Set((0, db_1.listPausedParticipants)());
 const app = (0, express_1.default)();
 app.use(express_1.default.json());
 app.get("/health", (_req, res) => {
-    res.json({ status: "ok", time: new Date().toISOString() });
+    res.json({
+        status: "ok",
+        time: new Date().toISOString(),
+        pushScheduler: (0, push_1.getPushSchedulerStatus)(),
+    });
 });
 // --- Auth -------------------------------------------------------------------
 const onboardingJson = (user) => ({
@@ -127,7 +132,9 @@ app.post("/api/login", async (req, res) => {
     }
     const cleanUsername = sanitize(username);
     const passwordOk = await (0, auth_1.verifyUserPassword)(cleanUsername, password);
-    if (!cleanUsername || !passwordOk) {
+    if (!cleanUsername ||
+        !passwordOk ||
+        (0, auth_db_1.getUser)(cleanUsername)?.role !== "participant") {
         res.status(401).json({ error: "wrong username or password" });
         return;
     }
@@ -139,6 +146,195 @@ app.post("/api/login", async (req, res) => {
         username: cleanUsername,
         onboarding: onboardingJson(user),
         study: studyCompletionJson(user),
+    });
+});
+// --- Research administration ----------------------------------------------
+app.post("/api/admin/login", async (req, res) => {
+    const { username, password } = req.body;
+    if (typeof username !== "string" || typeof password !== "string") {
+        res.status(400).json({ error: "username and password are required" });
+        return;
+    }
+    const cleanUsername = sanitize(username);
+    const passwordOk = await (0, auth_1.verifyUserPassword)(cleanUsername, password);
+    if (!cleanUsername || !passwordOk || (0, auth_db_1.getUser)(cleanUsername)?.role !== "admin") {
+        res.status(401).json({ error: "wrong administrator username or password" });
+        return;
+    }
+    const token = (0, auth_1.issueToken)(cleanUsername);
+    console.log(`Admin login: ${cleanUsername}`);
+    res.json({ token, username: cleanUsername, role: "admin" });
+});
+app.get("/api/admin/status", auth_1.requireAdmin, (req, res) => {
+    res.json({ username: req.participant, role: "admin" });
+});
+app.get("/api/admin/overview", auth_1.requireAdmin, (_req, res) => {
+    const sessions = (0, db_1.listAdminPhotoSessions)();
+    res.json({
+        tableCounts: (0, db_1.getAdminTableCounts)(),
+        participantCount: (0, db_1.getAdminParticipantCount)(),
+        sessionCount: sessions.length,
+        availablePhotoCount: sessions.reduce((sum, session) => sum + session.available_frame_count, 0),
+    });
+});
+app.get("/api/admin/tables/:table.csv", auth_1.requireAdmin, (req, res) => {
+    const table = req.params.table;
+    if (!(0, db_1.isAdminTableName)(table)) {
+        res.status(404).json({ error: "unknown admin table" });
+        return;
+    }
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="blinks-${table}.csv"`);
+    res.send((0, db_1.exportAdminTableCsv)(table));
+});
+const adminPagination = (req) => {
+    const page = Math.max(1, Math.floor(Number(req.query.page) || 1));
+    const pageSize = Math.min(200, Math.max(1, Math.floor(Number(req.query.pageSize) || 50)));
+    return { page, pageSize, offset: (page - 1) * pageSize };
+};
+app.get("/api/admin/tables/:table", auth_1.requireAdmin, (req, res) => {
+    const table = req.params.table;
+    if (!(0, db_1.isAdminTableName)(table)) {
+        res.status(404).json({ error: "unknown admin table" });
+        return;
+    }
+    const search = String(req.query.search ?? "").trim();
+    const column = String(req.query.column ?? "").trim();
+    if (search.length > 200) {
+        res.status(400).json({ error: "table search is limited to 200 characters" });
+        return;
+    }
+    if (column !== "" && !(0, db_1.getAdminTableColumns)(table).includes(column)) {
+        res.status(400).json({ error: "unknown admin table column" });
+        return;
+    }
+    const { page, pageSize, offset } = adminPagination(req);
+    res.json({
+        ...(0, db_1.listAdminTableRows)(table, {
+            limit: pageSize,
+            offset,
+            search,
+            column: column || undefined,
+        }),
+        page,
+        pageSize,
+    });
+});
+app.get("/api/admin/photo-filters", auth_1.requireAdmin, (_req, res) => {
+    res.json({
+        participants: (0, db_1.listAdminPhotoParticipants)(),
+        sessions: (0, db_1.listAdminPhotoSessions)(),
+    });
+});
+app.get("/api/admin/photos", auth_1.requireAdmin, (req, res) => {
+    const participant = String(req.query.participant ?? "").trim();
+    if (!participant || sanitize(participant) !== participant) {
+        res.status(400).json({ error: "a valid participant query is required" });
+        return;
+    }
+    const rawSession = req.query.session;
+    const session = rawSession === undefined ? undefined : Number(rawSession);
+    if (session !== undefined && !Number.isSafeInteger(session)) {
+        res.status(400).json({ error: "session must be an integer" });
+        return;
+    }
+    const { page, pageSize, offset } = adminPagination(req);
+    const result = (0, db_1.listAdminPhotos)({
+        participant,
+        session,
+        limit: pageSize,
+        offset,
+    });
+    res.json({
+        participant,
+        session: session ?? null,
+        page,
+        pageSize,
+        total: result.total,
+        frames: result.rows.map((row) => ({
+            participant: row.participant,
+            device: row.device,
+            session: row.session,
+            frameIndex: row.frame_index,
+            captureEpochMs: row.capture_epoch_ms,
+            faceStatus: row.face_status,
+            deletedAt: row.deleted_at,
+            imageUrl: row.face_status === "done" && row.deleted_at === null
+                ? `/api/admin/frame-files/${row.file_path
+                    .split("/")
+                    .map(encodeURIComponent)
+                    .join("/")}`
+                : null,
+        })),
+    });
+});
+app.post("/api/admin/participants", auth_1.requireAdmin, async (req, res) => {
+    const { username, password } = req.body;
+    if (typeof username !== "string" || typeof password !== "string") {
+        res.status(400).json({ error: "participant ID and password are required" });
+        return;
+    }
+    const participant = username.trim();
+    if (!participant || sanitize(participant) !== participant) {
+        res.status(400).json({
+            error: "participant ID may only contain letters, digits, '-' and '_'",
+        });
+        return;
+    }
+    if (password.length < 8) {
+        res.status(400).json({ error: "the temporary password needs at least 8 characters" });
+        return;
+    }
+    if ((0, auth_db_1.getUser)(participant)) {
+        res.status(409).json({ error: "an account with this ID already exists" });
+        return;
+    }
+    let authUserInserted = false;
+    try {
+        (0, auth_db_1.insertUser)(participant, await (0, auth_1.hashPassword)(password));
+        authUserInserted = true;
+        (0, db_1.ensureParticipant)(participant);
+    }
+    catch (error) {
+        if (authUserInserted)
+            (0, auth_db_1.deleteParticipantUser)(participant);
+        else if ((0, auth_db_1.getUser)(participant)) {
+            res.status(409).json({ error: "an account with this ID already exists" });
+            return;
+        }
+        console.error(`Admin participant creation failed for ${participant}:`, error);
+        res.status(500).json({ error: "the participant could not be created" });
+        return;
+    }
+    console.log(`Participant created by ${req.participant}: ${participant}`);
+    res.status(201).json({
+        ok: true,
+        username: participant,
+        mustChangePassword: true,
+    });
+});
+// Cookie auth exists only for this read-only image route because <img> cannot
+// attach the admin bearer header. The database lookup still enforces that the
+// normalized path is a live, face-anonymized frame.
+app.get("/api/admin/frame-files/*", auth_1.requireAdminWithCookieFallback, (req, res) => {
+    const relativePath = decodeURIComponent(req.path.slice("/api/admin/frame-files/".length));
+    const normalized = path_1.default.normalize(relativePath);
+    if (normalized.startsWith("..") ||
+        path_1.default.isAbsolute(normalized) ||
+        normalized === ".") {
+        res.status(403).json({ error: "forbidden" });
+        return;
+    }
+    const availability = (0, db_1.getAdminFrameAvailabilityByPath)(normalized);
+    if (availability?.face_status !== "done" ||
+        availability.deleted_at !== null) {
+        res.status(404).json({ error: "frame not available" });
+        return;
+    }
+    res.sendFile(normalized, { root: RECORDINGS_DIR }, (error) => {
+        if (error && !res.headersSent) {
+            res.status(404).json({ error: "not found" });
+        }
     });
 });
 app.get("/api/onboarding", auth_1.requireAuth, (req, res) => {
@@ -1153,8 +1349,8 @@ setInterval(() => {
         console.error("Chunk idle sweep failed:", err);
     }
 }, 60000);
-server.listen(PORT, () => {
-    console.log(`BLINKS server listening on http://0.0.0.0:${PORT}`);
+server.listen(PORT, HOST, () => {
+    console.log(`BLINKS server listening on http://${HOST}:${PORT}`);
     console.log(`Health:  http://localhost:${PORT}/health`);
     console.log(`Ingest:  ws://localhost:${PORT}/ingest (bearer token required)`);
     console.log(`Recordings directory: ${RECORDINGS_DIR}`);

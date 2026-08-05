@@ -8,9 +8,11 @@ exports.issueToken = issueToken;
 exports.authenticateToken = authenticateToken;
 exports.participantFromAuthHeader = participantFromAuthHeader;
 exports.requireAuth = requireAuth;
+exports.requireAdmin = requireAdmin;
 exports.requireCompletedOnboarding = requireCompletedOnboarding;
 exports.requireActiveStudy = requireActiveStudy;
 exports.requireAuthWithCookieFallback = requireAuthWithCookieFallback;
+exports.requireAdminWithCookieFallback = requireAdminWithCookieFallback;
 exports.verifyUserPassword = verifyUserPassword;
 const argon2_1 = __importDefault(require("argon2"));
 const crypto_1 = __importDefault(require("crypto"));
@@ -39,10 +41,17 @@ const bearerFromHeader = (headerValue) => {
         return undefined;
     return headerValue.slice("Bearer ".length).trim();
 };
+const usernameFromAuthHeader = (headerValue) => authenticateToken(bearerFromHeader(headerValue));
+const participantFromToken = (token) => {
+    const username = authenticateToken(token);
+    return username !== null && (0, auth_db_1.getUser)(username)?.role === "participant"
+        ? username
+        : null;
+};
 // Resolves the Authorization header of any incoming request (HTTP route or
 // WebSocket upgrade) to a participant, or null.
 function participantFromAuthHeader(headerValue) {
-    return authenticateToken(bearerFromHeader(headerValue));
+    return participantFromToken(bearerFromHeader(headerValue));
 }
 function requireAuth(req, res, next) {
     const participant = participantFromAuthHeader(req.headers.authorization);
@@ -51,6 +60,21 @@ function requireAuth(req, res, next) {
         return;
     }
     req.participant = participant;
+    next();
+}
+// Research administration uses the same opaque token store, but a persisted
+// role check keeps admin APIs and participant APIs mutually exclusive.
+function requireAdmin(req, res, next) {
+    const username = usernameFromAuthHeader(req.headers.authorization);
+    if (!username) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+    }
+    if ((0, auth_db_1.getUser)(username)?.role !== "admin") {
+        res.status(403).json({ error: "administrator access required" });
+        return;
+    }
+    req.participant = username;
     next();
 }
 // Secure authorization gate for the DRM web workflow. The Next.js proxy also
@@ -85,7 +109,7 @@ function requireActiveStudy(req, res, next) {
 // Extracts the blinks_token cookie value from a raw Cookie header. Parsed by
 // hand (no cookie-parser dependency): split on ';', first '=' separates name
 // from value.
-const tokenFromCookieHeader = (cookieHeader) => {
+const tokenFromCookieHeader = (cookieHeader, cookieName = "blinks_token") => {
     if (!cookieHeader)
         return undefined;
     for (const part of cookieHeader.split(";")) {
@@ -93,7 +117,7 @@ const tokenFromCookieHeader = (cookieHeader) => {
         if (separatorIndex === -1)
             continue;
         const name = part.slice(0, separatorIndex).trim();
-        if (name !== "blinks_token")
+        if (name !== cookieName)
             continue;
         const rawValue = part.slice(separatorIndex + 1).trim();
         try {
@@ -111,12 +135,28 @@ const tokenFromCookieHeader = (cookieHeader) => {
 // stay header-only (CSRF hygiene: a cookie must never authorize a mutation).
 function requireAuthWithCookieFallback(req, res, next) {
     const participant = participantFromAuthHeader(req.headers.authorization) ??
-        authenticateToken(tokenFromCookieHeader(req.headers.cookie));
+        participantFromToken(tokenFromCookieHeader(req.headers.cookie));
     if (!participant) {
         res.status(401).json({ error: "unauthorized" });
         return;
     }
     req.participant = participant;
+    next();
+}
+// Browser image elements cannot set Authorization. This cookie fallback is
+// restricted to the read-only admin JPEG route; admin JSON remains header-only.
+function requireAdminWithCookieFallback(req, res, next) {
+    const username = usernameFromAuthHeader(req.headers.authorization) ??
+        authenticateToken(tokenFromCookieHeader(req.headers.cookie, "blinks_admin_token"));
+    if (!username) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+    }
+    if ((0, auth_db_1.getUser)(username)?.role !== "admin") {
+        res.status(403).json({ error: "administrator access required" });
+        return;
+    }
+    req.participant = username;
     next();
 }
 async function verifyUserPassword(username, password) {

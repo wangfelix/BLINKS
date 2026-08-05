@@ -36,9 +36,22 @@ export function authenticateToken(token: string | undefined): string | null {
   return getUsernameForTokenHash(sha256(token)) ?? null;
 }
 
-const bearerFromHeader = (headerValue: string | undefined): string | undefined => {
+const bearerFromHeader = (
+  headerValue: string | undefined,
+): string | undefined => {
   if (!headerValue?.startsWith("Bearer ")) return undefined;
   return headerValue.slice("Bearer ".length).trim();
+};
+
+const usernameFromAuthHeader = (
+  headerValue: string | undefined,
+): string | null => authenticateToken(bearerFromHeader(headerValue));
+
+const participantFromToken = (token: string | undefined): string | null => {
+  const username = authenticateToken(token);
+  return username !== null && getUser(username)?.role === "participant"
+    ? username
+    : null;
 };
 
 // Resolves the Authorization header of any incoming request (HTTP route or
@@ -46,7 +59,7 @@ const bearerFromHeader = (headerValue: string | undefined): string | undefined =
 export function participantFromAuthHeader(
   headerValue: string | undefined,
 ): string | null {
-  return authenticateToken(bearerFromHeader(headerValue));
+  return participantFromToken(bearerFromHeader(headerValue));
 }
 
 // Express middleware: requires a valid bearer token and attaches the
@@ -66,6 +79,26 @@ export function requireAuth(
     return;
   }
   req.participant = participant;
+  next();
+}
+
+// Research administration uses the same opaque token store, but a persisted
+// role check keeps admin APIs and participant APIs mutually exclusive.
+export function requireAdmin(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): void {
+  const username = usernameFromAuthHeader(req.headers.authorization);
+  if (!username) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+  if (getUser(username)?.role !== "admin") {
+    res.status(403).json({ error: "administrator access required" });
+    return;
+  }
+  req.participant = username;
   next();
 }
 
@@ -113,13 +146,14 @@ export function requireActiveStudy(
 // from value.
 const tokenFromCookieHeader = (
   cookieHeader: string | undefined,
+  cookieName = "blinks_token",
 ): string | undefined => {
   if (!cookieHeader) return undefined;
   for (const part of cookieHeader.split(";")) {
     const separatorIndex = part.indexOf("=");
     if (separatorIndex === -1) continue;
     const name = part.slice(0, separatorIndex).trim();
-    if (name !== "blinks_token") continue;
+    if (name !== cookieName) continue;
     const rawValue = part.slice(separatorIndex + 1).trim();
     try {
       return decodeURIComponent(rawValue);
@@ -141,12 +175,36 @@ export function requireAuthWithCookieFallback(
 ): void {
   const participant =
     participantFromAuthHeader(req.headers.authorization) ??
-    authenticateToken(tokenFromCookieHeader(req.headers.cookie));
+    participantFromToken(tokenFromCookieHeader(req.headers.cookie));
   if (!participant) {
     res.status(401).json({ error: "unauthorized" });
     return;
   }
   req.participant = participant;
+  next();
+}
+
+// Browser image elements cannot set Authorization. This cookie fallback is
+// restricted to the read-only admin JPEG route; admin JSON remains header-only.
+export function requireAdminWithCookieFallback(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): void {
+  const username =
+    usernameFromAuthHeader(req.headers.authorization) ??
+    authenticateToken(
+      tokenFromCookieHeader(req.headers.cookie, "blinks_admin_token"),
+    );
+  if (!username) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+  if (getUser(username)?.role !== "admin") {
+    res.status(403).json({ error: "administrator access required" });
+    return;
+  }
+  req.participant = username;
   next();
 }
 

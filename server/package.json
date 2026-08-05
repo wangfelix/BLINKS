@@ -7,9 +7,12 @@
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
     "build": "tsc",
+    "create-admin": "tsx scripts/create-admin.ts",
     "create-user": "tsx scripts/create-user.ts",
     "reset-onboarding": "tsx scripts/reset-onboarding.ts",
+    "test-admin-data": "tsx scripts/test-admin-data.ts",
     "test-auth-onboarding": "tsx scripts/test-auth-onboarding.ts",
+    "test-push": "tsx scripts/test-push.ts",
     "backfill-demo-probabilities": "tsx scripts/backfill-demo-vlm-probabilities.ts"
   },
   "dependencies": {

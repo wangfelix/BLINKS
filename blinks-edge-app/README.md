@@ -42,7 +42,7 @@ For local development against a laptop server:
 EXPO_PUBLIC_SERVER_URL=http://<laptop-ip>:3000 npm start
 ```
 
-Without the override the app talks to `http://blinks.win.kit.edu`
+Without the override the app talks to `https://blinks.win.kit.edu`
 (KIT-internal — phone must be on the KIT VPN).
 
 ## Critical Android plumbing (do not remove)

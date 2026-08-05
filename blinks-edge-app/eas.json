@@ -5,6 +5,13 @@
       "developmentClient": true,
       "distribution": "internal",
       "android": { "buildType": "apk" }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": {
+        "EXPO_PUBLIC_SERVER_URL": "https://blinks.win.kit.edu"
+      }
     }
   }
 }

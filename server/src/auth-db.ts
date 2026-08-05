@@ -8,18 +8,22 @@ import Database from "better-sqlite3";
 // token hashes) in their own database outside that tree means no research-data
 // copy ever carries auth material.
 //
-// One user = one study participant; the username IS the participant id used
-// throughout the frame store and the recordings/ directory layout.
+// Participant accounts use the username as the participant id throughout the
+// frame store. Admin accounts are auth-only and never own recordings.
 // ===========================================================================
 
 export interface UserRow {
   username: string;
   password_hash: string;
+  role: UserRole;
   must_change_password: number;
   onboarding_completed_at: number | null;
   study_completed_at: number | null;
   created_at: number;
 }
+
+export const USER_ROLES = ["participant", "admin"] as const;
+export type UserRole = (typeof USER_ROLES)[number];
 
 let db: Database.Database;
 
@@ -36,6 +40,7 @@ export function initAuthDb(dbPath: string): void {
   );
   const hadUsersTable = existingUserColumns.size > 0;
   const hadMustChangePassword = existingUserColumns.has("must_change_password");
+  const hadRole = existingUserColumns.has("role");
   const hadOnboardingCompletedAt = existingUserColumns.has(
     "onboarding_completed_at",
   );
@@ -45,6 +50,8 @@ export function initAuthDb(dbPath: string): void {
     CREATE TABLE IF NOT EXISTS users (
       username                TEXT    PRIMARY KEY,
       password_hash           TEXT    NOT NULL,
+      role                    TEXT    NOT NULL DEFAULT 'participant'
+                                      CHECK (role IN ('participant', 'admin')),
       must_change_password    INTEGER NOT NULL DEFAULT 1
                                       CHECK (must_change_password IN (0, 1)),
       onboarding_completed_at INTEGER,
@@ -67,6 +74,12 @@ export function initAuthDb(dbPath: string): void {
   // start with mandatory onboarding. A researcher can explicitly reset an
   // existing account with the reset-onboarding command.
   db.transaction(() => {
+    if (hadUsersTable && !hadRole) {
+      db.exec(`
+        ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'participant'
+          CHECK (role IN ('participant', 'admin'))
+      `);
+    }
     if (hadUsersTable && !hadMustChangePassword) {
       db.exec(`
         ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL
@@ -79,7 +92,10 @@ export function initAuthDb(dbPath: string): void {
     if (hadUsersTable && !hadStudyCompletedAt) {
       db.exec("ALTER TABLE users ADD COLUMN study_completed_at INTEGER");
     }
-    if (hadUsersTable && (!hadMustChangePassword || !hadOnboardingCompletedAt)) {
+    if (
+      hadUsersTable &&
+      (!hadMustChangePassword || !hadOnboardingCompletedAt)
+    ) {
       db.exec(`
         UPDATE users
         SET must_change_password = 0,
@@ -92,19 +108,47 @@ export function initAuthDb(dbPath: string): void {
 export function insertUser(username: string, passwordHash: string): void {
   db.prepare(
     `INSERT INTO users
-       (username, password_hash, must_change_password, onboarding_completed_at, study_completed_at, created_at)
-     VALUES (?, ?, 1, NULL, NULL, ?)`,
+       (username, password_hash, role, must_change_password, onboarding_completed_at, study_completed_at, created_at)
+     VALUES (?, ?, 'participant', 1, NULL, NULL, ?)`,
   ).run(username, passwordHash, Date.now());
+}
+
+export function insertAdmin(username: string, passwordHash: string): void {
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO users
+       (username, password_hash, role, must_change_password, onboarding_completed_at, study_completed_at, created_at)
+     VALUES (?, ?, 'admin', 0, ?, NULL, ?)`,
+  ).run(username, passwordHash, now, now);
 }
 
 export function getUser(username: string): UserRow | undefined {
   return db
     .prepare(
-      `SELECT username, password_hash, must_change_password,
+      `SELECT username, password_hash, role, must_change_password,
               onboarding_completed_at, study_completed_at, created_at
        FROM users WHERE username = ?`,
     )
     .get(username) as UserRow | undefined;
+}
+
+export function resetAdminPassword(
+  username: string,
+  passwordHash: string,
+): boolean {
+  return db.transaction(() => {
+    const result = db
+      .prepare(
+        `UPDATE users
+         SET password_hash = ?, must_change_password = 0,
+             onboarding_completed_at = COALESCE(onboarding_completed_at, ?)
+         WHERE username = ? AND role = 'admin'`,
+      )
+      .run(passwordHash, Date.now(), username);
+    if (result.changes !== 1) return false;
+    deleteTokensForUser(username);
+    return true;
+  })();
 }
 
 export function markPasswordChanged(
@@ -126,6 +170,14 @@ export function resetPassword(username: string, passwordHash: string): void {
   ).run(passwordHash, username);
 }
 
+export function deleteParticipantUser(username: string): boolean {
+  return (
+    db
+      .prepare("DELETE FROM users WHERE username = ? AND role = 'participant'")
+      .run(username).changes === 1
+  );
+}
+
 export function completeOnboarding(username: string): number | undefined {
   const result = db
     .prepare(
@@ -143,9 +195,9 @@ export function resetOnboarding(username: string): boolean {
     db
       .prepare(
         `UPDATE users
-         SET must_change_password = 1, onboarding_completed_at = NULL,
+       SET must_change_password = 1, onboarding_completed_at = NULL,
              study_completed_at = NULL
-         WHERE username = ?`,
+         WHERE username = ? AND role = 'participant'`,
       )
       .run(username).changes === 1
   );
@@ -183,23 +235,19 @@ export function insertToken(tokenHash: string, username: string): void {
   ).run(tokenHash, username, Date.now());
 }
 
-export function getUsernameForTokenHash(
-  tokenHash: string,
-): string | undefined {
+export function getUsernameForTokenHash(tokenHash: string): string | undefined {
   const row = db
     .prepare("SELECT username FROM auth_tokens WHERE token_hash = ?")
     .get(tokenHash) as { username: string } | undefined;
   if (row) {
-    db.prepare("UPDATE auth_tokens SET last_used_at = ? WHERE token_hash = ?").run(
-      Date.now(),
-      tokenHash,
-    );
+    db.prepare(
+      "UPDATE auth_tokens SET last_used_at = ? WHERE token_hash = ?",
+    ).run(Date.now(), tokenHash);
   }
   return row?.username;
 }
 
 export function deleteTokensForUser(username: string): number {
-  return db
-    .prepare("DELETE FROM auth_tokens WHERE username = ?")
-    .run(username).changes;
+  return db.prepare("DELETE FROM auth_tokens WHERE username = ?").run(username)
+    .changes;
 }

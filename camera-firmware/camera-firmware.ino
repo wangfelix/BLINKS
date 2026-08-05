@@ -2,25 +2,18 @@
 #include "esp_camera.h"
 #include <NimBLEDevice.h>
 
-// ===========================================================================
-// BLINKS — ESP32-S3 BLE camera peripheral (production firmware).
+// BLINKS camera firmware for the XIAO ESP32S3 Sense.
 //
-// Captures one VGA JPEG every CAPTURE_INTERVAL_MS and streams it to a connected
-// phone over BLE (NimBLE). The phone (blinks-edge-app/) is the
-// BLE central + relay: it reassembles frames, stamps capture time on header
-// receipt, and forwards them to the server. A
-// writable control characteristic lets the phone pause/resume capture..
+// The camera advertises as BLINKS-CAM and sends VGA JPEG frames over BLE to
+// blinks-edge-app. The phone timestamps and uploads each frame and writes the
+// pause/resume commands exposed by this firmware.
 //
-// Requires:
-//   - board_config.h + camera_pins.h copied from the CameraWebServer example
-//     into THIS folder (with #define CAMERA_MODEL_XIAO_ESP32S3 active), exactly
-//     like the legacy xiao-camera-ws-client sketch.
-//   - Library: "NimBLE-Arduino" (Library Manager). Targets NimBLE 2.x API.
-//     (NimBLE is used instead of the built-in Bluedroid BLE because it has a
-//     much smaller RAM footprint.)
-//
-// IDE settings: Board XIAO_ESP32S3, PSRAM "OPI PSRAM", Partition "Huge APP".
-// ===========================================================================
+// Build requirements:
+//   - board_config.h selects the XIAO ESP32S3 Sense camera profile
+//   - camera_pins.h maps the camera's data, clock, synchronization, and control
+//     signals to the ESP32 GPIO pins
+//   - NimBLE-Arduino 2.x
+//   - Arduino board XIAO_ESP32S3, OPI PSRAM, Huge APP partition
 #include "board_config.h"
 
 // ---- BLE identifiers (must match the app) ---------------------------------
@@ -88,13 +81,9 @@ bool initCamera() {
   config.xclk_freq_hz = 20000000;
   config.frame_size = FRAMESIZE_VGA; // 640x480
   config.pixel_format = PIXFORMAT_JPEG;
-  // Single buffer + GRAB_WHEN_EMPTY throttles the sensor: it captures one frame
-  // then idles until we drain it, instead of free-running at ~20 fps. With slow
-  // polling (one frame every CAPTURE_INTERVAL_MS) the old 2-buffer GRAB_LATEST
-  // config spent almost the entire gap with both buffers full and overflowing
-  // (cam_hal: FB-OVF), which over minutes wedged the driver: esp_camera_fb_get
-  // started returning NULL ("Capture failed") and sometimes blocked outright,
-  // freezing loop() with the LED stuck solid. Throttling removes the overflow.
+  // Keep one frame buffered between scheduled captures. GRAB_WHEN_EMPTY avoids
+  // continuously replacing full buffers while the firmware waits for the next
+  // capture interval.
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.jpeg_quality = 12;
@@ -116,10 +105,8 @@ bool initCamera() {
   return true;
 }
 
-// Self-heal a wedged camera without a physical power cycle. If the driver stops
-// returning frames (esp_camera_fb_get -> NULL), deinit + reinit it in place
-// after a few consecutive failures so a run recovers on its own.
-// Throttling (above) should prevent the wedge; this is the backstop.
+// Reinitialize the camera after three consecutive capture failures so an
+// unattended recording can continue without a power cycle.
 uint8_t captureFailures = 0;
 void recoverCameraIfWedged() {
   if (++captureFailures < 3) return;
@@ -138,8 +125,8 @@ class ServerCallbacks : public NimBLEServerCallbacks {
   void onDisconnect(NimBLEServer* s, NimBLEConnInfo& connInfo, int reason) override {
     connected = false;
     currentMtu = 23;
-    // The phone is the authority for pause state and re-asserts it on every
-    // (re)connect, mirroring the server->device semantics of the WiFi pipeline.
+    // A disconnected camera defaults to recording. If the app is paused, it
+    // sends the pause command again after reconnecting.
     paused = false;
     Serial.printf("Central disconnected (reason %d), re-advertising\n", reason);
     NimBLEDevice::startAdvertising();
@@ -150,9 +137,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
   }
 };
 
-// Phone -> camera control: a single opcode byte written to CONTROL_CHAR_UUID.
-// The phone also drops any frame it receives while paused, covering the race
-// between (re)connect and its first control write.
+// The app writes a single pause or resume opcode to CONTROL_CHAR_UUID.
 class ControlCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c, NimBLEConnInfo& connInfo) override {
     NimBLEAttValue value = c->getValue();
@@ -172,13 +157,12 @@ class ControlCallbacks : public NimBLECharacteristicCallbacks {
   }
 };
 
-// Every notification is tagged so the receiver can always resync:
-//   header: [0x01][len BE 4B][frame counter BE 4B]   data: [0x02][payload...]
-// A dropped/short notification only loses one frame; the next 0x01 header
-// resynchronises cleanly (the old untagged framing desynced permanently).
-// The camera's own frame counter rides in the header so the server can detect
-// frames that were captured but never delivered (gaps in the counter); a
-// receiver that only reads the length ignores the extra bytes.
+// BLE frame protocol:
+//   header  [0x01][JPEG length, 4-byte big-endian][frame counter, 4-byte BE]
+//   payload [0x02][up to 180 JPEG bytes]
+// The tags let the app find the next frame boundary after a dropped
+// notification. Gaps in the frame counter identify complete frames that did
+// not reach the app.
 void sendFrame(const uint8_t* buf, size_t len) {
   uint8_t header[9];
   header[0] = 0x01;
@@ -194,10 +178,8 @@ void sendFrame(const uint8_t* buf, size_t len) {
   frameChar->notify();
   delay(8);
 
-  // Use a conservative fixed payload well under the negotiated MTU. Large
-  // notifications (~MTU-3) were arriving at the phone with an EMPTY value, so we
-  // cap chunks small; the low frame rate makes the extra notifications free.
-  // (1 byte is the [0x02] tag, so the notification is maxPayload + 1.)
+  // A fixed 180-byte payload is reliable on the study phones. The notification
+  // is 181 bytes including its 0x02 tag.
   const size_t maxPayload = 180;
   static uint8_t out[200];
   for (size_t off = 0; off < len; off += maxPayload) {
@@ -206,8 +188,8 @@ void sendFrame(const uint8_t* buf, size_t len) {
     memcpy(out + 1, buf + off, n);
     frameChar->setValue(out, n + 1);
     frameChar->notify();
-    delay(8); // pace notifications so the stack's queue does not overflow
-    if (!connected) return; // bail if the phone dropped mid-frame
+    delay(8); // Pace notifications to reduce BLE queue pressure.
+    if (!connected) return;
   }
 }
 
@@ -225,7 +207,7 @@ void setup() {
   Serial.println("Camera ready");
 
   NimBLEDevice::init(DEVICE_NAME);
-  NimBLEDevice::setMTU(517); // ask for a large MTU; phone also requests it
+  NimBLEDevice::setMTU(517); // The app also requests this MTU after connecting.
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
   server = NimBLEDevice::createServer();
@@ -236,14 +218,11 @@ void setup() {
   controlChar = svc->createCharacteristic(
       CONTROL_CHAR_UUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
   controlChar->setCallbacks(new ControlCallbacks());
-  // NimBLE 2.x starts services automatically with the server (svc->start() is a
-  // deprecated no-op), so we don't call it.
 
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  // A 128-bit service UUID (16 B) + the name overflow the 31-byte advertising
-  // packet, which suppressed the name and left the device undiscoverable.
-  // Advertise the NAME ONLY (the app matches by name); the service UUID is still
-  // in the GATT table and is discovered after connecting.
+  // The device name and 128-bit service UUID do not both fit in the 31-byte
+  // advertising packet. The app scans by name and discovers the service after
+  // connecting, so only the name is advertised.
   adv->setName(DEVICE_NAME);
   bool advOk = NimBLEDevice::startAdvertising();
   Serial.printf("Advertising as %s (ok=%d)\n", DEVICE_NAME, advOk);
@@ -255,12 +234,8 @@ void loop() {
   if (connected && !paused && millis() - lastCapture >= CAPTURE_INTERVAL_MS) {
     lastCapture = millis();
 
-    // The single buffered frame is stale (the driver captured it right after
-    // the previous cycle, up to one interval ago), so its timestamp would not
-    // match the scene. Discard it: returning the buffer makes the WHEN_EMPTY
-    // driver capture exactly one fresh frame of the current scene, which the
-    // next get() returns. Deterministic with fb_count = 1 (the old "drain 2
-    // from a free-running pool" was not, and added blocking get() calls).
+    // The buffered frame may be one interval old. Returning it lets the
+    // WHEN_EMPTY driver capture a current frame for the next get().
     camera_fb_t* stale = esp_camera_fb_get();
     if (stale) esp_camera_fb_return(stale);
 
@@ -272,10 +247,8 @@ void loop() {
     }
     captureFailures = 0;
 
-    // Copy the JPEG out and return the framebuffer BEFORE the multi-second BLE
-    // send so the camera buffer is never held during transmission. Returning it
-    // lets the WHEN_EMPTY driver pre-capture the next (stale) frame and idle,
-    // rather than stalling capture for the whole send.
+    // Send from a separate buffer so the camera framebuffer can be returned
+    // before BLE transmission begins.
     size_t jpegLen = fb->len;
     uint8_t* jpegCopy = (uint8_t*)ps_malloc(jpegLen);
     if (!jpegCopy) jpegCopy = (uint8_t*)malloc(jpegLen);

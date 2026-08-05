@@ -29,11 +29,12 @@ Env knobs (all optional; prepend to the command, e.g. `DISABLE_PUSH=1 npm run de
 
 | Var                       | Default                     | Meaning                                                                                                   |
 | ------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `CAMERA_HOST`             | `0.0.0.0`                   | HTTP + WS bind host; production sets `127.0.0.1` behind Apache                                            |
 | `CAMERA_PORT`             | `3000`                      | HTTP + WS port                                                                                            |
 | `RECORDINGS_DIR`          | `server/recordings`         | frames + `recordings.db`                                                                                  |
 | `DATA_DIR`                | `server/data`               | `auth.db` (credentials, kept out of recordings)                                                           |
 | `AUTH_DB_PATH`            | `<DATA_DIR>/auth.db`        | override the auth DB path                                                                                 |
-| `WEB_URL`                 | `http://blinks.win.kit.edu` | DRM website URL put into push notifications                                                               |
+| `WEB_URL`                 | `https://blinks.win.kit.edu` | DRM website URL put into push notifications                                                               |
 | `DRM_TZ`                  | `Europe/Berlin`             | study timezone for day keys + the gate                                                                    |
 | `DRM_AVAILABLE_FROM_HOUR` | `19`                        | hour today's reconstruction opens; **set `0` for testing**                                                |
 | `DRM_DEFAULT_BEDTIME`     | `22:00`                     | fallback-push bedtime for participants without a stored one                                               |
@@ -41,7 +42,7 @@ Env knobs (all optional; prepend to the command, e.g. `DISABLE_PUSH=1 npm run de
 | `DISABLE_PUSH`            | (off)                       | `1` turns the push scheduler off (use in dev/tests)                                                       |
 
 The push is a single **bedtime fallback**: at the participant's reported
-bedtime (app onboarding) minus 10 min, if they captured frames today and round
+bedtime (app onboarding) minus 30 min, if they captured frames today and round
 2 is not submitted yet. Bedtimes before noon (after-midnight sleepers) clamp
 the reminder to 23:50.
 
@@ -62,6 +63,12 @@ npm run create-user -- participant1 <newpassword> --reset
 
 # repeat both first-run onboarding steps without changing the password:
 npm run reset-onboarding -- participant1
+
+# create the separate research-admin profile used at /admin
+npm run create-admin -- researcher <password>
+
+# reset an admin password and revoke that admin's active sessions
+npm run create-admin -- researcher <newpassword> --reset
 ```
 
 - Username: letters/digits/`-`/`_` only (it becomes the recordings folder name).
@@ -77,6 +84,10 @@ npm run reset-onboarding -- participant1
   Run it with the **same `RECORDINGS_DIR`/`DATA_DIR`** the server uses, or it
   writes to a different DB. Occupation + wake/bed times are entered by the
   participant in the app.
+- Admin accounts live only in `auth.db`, cannot sign in through the participant
+  portal, and do not receive a participant profile. After signing in at
+  `/admin`, an admin can provision new participant accounts with the same
+  validation and first-run requirements as `create-user`.
 
 ### Tests
 
@@ -88,6 +99,8 @@ npx tsx scripts/test-activity-lists.ts  # legacy/natural-key migration + parent 
 npx tsx scripts/test-recording-events.ts  # idempotent lifecycle events + pause restoration + session-specific close
 npx tsx scripts/test-reconstruction-timing-migration.ts  # reconstructions -> response-parent workflow/timing migration
 npm run test-auth-onboarding  # legacy migration + first-run state transitions
+npm run test-admin-data       # admin table/CSV/photo read model
+npm run test-push             # bedtime math + Expo ticket acceptance
 
 # inspect/backfill probability columns on legacy demo rows only (also maps
 # old democtl free-text fixture labels to the current closed enum):
@@ -276,7 +289,7 @@ then restart Metro with `--clear`:
 ```
 EXPO_PUBLIC_SERVER_URL=http://192.168.0.x:3000              # laptop LAN IP (same WiFi)
 EXPO_PUBLIC_SERVER_URL=https://<name>.ngrok-free.dev        # ngrok-tunneled server (any network)
-# (unset) -> falls back to http://blinks.win.kit.edu (needs KIT VPN)
+# (unset) -> falls back to https://blinks.win.kit.edu (production; WS uses wss://)
 ```
 
 - The login screen (dev builds) shows the configured server URL at the bottom.
@@ -388,3 +401,68 @@ sqlite3 recordings/recordings.db \
   "UPDATE activity_lists SET status='draft', submitted_at=NULL \
    WHERE participant='<user>' AND round=2 AND kind!='vlm_proposal'"
 ```
+
+---
+
+## Production deployment (`root@129.13.238.199`)
+
+After the desired changes have been committed and pushed:
+
+```bash
+ssh root@129.13.238.199
+cd /root/BLINKS
+git pull --ff-only
+./deploy/deploy.sh
+```
+
+The script refuses tracked local edits, validates secrets/TLS, builds and tests
+before restarting, backs up both SQLite databases to `/root/BLINKS-backups/`,
+syncs and enables the four systemd units plus Apache sites, and checks the API,
+web app, HTTPS proxy, face-blur service, and the enabled 30-minute push
+scheduler. Use `./deploy/deploy.sh --pull` to combine the pull and deployment.
+See `deploy/README.md` for prerequisites and recovery details.
+
+---
+
+## Pulling data off the VM (`root@129.13.238.199`)
+
+`recordings.db` runs in WAL mode while the server is live, so **never `scp` the
+`.db` file on its own** — the recent writes sit in `recordings.db-wal` and a bare
+copy is silently stale or corrupt. Take a consistent snapshot first. This works
+without stopping the server:
+
+```bash
+ssh root@129.13.238.199 "apt-get install -y sqlite3 >/dev/null 2>&1; sqlite3 /root/BLINKS/server/recordings/recordings.db \".backup '/tmp/recordings-snapshot.db'\""
+scp root@129.13.238.199:/tmp/recordings-snapshot.db ./recordings-snapshot.db
+ssh root@129.13.238.199 "rm -f /tmp/recordings-snapshot.db"
+```
+
+Then query it locally with the usual peeks:
+
+```bash
+sqlite3 recordings-snapshot.db "SELECT participant, COUNT(*) FROM frames GROUP BY participant"
+```
+
+Everything including the JPEGs (incremental, resumable, safe to re-run):
+
+```bash
+rsync -avz --progress root@129.13.238.199:/root/BLINKS/server/recordings/ ./recordings-backup/
+```
+
+Credentials live in a separate database and are deliberately **not** in the
+recordings tree. Only pull it if you actually need it, and never into a shared
+or synced folder:
+
+```bash
+scp root@129.13.238.199:/root/BLINKS/server/data/auth.db ./auth.db
+```
+
+A quick look without copying anything:
+
+```bash
+ssh root@129.13.238.199 "sqlite3 /root/BLINKS/server/recordings/recordings.db 'SELECT status, COUNT(*) FROM chunks GROUP BY status'"
+```
+
+These files are participant data under the study's data-protection terms: keep
+copies on encrypted disks, off shared drives, and delete them when the analysis
+that needed them is done.

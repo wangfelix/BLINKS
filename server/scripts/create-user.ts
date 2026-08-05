@@ -65,6 +65,13 @@ const main = async (): Promise<void> => {
   const existing = getUser(username);
   const passwordHash = await hashPassword(password);
 
+  if (existing?.role === "admin") {
+    console.error(
+      `Account '${username}' is an administrator and was not changed.`,
+    );
+    process.exit(1);
+  }
+
   if (existing && reset) {
     // A researcher-issued replacement password is temporary too. Require the
     // participant to choose their own password on their next web visit, but do

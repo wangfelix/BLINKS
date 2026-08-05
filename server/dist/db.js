@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = exports.RecordingEventConflictError = exports.RECORDING_EVENT_TYPES = void 0;
+exports.getAdminTableColumns = exports.isAdminTableName = exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = exports.RecordingEventConflictError = exports.RECORDING_EVENT_TYPES = exports.ADMIN_TABLE_NAMES = void 0;
 exports.chunkStartOf = chunkStartOf;
 exports.initDb = initDb;
 exports.pinRoundResponseList = pinRoundResponseList;
@@ -41,8 +41,22 @@ exports.listStudyActivityLists = listStudyActivityLists;
 exports.createVlmProposal = createVlmProposal;
 exports.replaceActivities = replaceActivities;
 exports.exportFramesCsv = exportFramesCsv;
+exports.getAdminTableCounts = getAdminTableCounts;
+exports.listAdminTableRows = listAdminTableRows;
+exports.exportAdminTableCsv = exportAdminTableCsv;
+exports.listAdminPhotoParticipants = listAdminPhotoParticipants;
+exports.getAdminParticipantCount = getAdminParticipantCount;
+exports.listAdminPhotoSessions = listAdminPhotoSessions;
+exports.listAdminPhotos = listAdminPhotos;
+exports.getAdminFrameAvailabilityByPath = getAdminFrameAvailabilityByPath;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const time_1 = require("./time");
+exports.ADMIN_TABLE_NAMES = [
+    "frames",
+    "chunks",
+    "activity_lists",
+    "activities",
+];
 // --- Recording lifecycle events ---------------------------------------------
 exports.RECORDING_EVENT_TYPES = [
     "start",
@@ -244,6 +258,12 @@ function initDb(dbPath) {
       vlm_category_confidence REAL,
       vlm_category_confidences_json TEXT,
       vlm_completed_at INTEGER,
+      -- Retry scheduling stays on the chunk; immutable per-attempt evidence is
+      -- retained separately in vlm_attempts for later reliability analysis.
+      vlm_attempt_count INTEGER NOT NULL DEFAULT 0,
+      vlm_retry_count INTEGER NOT NULL DEFAULT 0,
+      vlm_next_attempt_at INTEGER,
+      vlm_last_error_type TEXT,
       created_at      INTEGER NOT NULL,
       updated_at      INTEGER,
       PRIMARY KEY (participant, chunk_start_ms)
@@ -255,6 +275,41 @@ function initDb(dbPath) {
     migrateAddTableColumn("chunks", "vlm_activity_confidences_json", "vlm_activity_confidences_json TEXT");
     migrateAddTableColumn("chunks", "vlm_category_confidence", "vlm_category_confidence REAL");
     migrateAddTableColumn("chunks", "vlm_category_confidences_json", "vlm_category_confidences_json TEXT");
+    migrateAddTableColumn("chunks", "vlm_attempt_count", "vlm_attempt_count INTEGER NOT NULL DEFAULT 0");
+    migrateAddTableColumn("chunks", "vlm_retry_count", "vlm_retry_count INTEGER NOT NULL DEFAULT 0");
+    migrateAddTableColumn("chunks", "vlm_next_attempt_at", "vlm_next_attempt_at INTEGER");
+    migrateAddTableColumn("chunks", "vlm_last_error_type", "vlm_last_error_type TEXT");
+    db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_chunks_vlm_queue
+      ON chunks (status, vlm_next_attempt_at, chunk_start_ms);
+    CREATE TABLE IF NOT EXISTS vlm_attempts (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      participant     TEXT    NOT NULL,
+      chunk_start_ms  INTEGER NOT NULL,
+      attempt_number  INTEGER NOT NULL,
+      retry_number    INTEGER NOT NULL,
+      model           TEXT    NOT NULL,
+      started_at      INTEGER NOT NULL,
+      completed_at    INTEGER,
+      duration_ms     INTEGER,
+      frames_sent     INTEGER NOT NULL,
+      timeout_seconds REAL    NOT NULL,
+      outcome         TEXT
+        CHECK (outcome IS NULL OR outcome IN (
+          'done', 'timeout', 'rate_limit', 'server_error', 'api_error',
+          'validation_error', 'input_error', 'interrupted'
+        )),
+      error_class     TEXT,
+      http_status     INTEGER,
+      -- Deliberately no chunks FK: deleting a chunk after its last photo is
+      -- removed must not erase non-image reliability evidence used in analysis.
+      UNIQUE (participant, chunk_start_ms, attempt_number)
+    );
+    CREATE INDEX IF NOT EXISTS idx_vlm_attempts_chunk
+      ON vlm_attempts (participant, chunk_start_ms, attempt_number);
+    CREATE INDEX IF NOT EXISTS idx_vlm_attempts_outcome
+      ON vlm_attempts (outcome, started_at);
+  `);
     db.transaction(() => {
         [
             "vlm_description",
@@ -1520,4 +1575,118 @@ function exportFramesCsv(q) {
         r.file_path,
     ].join(";"));
     return [header, ...lines].join("\n") + "\n";
+}
+// --- Research admin read model ---------------------------------------------
+const isAdminTableName = (value) => exports.ADMIN_TABLE_NAMES.includes(value);
+exports.isAdminTableName = isAdminTableName;
+const getAdminTableColumns = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name);
+exports.getAdminTableColumns = getAdminTableColumns;
+const quoteIdentifier = (identifier) => `"${identifier.replace(/"/g, '""')}"`;
+const adminTableFilter = (columns, query) => {
+    if (query.column !== undefined && !columns.includes(query.column)) {
+        throw new RangeError(`unknown admin table column: ${query.column}`);
+    }
+    const search = query.search?.trim() ?? "";
+    if (search === "")
+        return { whereClause: "", params: {} };
+    const searchedColumns = query.column === undefined ? columns : [query.column];
+    const conditions = searchedColumns.map((column) => `CAST(${quoteIdentifier(column)} AS TEXT) LIKE @search ESCAPE '\\'`);
+    const escapedSearch = search.replace(/[\\%_]/g, "\\$&");
+    return {
+        whereClause: ` WHERE (${conditions.join(" OR ")})`,
+        params: { search: `%${escapedSearch}%` },
+    };
+};
+function getAdminTableCounts() {
+    return Object.fromEntries(exports.ADMIN_TABLE_NAMES.map((table) => [
+        table,
+        db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count,
+    ]));
+}
+function listAdminTableRows(table, query) {
+    const columns = (0, exports.getAdminTableColumns)(table);
+    const { whereClause, params } = adminTableFilter(columns, query);
+    const countStatement = db.prepare(`SELECT COUNT(*) AS count FROM ${table}${whereClause}`);
+    const total = (params.search === undefined
+        ? countStatement.get()
+        : countStatement.get(params));
+    const rows = db
+        .prepare(`SELECT * FROM ${table}${whereClause}
+       ORDER BY rowid ASC LIMIT @limit OFFSET @offset`)
+        .all({ ...params, limit: query.limit, offset: query.offset });
+    return {
+        table,
+        columns,
+        rows,
+        total: total.count,
+    };
+}
+const csvCell = (value) => {
+    if (value === null)
+        return "";
+    const text = String(value);
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+function exportAdminTableCsv(table) {
+    const columns = (0, exports.getAdminTableColumns)(table);
+    const rows = db
+        .prepare(`SELECT * FROM ${table} ORDER BY rowid ASC`)
+        .all();
+    return [
+        columns.map(csvCell).join(","),
+        ...rows.map((row) => columns.map((column) => csvCell(row[column])).join(",")),
+    ].join("\n") + "\n";
+}
+function listAdminPhotoParticipants() {
+    return db
+        .prepare(`SELECT participant, COUNT(*) AS frame_count
+       FROM frames
+       GROUP BY participant
+       ORDER BY participant COLLATE NOCASE`)
+        .all();
+}
+function getAdminParticipantCount() {
+    return db.prepare("SELECT COUNT(*) AS count FROM participants").get().count;
+}
+function listAdminPhotoSessions() {
+    return db
+        .prepare(`SELECT participant, session,
+              MIN(capture_epoch_ms) AS started_at_ms,
+              MAX(capture_epoch_ms) AS ended_at_ms,
+              COUNT(*) AS frame_count,
+              COUNT(CASE
+                WHEN face_status = 'done' AND deleted_at IS NULL
+                THEN 1 END) AS available_frame_count
+       FROM frames
+       GROUP BY participant, session
+       ORDER BY participant COLLATE NOCASE, started_at_ms DESC`)
+        .all();
+}
+function listAdminPhotos(options) {
+    const sessionWhere = options.session === undefined ? "" : " AND session = @session";
+    const params = {
+        participant: options.participant,
+        session: options.session ?? null,
+        limit: options.limit,
+        offset: options.offset,
+    };
+    const total = db
+        .prepare(`SELECT COUNT(*) AS count FROM frames
+         WHERE participant = @participant${sessionWhere}`)
+        .get(params).count;
+    const rows = db
+        .prepare(`SELECT participant, device, session, frame_index, capture_epoch_ms,
+              file_path, face_status, deleted_at
+       FROM frames
+       WHERE participant = @participant${sessionWhere}
+       ORDER BY capture_epoch_ms ASC, device ASC, frame_index ASC
+       LIMIT @limit OFFSET @offset`)
+        .all(params);
+    return { rows, total };
+}
+function getAdminFrameAvailabilityByPath(filePath) {
+    return db
+        .prepare(`SELECT face_status, deleted_at FROM frames
+       WHERE file_path = ? AND file_path != ''`)
+        .get(filePath);
 }

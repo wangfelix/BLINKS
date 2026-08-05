@@ -7,13 +7,16 @@ import Database from "better-sqlite3";
 import {
   completeOnboarding,
   completeStudy,
+  deleteParticipantUser,
   getUser,
   initAuthDb,
+  insertAdmin,
   insertUser,
   isOnboardingComplete,
   isStudyComplete,
   markPasswordChanged,
   resetOnboarding,
+  resetAdminPassword,
   resetPassword,
 } from "../src/auth-db";
 
@@ -46,6 +49,7 @@ try {
 
   const legacyUser = getUser("legacy");
   assert.ok(legacyUser);
+  assert.strictEqual(legacyUser.role, "participant");
   assert.strictEqual(legacyUser.must_change_password, 0);
   assert.strictEqual(legacyUser.onboarding_completed_at, 1234);
   assert.strictEqual(legacyUser.study_completed_at, null);
@@ -54,6 +58,7 @@ try {
 
   insertUser("new-user", "initial-hash");
   let newUser = getUser("new-user")!;
+  assert.strictEqual(newUser.role, "participant");
   assert.strictEqual(newUser.must_change_password, 1);
   assert.strictEqual(newUser.onboarding_completed_at, null);
   assert.strictEqual(newUser.study_completed_at, null);
@@ -88,6 +93,21 @@ try {
   assert.strictEqual(newUser.study_completed_at, null);
   assert.strictEqual(isStudyComplete("new-user"), false);
   assert.strictEqual(resetOnboarding("missing-user"), false);
+
+  insertAdmin("researcher", "admin-hash");
+  let admin = getUser("researcher")!;
+  assert.strictEqual(admin.role, "admin");
+  assert.strictEqual(admin.must_change_password, 0);
+  assert.ok(admin.onboarding_completed_at !== null);
+  assert.strictEqual(resetAdminPassword("researcher", "new-admin-hash"), true);
+  admin = getUser("researcher")!;
+  assert.strictEqual(admin.password_hash, "new-admin-hash");
+  assert.strictEqual(resetAdminPassword("new-user", "wrong-role"), false);
+  assert.strictEqual(resetOnboarding("researcher"), false);
+  assert.strictEqual(deleteParticipantUser("researcher"), false);
+  insertUser("disposable", "hash");
+  assert.strictEqual(deleteParticipantUser("disposable"), true);
+  assert.strictEqual(getUser("disposable"), undefined);
 
   console.log("Auth onboarding migration/state tests passed.");
 } finally {

@@ -682,7 +682,7 @@ const main = async (): Promise<void> => {
     !("studyDurationDays" in initialProfile),
     "multi-day study length removed",
   );
-  assert.strictEqual(initialProfile.drmWebUrl, "http://blinks.win.kit.edu");
+  assert.strictEqual(initialProfile.drmWebUrl, "https://blinks.win.kit.edu");
 
   await api("/api/profile", {
     method: "PUT",

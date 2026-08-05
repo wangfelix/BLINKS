@@ -10,6 +10,7 @@
     "newArchEnabled": true,
     "android": {
       "package": "edu.kit.blinks.edge",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -40,6 +41,7 @@
         }
       ],
       "expo-secure-store",
+      "expo-notifications",
       [
         "react-native-ble-plx",
         {

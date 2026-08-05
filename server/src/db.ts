@@ -2,6 +2,49 @@ import Database from "better-sqlite3";
 
 import { dayKeyFromEpochMs, dayUtcRange } from "./time";
 
+export const ADMIN_TABLE_NAMES = [
+  "frames",
+  "chunks",
+  "activity_lists",
+  "activities",
+] as const;
+export type AdminTableName = (typeof ADMIN_TABLE_NAMES)[number];
+export type AdminCellValue = string | number | null;
+
+export interface AdminTablePage {
+  table: AdminTableName;
+  columns: string[];
+  rows: Record<string, AdminCellValue>[];
+  total: number;
+}
+
+export interface AdminTableQuery {
+  limit: number;
+  offset: number;
+  search?: string;
+  column?: string;
+}
+
+export interface AdminPhotoSession {
+  participant: string;
+  session: number;
+  started_at_ms: number;
+  ended_at_ms: number;
+  frame_count: number;
+  available_frame_count: number;
+}
+
+export interface AdminPhotoRow {
+  participant: string;
+  device: string;
+  session: number;
+  frame_index: number;
+  capture_epoch_ms: number;
+  file_path: string;
+  face_status: string;
+  deleted_at: number | null;
+}
+
 // ===========================================================================
 // SQLite metadata store (recordings.db, WAL mode, via better-sqlite3).
 //
@@ -2299,4 +2342,187 @@ export function exportFramesCsv(q: ExportQuery): string {
     ].join(";"),
   );
   return [header, ...lines].join("\n") + "\n";
+}
+
+// --- Research admin read model ---------------------------------------------
+
+export const isAdminTableName = (value: string): value is AdminTableName =>
+  (ADMIN_TABLE_NAMES as readonly string[]).includes(value);
+
+export const getAdminTableColumns = (table: AdminTableName): string[] =>
+  (
+    db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+  ).map((column) => column.name);
+
+const quoteIdentifier = (identifier: string): string =>
+  `"${identifier.replace(/"/g, '""')}"`;
+
+const adminTableFilter = (
+  columns: string[],
+  query: AdminTableQuery,
+): { whereClause: string; params: { search?: string } } => {
+  if (query.column !== undefined && !columns.includes(query.column)) {
+    throw new RangeError(`unknown admin table column: ${query.column}`);
+  }
+  const search = query.search?.trim() ?? "";
+  if (search === "") return { whereClause: "", params: {} };
+
+  const searchedColumns =
+    query.column === undefined ? columns : [query.column];
+  const conditions = searchedColumns.map(
+    (column) =>
+      `CAST(${quoteIdentifier(column)} AS TEXT) LIKE @search ESCAPE '\\'`,
+  );
+  const escapedSearch = search.replace(/[\\%_]/g, "\\$&");
+  return {
+    whereClause: ` WHERE (${conditions.join(" OR ")})`,
+    params: { search: `%${escapedSearch}%` },
+  };
+};
+
+export function getAdminTableCounts(): Record<AdminTableName, number> {
+  return Object.fromEntries(
+    ADMIN_TABLE_NAMES.map((table) => [
+      table,
+      (
+        db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as {
+          count: number;
+        }
+      ).count,
+    ]),
+  ) as Record<AdminTableName, number>;
+}
+
+export function listAdminTableRows(
+  table: AdminTableName,
+  query: AdminTableQuery,
+): AdminTablePage {
+  const columns = getAdminTableColumns(table);
+  const { whereClause, params } = adminTableFilter(columns, query);
+  const countStatement = db.prepare(
+    `SELECT COUNT(*) AS count FROM ${table}${whereClause}`,
+  );
+  const total = (
+    params.search === undefined
+      ? countStatement.get()
+      : countStatement.get(params)
+  ) as { count: number };
+  const rows = db
+    .prepare(
+      `SELECT * FROM ${table}${whereClause}
+       ORDER BY rowid ASC LIMIT @limit OFFSET @offset`,
+    )
+    .all({ ...params, limit: query.limit, offset: query.offset }) as Record<
+    string,
+    AdminCellValue
+  >[];
+  return {
+    table,
+    columns,
+    rows,
+    total: total.count,
+  };
+}
+
+const csvCell = (value: AdminCellValue): string => {
+  if (value === null) return "";
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+
+export function exportAdminTableCsv(table: AdminTableName): string {
+  const columns = getAdminTableColumns(table);
+  const rows = db
+    .prepare(`SELECT * FROM ${table} ORDER BY rowid ASC`)
+    .all() as Record<string, AdminCellValue>[];
+  return [
+    columns.map(csvCell).join(","),
+    ...rows.map((row) => columns.map((column) => csvCell(row[column])).join(",")),
+  ].join("\n") + "\n";
+}
+
+export function listAdminPhotoParticipants(): {
+  participant: string;
+  frame_count: number;
+}[] {
+  return db
+    .prepare(
+      `SELECT participant, COUNT(*) AS frame_count
+       FROM frames
+       GROUP BY participant
+       ORDER BY participant COLLATE NOCASE`,
+    )
+    .all() as { participant: string; frame_count: number }[];
+}
+
+export function getAdminParticipantCount(): number {
+  return (
+    db.prepare("SELECT COUNT(*) AS count FROM participants").get() as {
+      count: number;
+    }
+  ).count;
+}
+
+export function listAdminPhotoSessions(): AdminPhotoSession[] {
+  return db
+    .prepare(
+      `SELECT participant, session,
+              MIN(capture_epoch_ms) AS started_at_ms,
+              MAX(capture_epoch_ms) AS ended_at_ms,
+              COUNT(*) AS frame_count,
+              COUNT(CASE
+                WHEN face_status = 'done' AND deleted_at IS NULL
+                THEN 1 END) AS available_frame_count
+       FROM frames
+       GROUP BY participant, session
+       ORDER BY participant COLLATE NOCASE, started_at_ms DESC`,
+    )
+    .all() as AdminPhotoSession[];
+}
+
+export function listAdminPhotos(options: {
+  participant: string;
+  session?: number;
+  limit: number;
+  offset: number;
+}): { rows: AdminPhotoRow[]; total: number } {
+  const sessionWhere = options.session === undefined ? "" : " AND session = @session";
+  const params = {
+    participant: options.participant,
+    session: options.session ?? null,
+    limit: options.limit,
+    offset: options.offset,
+  };
+  const total = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS count FROM frames
+         WHERE participant = @participant${sessionWhere}`,
+      )
+      .get(params) as { count: number }
+  ).count;
+  const rows = db
+    .prepare(
+      `SELECT participant, device, session, frame_index, capture_epoch_ms,
+              file_path, face_status, deleted_at
+       FROM frames
+       WHERE participant = @participant${sessionWhere}
+       ORDER BY capture_epoch_ms ASC, device ASC, frame_index ASC
+       LIMIT @limit OFFSET @offset`,
+    )
+    .all(params) as AdminPhotoRow[];
+  return { rows, total };
+}
+
+export function getAdminFrameAvailabilityByPath(
+  filePath: string,
+): { face_status: string; deleted_at: number | null } | undefined {
+  return db
+    .prepare(
+      `SELECT face_status, deleted_at FROM frames
+       WHERE file_path = ? AND file_path != ''`,
+    )
+    .get(filePath) as
+    | { face_status: string; deleted_at: number | null }
+    | undefined;
 }
