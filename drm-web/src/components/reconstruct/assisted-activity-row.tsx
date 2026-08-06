@@ -88,7 +88,7 @@ export const AssistedActivityRow = ({
     () =>
       dayFrames.filter(
         (frame) =>
-          frame.captureEpochMs >= startMs && frame.captureEpochMs <= endMs,
+          frame.captureEpochMs >= startMs && frame.captureEpochMs < endMs,
       ),
     [dayFrames, endMs, startMs],
   );
@@ -164,7 +164,7 @@ export const AssistedActivityRow = ({
         ) : (
           <div className="flex h-40 flex-col items-center justify-center gap-2 text-muted-foreground sm:h-44">
             <ImageOffIcon className="size-8" aria-hidden />
-            <span className="text-sm font-medium">No photos available</span>
+            <span className="text-sm font-medium">No images available</span>
           </div>
         )}
 

@@ -232,7 +232,11 @@ deleting that audit history.
 cd drm-web
 npm install                 # once
 npm run dev                 # http://localhost:3002 (Node 22)
-npm run build && npm start   # production build on port 3001
+npm run build               # standalone production bundle; see drm-web/README.md
+
+# focused assisted-editor time-span regressions
+../server/node_modules/.bin/tsx scripts/test-span-overlaps.ts
+../server/node_modules/.bin/tsx scripts/test-time-slots.ts
 ```
 
 To show the floating dev navigator, start both the server and web app with

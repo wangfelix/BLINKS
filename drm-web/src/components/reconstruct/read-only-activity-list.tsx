@@ -40,7 +40,7 @@ const framesForActivity = (
   return frames.filter(
     (frame) =>
       frame.captureEpochMs >= activity.startMs &&
-      frame.captureEpochMs <= activity.endMs,
+      frame.captureEpochMs < activity.endMs,
   );
 };
 
@@ -104,7 +104,9 @@ const ReadOnlyActivityCard = ({
       )}
       {frames !== null && !hasLivePhotos && (
         <Text variant="secondary" className="text-sm">
-          No photos remaining.
+          {activityFrames.length === 0
+            ? "No images available"
+            : "No images remaining"}
         </Text>
       )}
     </Column>

@@ -82,3 +82,22 @@ export const dayTimeToEpochMs = (dayKey: string, timeOfDay: string): number => {
   const firstGuess = wallClockAsUtc - timezoneOffsetMsAt(wallClockAsUtc);
   return wallClockAsUtc - timezoneOffsetMsAt(firstGuess);
 };
+
+/** Next YYYY-MM-DD key, calculated as a calendar date rather than +24 hours. */
+export const nextDayKey = (dayKey: string): string => {
+  const [year, month, dayOfMonth] = dayKey.split("-").map(Number);
+  const next = new Date(Date.UTC(year, month - 1, dayOfMonth + 1, 12));
+  return [
+    next.getUTCFullYear(),
+    String(next.getUTCMonth() + 1).padStart(2, "0"),
+    String(next.getUTCDate()).padStart(2, "0"),
+  ].join("-");
+};
+
+/** Epoch bounds of one complete pinned study day, including DST day length. */
+export const studyDayBounds = (
+  dayKey: string,
+): { startMs: number; endMs: number } => ({
+  startMs: dayTimeToEpochMs(dayKey, "00:00"),
+  endMs: dayTimeToEpochMs(nextDayKey(dayKey), "00:00"),
+});

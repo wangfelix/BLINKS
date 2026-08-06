@@ -1751,8 +1751,24 @@ const main = async (): Promise<void> => {
     "opaque proposal provenance survives a span edit",
   );
 
-  // write validation: overlapping spans and spans outside the study day are
-  // rejected
+  // Write validation: zero-duration spans, overlapping spans, and spans
+  // outside the study day are rejected.
+  await api("/api/reconstruction/round/2", {
+    method: "PUT",
+    token,
+    body: {
+      activities: [
+        {
+          startMs: t0,
+          endMs: t0,
+          rawLabel: "computer_or_monitor_use",
+          categoryLabel: "work",
+          source: "user",
+        },
+      ],
+    },
+    expectStatus: 400,
+  });
   await api("/api/reconstruction/round/2", {
     method: "PUT",
     token,
@@ -1780,6 +1796,26 @@ const main = async (): Promise<void> => {
     },
     expectStatus: 400,
   });
+  // The replace-all API persists canonical chronological positions even when
+  // a stale client sends a non-overlapping payload out of order.
+  await api("/api/reconstruction/round/2", {
+    method: "PUT",
+    token,
+    body: { activities: [...editedActivities].reverse() },
+  });
+  const chronologicallyStored = await api("/api/reconstruction/round/2", {
+    token,
+  });
+  assert.deepStrictEqual(
+    chronologicallyStored.activities.map((activity: any) => activity.startMs),
+    editedActivities.map((activity) => activity.startMs),
+    "out-of-order writes are stored in chronological order",
+  );
+  assert.deepStrictEqual(
+    chronologicallyStored.activities.map((activity: any) => activity.position),
+    [0, 1, 2, 3, 4],
+    "canonical chronological rows receive canonical positions",
+  );
   // restore the intended draft state before submitting below
   await api("/api/reconstruction/round/2", {
     method: "PUT",

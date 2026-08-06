@@ -30,6 +30,31 @@ security boundary: reconstruction reads and writes return
 `onboarding_required` until both first-run steps have been persisted, in
 addition to enforcing authentication, round order, and the evening gate.
 
+## Assisted time-span editing
+
+The assisted editor treats every activity span as a half-open interval
+`[start, end)` and exposes a complete clock-aligned five-minute grid for the
+pinned study day. A grid slot remains selectable when no photo was captured
+and renders **No images available**; live photos in the same slot share one
+visual group. Slots distinguish the current activity, another activity, and
+live unassigned images. Hover text identifies an owning activity and its full
+time span. Contiguous slots from the same activity share one subtle outer
+background and border. The editable selection adds a full-cell blue tint,
+merged three-pixel edge, and prominent Start/End flags without regrouping or
+moving any slots under the pointer.
+Assignment labels and group spans sit in a separate header row above the
+individual five-minute time labels. The half-hour time tape follows the first
+visible grid row, keeps that marker in view, and highlights it persistently.
+
+Both **Insert activity** and **Adjust times** use the same picker. The selected
+activity wins its chosen span: intersecting neighbors are shortened, deleted,
+or split, and the assisted list is saved atomically through the existing
+replace-all round API. Chunks and the immutable VLM proposal remain unchanged;
+photo assignment in the editable assisted list is derived from the persisted
+activity boundaries. An Insert button turns red and shows **Unassigned
+images** only when its adjacent gap contains at least one live uncovered image
+— image-free time alone never triggers the warning.
+
 ## Auth model
 
 - `POST /api/login` returns a bearer token; it is stored in `localStorage` and
@@ -203,8 +228,10 @@ cd /root/BLINKS && git pull && cd drm-web && npm ci && npm run build && cp -r pu
   endpoint functions.
 - `src/lib/study-config.ts` — survey URLs and their intentionally different
   participant query-parameter names.
-- `src/lib/time.ts` — study-timezone helpers (day keys, HH:MM conversion).
+- `src/lib/time.ts` — study-timezone helpers (day keys, HH:MM conversion,
+  DST-aware day bounds).
 - `src/components/reconstruct/` — assisted/self activity rows, frame-picker
-  dialog (boundary adjustment + insert), the two pre-round instruction screens,
-  round editor with debounced autosave, and read-only view of submitted rounds.
+  dialog (five-minute boundary adjustment + insert), slot ownership/grouping,
+  the two pre-round instruction screens, round editor with debounced autosave,
+  and read-only view of submitted rounds.
 - `src/components/ui/` — generated shadcn/ui components.

@@ -5,6 +5,7 @@ import type {
   ActivitySource,
   CategoryLabel,
   ExperienceRating,
+  Frame,
 } from "@/lib/api-types";
 import { isActivityLabel } from "@/lib/activity-vocabulary";
 
@@ -31,6 +32,8 @@ export interface EditableActivity {
   workloadRating: ExperienceRating | null;
   recoveryRating: ExperienceRating | null;
 }
+
+export const FIVE_MINUTE_MS = 5 * 60 * 1000;
 
 let localIdCounter = 0;
 export const makeLocalId = (): string => {
@@ -80,23 +83,49 @@ export const toActivityInputs = (rows: EditableActivity[]): ActivityInput[] =>
       recoveryRating: row.recoveryRating,
     }));
 
+export const isEpochInActivitySpan = (
+  epochMs: number,
+  activity: Pick<EditableActivity, "startMs" | "endMs">,
+): boolean =>
+  activity.startMs !== null &&
+  activity.endMs !== null &&
+  epochMs >= activity.startMs &&
+  epochMs < activity.endMs;
+
+export type SpanAdjustmentKind = "shortened" | "deleted" | "split";
+export type SpanAdjustmentSide = "preceding" | "following" | "overlapping";
+
+export interface SpanAdjustmentEffect {
+  localId: string;
+  kind: SpanAdjustmentKind;
+  side: SpanAdjustmentSide;
+  originalStartMs: number;
+  originalEndMs: number;
+}
+
+export interface SpanResolution {
+  rows: EditableActivity[];
+  effects: SpanAdjustmentEffect[];
+}
+
 /**
- * Apply a new time span to the row `localId` and resolve every overlap it
- * creates. The frame picker offers the whole day, so the new span may reach
- * far beyond the immediate neighbors: rows fully inside it are removed; a row
- * overlapped from the left keeps its head (its end clamps to just before the
- * new start); one overlapped from the right keeps its tail (its start clamps
- * to just after the new end). A row that surrounds the whole new span keeps
- * its head. Rows without complete times are kept as-is.
+ * Give one activity exclusive ownership of a half-open time span [start, end).
+ * Other rows are shortened at exact boundaries, removed when fully covered,
+ * or split into head + tail when they surround the claimed span. Split rows
+ * deliberately retain their label, rating, source, and immutable-proposal
+ * link so the assisted list remains a faithful, queryable edit history.
  */
-export const resolveSpanOverlaps = (
+export const claimActivitySpan = (
   rows: EditableActivity[],
   localId: string,
   newStartMs: number,
   newEndMs: number,
-): EditableActivity[] => {
-  if (!rows.some((row) => row.localId === localId)) return rows;
+): SpanResolution => {
+  if (!rows.some((row) => row.localId === localId)) {
+    return { rows, effects: [] };
+  }
   const resolved: EditableActivity[] = [];
+  const effects: SpanAdjustmentEffect[] = [];
   for (const row of rows) {
     if (row.localId === localId) {
       resolved.push({ ...row, startMs: newStartMs, endMs: newEndMs });
@@ -106,22 +135,99 @@ export const resolveSpanOverlaps = (
       resolved.push(row);
       continue;
     }
-    const isFullyCovered = row.startMs >= newStartMs && row.endMs <= newEndMs;
-    if (isFullyCovered) continue;
-    const overlapsNewStart =
-      row.startMs < newStartMs && row.endMs >= newStartMs;
-    if (overlapsNewStart) {
-      resolved.push({ ...row, endMs: newStartMs - 1 });
+    const overlaps = row.startMs < newEndMs && row.endMs > newStartMs;
+    if (!overlaps) {
+      resolved.push(row);
       continue;
     }
-    const overlapsNewEnd = row.endMs > newEndMs && row.startMs <= newEndMs;
+    const side: SpanAdjustmentSide =
+      row.startMs < newStartMs
+        ? "preceding"
+        : row.endMs > newEndMs
+          ? "following"
+          : "overlapping";
+    const effect = (
+      kind: SpanAdjustmentKind,
+      effectSide: SpanAdjustmentSide = side,
+    ) =>
+      effects.push({
+        localId: row.localId,
+        kind,
+        side: effectSide,
+        originalStartMs: row.startMs as number,
+        originalEndMs: row.endMs as number,
+      });
+    const surroundsClaim = row.startMs < newStartMs && row.endMs > newEndMs;
+    if (surroundsClaim) {
+      resolved.push({ ...row, endMs: newStartMs });
+      resolved.push({
+        ...row,
+        localId: makeLocalId(),
+        startMs: newEndMs,
+      });
+      effect("split", "overlapping");
+      continue;
+    }
+    const isFullyCovered = row.startMs >= newStartMs && row.endMs <= newEndMs;
+    if (isFullyCovered) {
+      effect("deleted");
+      continue;
+    }
+    const overlapsNewStart = row.startMs < newStartMs && row.endMs > newStartMs;
+    if (overlapsNewStart) {
+      resolved.push({ ...row, endMs: newStartMs });
+      effect("shortened");
+      continue;
+    }
+    const overlapsNewEnd = row.endMs > newEndMs && row.startMs < newEndMs;
     if (overlapsNewEnd) {
-      resolved.push({ ...row, startMs: newEndMs + 1 });
+      resolved.push({ ...row, startMs: newEndMs });
+      effect("shortened");
       continue;
     }
     resolved.push(row);
   }
-  return sortActivities(resolved);
+  return { rows: sortActivities(resolved), effects };
+};
+
+/** Backward-compatible convenience for callers that only need the rows. */
+export const resolveSpanOverlaps = (
+  rows: EditableActivity[],
+  localId: string,
+  newStartMs: number,
+  newEndMs: number,
+): EditableActivity[] =>
+  claimActivitySpan(rows, localId, newStartMs, newEndMs).rows;
+
+/**
+ * True only when the gap adjacent to one Insert button contains a live image
+ * that is not covered by any activity. Image-free time never turns the button
+ * red; it remains selectable in the five-minute picker.
+ */
+export const gapHasUnassignedImages = (
+  rows: EditableActivity[],
+  frames: Frame[],
+  afterLocalId: string | null,
+): boolean => {
+  const sorted = sortActivities(rows);
+  const anchorIndex =
+    afterLocalId === null
+      ? -1
+      : sorted.findIndex((row) => row.localId === afterLocalId);
+  if (afterLocalId !== null && anchorIndex === -1) return false;
+  const previous = anchorIndex >= 0 ? sorted[anchorIndex] : undefined;
+  const next = sorted[anchorIndex + 1];
+  const gapStartMs = previous?.endMs ?? Number.NEGATIVE_INFINITY;
+  const gapEndMs = next?.startMs ?? Number.POSITIVE_INFINITY;
+
+  return frames.some(
+    (frame) =>
+      frame.deletedAt === null &&
+      frame.imageUrl !== null &&
+      frame.captureEpochMs >= gapStartMs &&
+      frame.captureEpochMs < gapEndMs &&
+      !sorted.some((row) => isEpochInActivitySpan(frame.captureEpochMs, row)),
+  );
 };
 
 /** Pick up to maxCount items spread evenly across the list (endpoints kept). */

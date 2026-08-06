@@ -2,9 +2,12 @@
 // Run from drm-web/:  ../server/node_modules/.bin/tsx scripts/test-span-overlaps.ts
 
 import {
+  claimActivitySpan,
+  gapHasUnassignedImages,
   resolveSpanOverlaps,
   type EditableActivity,
 } from "../src/components/reconstruct/editor-types";
+import type { Frame } from "../src/lib/api-types";
 
 const makeRow = (
   localId: string,
@@ -53,7 +56,7 @@ const day = () => [
 check(
   "extend across several activities",
   resolveSpanOverlaps(day(), "C", 50, 850).map(span),
-  ["0-49", "50-850", "851-900"],
+  ["0-50", "50-850", "850-900"],
 );
 
 // 2. Shrink C within itself: nothing else is touched.
@@ -63,24 +66,35 @@ check(
   ["0-100", "200-300", "410-490", "600-700", "800-900"],
 );
 
-// 3. Exact adjacency: new span starts exactly at B's end -> B's end clamps
-//    one ms before the new start (spans must stay disjoint).
+// 3. Exact adjacency is valid with half-open spans and changes no neighbor.
 check(
   "boundary touching the previous activity",
   resolveSpanOverlaps(day(), "C", 300, 500).map(span),
-  ["0-100", "200-299", "300-500", "600-700", "800-900"],
+  ["0-100", "200-300", "300-500", "600-700", "800-900"],
 );
 
-// 4. A row that surrounds the whole new span keeps its head.
+// 4. A row that surrounds the whole new span is split around the target.
 check(
-  "surrounding row keeps its head",
+  "surrounding row is split without losing its tail",
   resolveSpanOverlaps(
     [makeRow("wide", 0, 1000), makeRow("target", 400, 500)],
     "target",
     300,
     600,
   ).map(span),
-  ["0-299", "300-600"],
+  ["0-300", "300-600", "600-1000"],
+);
+
+const splitResolution = claimActivitySpan(
+  [makeRow("wide", 0, 1000), makeRow("target", 400, 500)],
+  "target",
+  300,
+  600,
+);
+check(
+  "split reports a semantic effect for the saved notification",
+  splitResolution.effects.map((effect) => [effect.kind, effect.side]),
+  [["split", "overlapping"]],
 );
 
 // 5. Rows without complete times are never touched.
@@ -107,6 +121,44 @@ check(
   "result re-sorted after the move",
   resolveSpanOverlaps(day(), "E", 150, 180).map((row) => row.localId),
   ["A", "E", "B", "C", "D"],
+);
+
+const frame = (
+  captureEpochMs: number,
+  deletedAt: number | null = null,
+): Frame => ({
+  device: "camera",
+  session: 1,
+  frameIndex: captureEpochMs,
+  captureEpochMs,
+  imageUrl: deletedAt === null ? "/frame.jpg" : null,
+  deletedAt,
+});
+
+check(
+  "only a live unassigned image highlights its adjacent Insert button",
+  {
+    gapWithLiveImage: gapHasUnassignedImages(
+      [makeRow("A", 0, 100), makeRow("B", 200, 300)],
+      [frame(150)],
+      "A",
+    ),
+    assignedBoundaryImage: gapHasUnassignedImages(
+      [makeRow("A", 0, 100), makeRow("B", 200, 300)],
+      [frame(200)],
+      "A",
+    ),
+    deletedImage: gapHasUnassignedImages(
+      [makeRow("A", 0, 100), makeRow("B", 200, 300)],
+      [frame(150, 999)],
+      "A",
+    ),
+  },
+  {
+    gapWithLiveImage: true,
+    assignedBoundaryImage: false,
+    deletedImage: false,
+  },
 );
 
 if (failures > 0) {

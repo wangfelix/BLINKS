@@ -1134,7 +1134,7 @@ const parseActivityInputs = (
       typeof endMs !== "number" ||
       !Number.isFinite(startMs) ||
       !Number.isFinite(endMs) ||
-      endMs < startMs
+      endMs <= startMs
     ) {
       return { error: `activity ${index}: invalid startMs/endMs` };
     }
@@ -1240,7 +1240,9 @@ const parseActivityInputs = (
       return { error: "activities must not overlap in time" };
     }
   }
-  return { activities };
+  // Positions are canonical chronological order even if a stale client sends
+  // the replace-all list out of order.
+  return { activities: sortedByStart };
 };
 
 const roundTimingJson = (

@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { PlusIcon, Trash2Icon } from "lucide-react";
+import { CircleCheckIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 
 import type {
   Activity,
@@ -29,13 +29,15 @@ import { AssistedActivityRow } from "@/components/reconstruct/assisted-activity-
 import { SelfActivityRow } from "@/components/reconstruct/self-activity-row";
 import {
   computeRowIssues,
+  claimActivitySpan,
   fromServerActivity,
+  gapHasUnassignedImages,
   hasAllExperienceRatings,
   makeLocalId,
-  resolveSpanOverlaps,
   sortActivities,
   toActivityInputs,
   type EditableActivity,
+  type SpanAdjustmentEffect,
 } from "@/components/reconstruct/editor-types";
 import { FramePickerDialog } from "@/components/reconstruct/frame-picker-dialog";
 import type { RatedCategory } from "@/components/reconstruct/experience-rating-scale";
@@ -59,11 +61,22 @@ interface PhotoDialogState {
 interface FramePickerConfig {
   title: string;
   description: string;
-  frames: Frame[];
+  currentActivityId?: string;
   initialStartMs?: number;
   initialEndMs?: number;
+  initialFocusMs?: number;
   confirmLabel: string;
-  onConfirm: (startMs: number, endMs: number) => void;
+}
+
+interface EditorNotice {
+  id: number;
+  title: string;
+  description: string;
+}
+
+interface PendingEditorNotice {
+  notice: Omit<EditorNotice, "id">;
+  spanFingerprint: string;
 }
 
 // No idle text: the indicator only appears once a save is actually happening.
@@ -84,19 +97,77 @@ const hasStartedFillingIn = (row: EditableActivity): boolean =>
   row.rawLabel !== null ||
   row.categoryLabel !== null;
 
-const InsertBetweenButton = ({ onClick }: { onClick: () => void }) => (
+const InsertBetweenButton = ({
+  onClick,
+  hasUnassignedImages,
+}: {
+  onClick: () => void;
+  hasUnassignedImages: boolean;
+}) => (
   <Row justify="center">
     <Button
-      variant="ghost"
+      variant={hasUnassignedImages ? "destructive" : "ghost"}
       size="xs"
-      className="text-muted-foreground"
+      className={
+        hasUnassignedImages
+          ? "h-9 border border-destructive/30 bg-destructive/10 px-3 text-destructive hover:bg-destructive/20"
+          : "h-9 px-3 text-muted-foreground"
+      }
       onClick={onClick}
+      aria-label={
+        hasUnassignedImages
+          ? "Insert activity — unassigned images in this gap"
+          : "Insert activity"
+      }
     >
       <PlusIcon />
       Insert activity
+      {hasUnassignedImages && (
+        <span className="ml-1 rounded-full bg-destructive px-2 py-0.5 text-[10px] font-semibold text-white">
+          Unassigned images
+        </span>
+      )}
     </Button>
   </Row>
 );
+
+const spanFingerprint = (activities: ActivityInput[]): string =>
+  JSON.stringify(
+    activities.map((activity) => [
+      activity.startMs,
+      activity.endMs,
+      activity.source,
+      activity.proposalActivityId,
+    ]),
+  );
+
+const adjustmentNotice = (
+  effects: SpanAdjustmentEffect[],
+  target: "new" | "current",
+): Omit<EditorNotice, "id"> | null => {
+  if (effects.length === 0) return null;
+  const describe = (effect: SpanAdjustmentEffect): string => {
+    const subject =
+      effect.side === "preceding"
+        ? "The preceding activity"
+        : effect.side === "following"
+          ? "The following activity"
+          : "An overlapping activity";
+    if (effect.kind === "split") return `${subject} was split`;
+    return `${subject} was ${effect.kind}`;
+  };
+  const summaries = effects.map(describe);
+  const changeSummary =
+    summaries.length <= 2
+      ? summaries.join(" and ")
+      : `${effects.length} overlapping activities were adjusted`;
+  const targetLabel = target === "new" ? "new activity" : "current activity";
+  return {
+    title:
+      effects.length === 1 ? "Activity time updated" : "Activity times updated",
+    description: `${changeSummary} to make room. Images in the affected time are now assigned to your ${targetLabel}.`,
+  };
+};
 
 /**
  * Editable reconstruction for one (non-submitted) round. Round 1 starts from
@@ -131,6 +202,7 @@ export const RoundEditor = ({
     string | null
   >(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [notice, setNotice] = useState<EditorNotice | null>(null);
 
   const deleteCandidate =
     deleteCandidateLocalId === null
@@ -151,6 +223,13 @@ export const RoundEditor = ({
   }, [rows]);
   const pendingSaveRef = useRef(false);
   const autosaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingNoticeRef = useRef<PendingEditorNotice | null>(null);
+
+  useEffect(() => {
+    if (notice === null) return;
+    const timeout = setTimeout(() => setNotice(null), 7000);
+    return () => clearTimeout(timeout);
+  }, [notice]);
 
   const markEdited = () => setEditVersion((version) => version + 1);
 
@@ -158,8 +237,16 @@ export const RoundEditor = ({
     mutationFn: (activities: ActivityInput[]) =>
       saveRoundDraft(round, activities),
     onMutate: () => setSaveState("saving"),
-    onSuccess: () => {
+    onSuccess: (_result, savedActivities) => {
       setSaveState("saved");
+      const pendingNotice = pendingNoticeRef.current;
+      if (
+        pendingNotice !== null &&
+        pendingNotice.spanFingerprint === spanFingerprint(savedActivities)
+      ) {
+        setNotice({ ...pendingNotice.notice, id: Date.now() });
+        pendingNoticeRef.current = null;
+      }
       // Round status may move none -> draft.
       void queryClient.invalidateQueries({ queryKey: ["study-state"] });
     },
@@ -263,23 +350,36 @@ export const RoundEditor = ({
   };
 
   const insertActivity = (startMs: number, endMs: number) => {
-    setRows((previous) =>
-      sortActivities([
-        ...previous,
-        {
-          localId: makeLocalId(),
-          startMs,
-          endMs,
-          rawLabel: null,
-          categoryLabel: null,
-          source: "user",
-          proposalActivityId: null,
-          isIncorrectAnnotationInjected: false,
-          workloadRating: null,
-          recoveryRating: null,
-        },
-      ]),
+    pendingNoticeRef.current = null;
+    const localId = makeLocalId();
+    const inserted: EditableActivity = {
+      localId,
+      startMs,
+      endMs,
+      rawLabel: null,
+      categoryLabel: null,
+      source: "user",
+      proposalActivityId: null,
+      isIncorrectAnnotationInjected: false,
+      workloadRating: null,
+      recoveryRating: null,
+    };
+    const resolution = claimActivitySpan(
+      [...rowsRef.current, inserted],
+      localId,
+      startMs,
+      endMs,
     );
+    const nextInputs = toActivityInputs(resolution.rows);
+    const nextNotice = adjustmentNotice(resolution.effects, "new");
+    if (nextNotice !== null) {
+      pendingNoticeRef.current = {
+        notice: nextNotice,
+        spanFingerprint: spanFingerprint(nextInputs),
+      };
+    }
+    rowsRef.current = resolution.rows;
+    setRows(resolution.rows);
     markEdited();
   };
 
@@ -303,9 +403,23 @@ export const RoundEditor = ({
     newStartMs: number,
     newEndMs: number,
   ) => {
-    setRows((previous) =>
-      resolveSpanOverlaps(previous, localId, newStartMs, newEndMs),
+    pendingNoticeRef.current = null;
+    const resolution = claimActivitySpan(
+      rowsRef.current,
+      localId,
+      newStartMs,
+      newEndMs,
     );
+    const nextInputs = toActivityInputs(resolution.rows);
+    const nextNotice = adjustmentNotice(resolution.effects, "current");
+    if (nextNotice !== null) {
+      pendingNoticeRef.current = {
+        notice: nextNotice,
+        spanFingerprint: spanFingerprint(nextInputs),
+      };
+    }
+    rowsRef.current = resolution.rows;
+    setRows(resolution.rows);
     markEdited();
   };
 
@@ -347,57 +461,67 @@ export const RoundEditor = ({
    */
   const buildAdjustTimesPicker = (
     localId: string,
-    dayFrames: Frame[],
   ): FramePickerConfig | null => {
     const row = rows.find((candidate) => candidate.localId === localId);
     if (row === undefined) return null;
     return {
       title: "Adjust the activity's time span",
       description:
-        "Pick the first and the last frame of this activity. You can extend it across other activities — they shrink to make room, and an activity left with no time is removed.",
-      frames: dayFrames,
+        "Choose the start and end in five-minute intervals. You can extend this activity across other activities — they shorten, split, or are removed to make room.",
+      currentActivityId: row.localId,
       initialStartMs: row.startMs ?? undefined,
       initialEndMs: row.endMs ?? undefined,
+      initialFocusMs: row.startMs ?? undefined,
       confirmLabel: "Apply time span",
-      onConfirm: (startMs, endMs) => {
-        applyBoundaryChange(row.localId, startMs, endMs);
-        setBoundaryDialog(null);
-      },
     };
   };
 
   /**
    * Picker for "Insert activity" between two existing activities (or before
-   * the first / after the last one). Only frames in the unassigned gap are
-   * offered.
+   * the first / after the last one). The button location supplies the initial
+   * scroll target, while the participant may choose any five-minute span.
    */
   const buildInsertActivityPicker = (
     afterLocalId: string | null,
     dayFrames: Frame[],
   ): FramePickerConfig => {
+    const sortedRows = sortActivities(rows);
     const anchorIndex =
       afterLocalId === null
         ? -1
-        : rows.findIndex((row) => row.localId === afterLocalId);
+        : sortedRows.findIndex((row) => row.localId === afterLocalId);
     const gapStartMs =
       anchorIndex === -1
         ? Number.NEGATIVE_INFINITY
-        : (rows[anchorIndex].endMs ?? Number.NEGATIVE_INFINITY);
-    const nextRow: EditableActivity | undefined = rows[anchorIndex + 1];
+        : (sortedRows[anchorIndex].endMs ?? Number.NEGATIVE_INFINITY);
+    const nextRow: EditableActivity | undefined = sortedRows[anchorIndex + 1];
     const gapEndMs = nextRow?.startMs ?? Number.POSITIVE_INFINITY;
+    const firstUnassignedFrame = dayFrames.find(
+      (frame) =>
+        frame.deletedAt === null &&
+        frame.imageUrl !== null &&
+        frame.captureEpochMs >= gapStartMs &&
+        frame.captureEpochMs < gapEndMs &&
+        !sortedRows.some(
+          (row) =>
+            row.startMs !== null &&
+            row.endMs !== null &&
+            frame.captureEpochMs >= row.startMs &&
+            frame.captureEpochMs < row.endMs,
+        ),
+    );
     return {
       title: "Insert an activity",
       description:
-        "Pick the first and the last frame of the new activity from the frames not yet assigned to any activity, then choose its label in the new row.",
-      frames: dayFrames.filter(
-        (frame) =>
-          frame.captureEpochMs > gapStartMs && frame.captureEpochMs < gapEndMs,
-      ),
+        "Choose any start and end in five-minute intervals, including times with no images. Overlapping activities will shorten, split, or be removed to make room.",
+      initialFocusMs:
+        firstUnassignedFrame?.captureEpochMs ??
+        (Number.isFinite(gapStartMs)
+          ? gapStartMs
+          : Number.isFinite(gapEndMs)
+            ? gapEndMs
+            : undefined),
       confirmLabel: "Insert activity",
-      onConfirm: (startMs, endMs) => {
-        insertActivity(startMs, endMs);
-        setBoundaryDialog(null);
-      },
     };
   };
 
@@ -405,14 +529,18 @@ export const RoundEditor = ({
     boundaryDialog === null || frames === null
       ? null
       : boundaryDialog.mode === "adjust"
-        ? buildAdjustTimesPicker(
-            boundaryDialog.localId,
-            frames.filter((frame) => frame.deletedAt === null),
-          )
-        : buildInsertActivityPicker(
-            boundaryDialog.afterLocalId,
-            frames.filter((frame) => frame.deletedAt === null),
-          );
+        ? buildAdjustTimesPicker(boundaryDialog.localId)
+        : buildInsertActivityPicker(boundaryDialog.afterLocalId, frames);
+
+  const handleFramePickerConfirm = (startMs: number, endMs: number) => {
+    if (boundaryDialog === null) return;
+    if (boundaryDialog.mode === "adjust") {
+      applyBoundaryChange(boundaryDialog.localId, startMs, endMs);
+    } else {
+      insertActivity(startMs, endMs);
+    }
+    setBoundaryDialog(null);
+  };
 
   const photoDialogActivity =
     photoDialog === null
@@ -424,7 +552,7 @@ export const RoundEditor = ({
       : frames.filter(
           (frame) =>
             frame.captureEpochMs >= (photoDialogActivity.startMs ?? 0) &&
-            frame.captureEpochMs <= (photoDialogActivity.endMs ?? 0),
+            frame.captureEpochMs < (photoDialogActivity.endMs ?? 0),
         );
 
   // --- Render ------------------------------------------------------------------
@@ -432,6 +560,8 @@ export const RoundEditor = ({
   const editorHint = isAssistedRound
     ? "Review the proposed activities, correct the labels and time spans until they match your day."
     : "Reconstruct your day from memory, one activity at a time.";
+  const hasUnassignedImagesAfter = (afterLocalId: string | null): boolean =>
+    frames !== null && gapHasUnassignedImages(rows, frames, afterLocalId);
 
   return (
     <Column gap="lg">
@@ -458,6 +588,7 @@ export const RoundEditor = ({
       {isAssistedRound ? (
         <Column gap="xs">
           <InsertBetweenButton
+            hasUnassignedImages={hasUnassignedImagesAfter(null)}
             onClick={() =>
               setBoundaryDialog({ mode: "insert", afterLocalId: null })
             }
@@ -497,6 +628,7 @@ export const RoundEditor = ({
                 }
               />
               <InsertBetweenButton
+                hasUnassignedImages={hasUnassignedImagesAfter(row.localId)}
                 onClick={() =>
                   setBoundaryDialog({
                     mode: "insert",
@@ -567,7 +699,9 @@ export const RoundEditor = ({
                 {deleteCandidateTimeSpan === null
                   ? "This activity will be removed from your reconstruction."
                   : `The activity from ${deleteCandidateTimeSpan} will be removed from your reconstruction.`}{" "}
-                You can create a new activity in its place, or assign the unassigned images to the preceeding and succeeding activities by adjusting their time spans.
+                You can create a new activity in its place, or assign the
+                unassigned images to the preceding and following activities by
+                adjusting their time spans.
               </DialogDescription>
             </DialogHeader>
           </div>
@@ -632,11 +766,15 @@ export const RoundEditor = ({
           }}
           title={framePicker.title}
           description={framePicker.description}
-          frames={framePicker.frames}
+          day={day}
+          frames={frames ?? []}
+          activities={rows}
+          currentActivityId={framePicker.currentActivityId}
           initialStartMs={framePicker.initialStartMs}
           initialEndMs={framePicker.initialEndMs}
+          initialFocusMs={framePicker.initialFocusMs}
           confirmLabel={framePicker.confirmLabel}
-          onConfirm={framePicker.onConfirm}
+          onConfirm={handleFramePickerConfirm}
         />
       )}
 
@@ -654,6 +792,34 @@ export const RoundEditor = ({
           frames={photoDialogFrames}
           initialFrameKey={photoDialog.initialFrameKey}
         />
+      )}
+
+      {notice !== null && (
+        <div
+          key={notice.id}
+          role="status"
+          aria-live="polite"
+          className="fixed right-4 bottom-4 z-[80] flex w-[min(24rem,calc(100vw-2rem))] items-start gap-3 rounded-xl border bg-background p-4 shadow-lg"
+        >
+          <CircleCheckIcon
+            className="mt-0.5 size-5 shrink-0 text-emerald-600"
+            aria-hidden
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">{notice.title}</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              {notice.description}
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss notification"
+            onClick={() => setNotice(null)}
+            className="rounded-md p-1 text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <XIcon className="size-4" aria-hidden />
+          </button>
+        </div>
       )}
     </Column>
   );
