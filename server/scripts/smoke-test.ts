@@ -327,11 +327,12 @@ const getParticipantRow = (
   occupation: string | null;
   wake_time: string | null;
   bed_time: string | null;
+  camera_form_factor: "necklace" | "glasses" | null;
 } =>
   withDb((db) => {
     const row = db
       .prepare(
-        "SELECT push_token, occupation, wake_time, bed_time " +
+        "SELECT push_token, occupation, wake_time, bed_time, camera_form_factor " +
           "FROM participants WHERE username = ?",
       )
       .get(username) as
@@ -340,6 +341,7 @@ const getParticipantRow = (
           occupation: string | null;
           wake_time: string | null;
           bed_time: string | null;
+          camera_form_factor: "necklace" | "glasses" | null;
         }
       | undefined;
     assert.ok(row, "participants row exists (created by create-user)");
@@ -416,11 +418,13 @@ const sendFramesOverWs = (
   session: number,
   frames: { t: number; n: number }[],
   device = "AABBCCDDEEFF",
+  recordingType: "study" | "test" = "study",
 ): Promise<void> =>
   new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${WS_URL}/ingest?session=${session}&device=${device}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const ws = new WebSocket(
+      `${WS_URL}/ingest?session=${session}&device=${device}&recordingType=${recordingType}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
     ws.on("open", () => {
       for (const frame of frames) {
         ws.send(JSON.stringify(frame));
@@ -435,9 +439,12 @@ const sendFramesOverWs = (
     ws.on("error", reject);
   });
 
-const expectWsRejected = (headers?: Record<string, string>): Promise<void> =>
+const expectWsRejected = (
+  headers?: Record<string, string>,
+  query = "session=1&device=X",
+): Promise<void> =>
   new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${WS_URL}/ingest?session=1&device=X`, { headers });
+    const ws = new WebSocket(`${WS_URL}/ingest?${query}`, { headers });
     ws.on("close", (code: number) => {
       code === 1008
         ? resolve()
@@ -535,6 +542,73 @@ const main = async (): Promise<void> => {
   // the DRM day bucketing below is deterministic
   const session = Math.floor(Date.now() / 1000);
   const baseT = TODAY_NOON;
+  const noRecordingState = await api("/api/recording/state", { token });
+  assert.deepStrictEqual(noRecordingState, {
+    hasSession: false,
+    active: false,
+    completed: false,
+    sessionId: null,
+    startedAtMs: null,
+    phase: "idle",
+    nextSequenceNumber: 0,
+    accumulatedActiveMs: 0,
+  });
+
+  // A lab test writes only below the participant's Test directory. It can
+  // reconnect and continue numbering, but creates no research frame, chunk,
+  // session-summary, or recording-event state.
+  const testSession = session - 1;
+  const testDevice = "TESTCAMERA";
+  await sendFramesOverWs(
+    token,
+    testSession,
+    [
+      { t: baseT - 60_000, n: 100 },
+      { t: baseT - 45_000, n: 101 },
+    ],
+    testDevice,
+    "test",
+  );
+  await sendFramesOverWs(
+    token,
+    testSession,
+    [{ t: baseT - 30_000, n: 102 }],
+    testDevice,
+    "test",
+  );
+  const testImagesDir = path.join(
+    RECORDINGS_DIR!,
+    MAIN_USER,
+    "Test",
+    testDevice,
+    String(testSession),
+    "images",
+  );
+  assert.deepStrictEqual(
+    fs.readdirSync(testImagesDir).sort(),
+    [
+      `frame-000001-${baseT - 60_000}.jpg`,
+      `frame-000002-${baseT - 45_000}.jpg`,
+      `frame-000003-${baseT - 30_000}.jpg`,
+    ],
+    "test frames use their isolated directory and reconnect numbering",
+  );
+  assert.strictEqual(
+    countSessionFrameRows(MAIN_USER, testDevice, testSession),
+    0,
+    "test frames never enter the research frames table",
+  );
+  assert.deepStrictEqual(
+    await api("/api/sessions", { token }),
+    { sessions: [] },
+    "test frames never appear as a research session",
+  );
+  assert.deepStrictEqual(
+    await api("/api/recording/state", { token }),
+    noRecordingState,
+    "ending or reconnecting a test cannot consume the main study session",
+  );
+
   const startedEvent = {
     eventId: `${session}-0`,
     session,
@@ -547,6 +621,18 @@ const main = async (): Promise<void> => {
     body: startedEvent,
   });
   assert.strictEqual(started.paused, false);
+  await expectWsRejected(
+    { Authorization: `Bearer ${token}` },
+    `session=${testSession + 1}&device=${testDevice}&recordingType=test`,
+  );
+  const activeRecordingState = await api("/api/recording/state", { token });
+  assert.strictEqual(activeRecordingState.active, true);
+  assert.strictEqual(activeRecordingState.completed, false);
+  assert.strictEqual(activeRecordingState.sessionId, session);
+  assert.strictEqual(activeRecordingState.startedAtMs, baseT);
+  assert.strictEqual(activeRecordingState.phase, "recording");
+  assert.strictEqual(activeRecordingState.nextSequenceNumber, 1);
+  assert.ok(activeRecordingState.accumulatedActiveMs >= 0);
   await sendFramesOverWs(token, session, [
     { t: baseT, n: 1 },
     { t: baseT + 30_000, n: 2 },
@@ -619,6 +705,10 @@ const main = async (): Promise<void> => {
     body: pauseEvent,
   });
   assert.strictEqual(paused.paused, true);
+  const pausedRecordingState = await api("/api/recording/state", { token });
+  assert.strictEqual(pausedRecordingState.active, true);
+  assert.strictEqual(pausedRecordingState.phase, "paused");
+  assert.strictEqual(pausedRecordingState.nextSequenceNumber, 2);
   await api("/api/pause", {
     method: "POST",
     token,
@@ -647,6 +737,10 @@ const main = async (): Promise<void> => {
     },
   });
   assert.strictEqual(resumed.paused, false);
+  const resumedRecordingState = await api("/api/recording/state", { token });
+  assert.strictEqual(resumedRecordingState.active, true);
+  assert.strictEqual(resumedRecordingState.phase, "recording");
+  assert.strictEqual(resumedRecordingState.nextSequenceNumber, 3);
 
   // change password: wrong current rejected, then real change + re-login
   await api("/api/change-password", {
@@ -677,6 +771,7 @@ const main = async (): Promise<void> => {
   assert.strictEqual(initialProfile.workDescription, null);
   assert.strictEqual(initialProfile.wakeTime, null);
   assert.strictEqual(initialProfile.bedTime, null);
+  assert.strictEqual(initialProfile.cameraFormFactor, null);
   assert.ok(!("arm" in initialProfile), "profile omits legacy arm metadata");
   assert.ok(
     !("studyDurationDays" in initialProfile),
@@ -716,6 +811,34 @@ const main = async (): Promise<void> => {
   assert.strictEqual(updatedProfile.wakeTime, "07:00");
   assert.strictEqual(updatedProfile.bedTime, "23:30");
   assert.strictEqual(getParticipantRow(MAIN_USER).bed_time, "23:30");
+
+  await api("/api/study-settings/camera-form-factor", {
+    method: "PUT",
+    token,
+    body: { cameraFormFactor: "watch" },
+    expectStatus: 400,
+  });
+  await api("/api/study-settings/camera-form-factor", {
+    method: "PUT",
+    token,
+    body: { cameraFormFactor: "glasses" },
+  });
+  const profileWithGlasses = await api("/api/profile", { token });
+  assert.strictEqual(profileWithGlasses.cameraFormFactor, "glasses");
+  assert.strictEqual(
+    getParticipantRow(MAIN_USER).camera_form_factor,
+    "glasses",
+    "camera form factor remains editable while the main recording is active",
+  );
+  await api("/api/study-settings/camera-form-factor", {
+    method: "PUT",
+    token,
+    body: { cameraFormFactor: "necklace" },
+  });
+  assert.strictEqual(
+    getParticipantRow(MAIN_USER).camera_form_factor,
+    "necklace",
+  );
 
   // push registration
   await api("/api/register-push", {
@@ -1246,6 +1369,24 @@ const main = async (): Promise<void> => {
   assert.strictEqual(ended.ok, true);
   assert.strictEqual(ended.paused, false, "end clears a current pause");
   assert.strictEqual(ended.closedChunks, 1, "trailing chunk closed on end");
+  const completedRecordingState = await api("/api/recording/state", { token });
+  assert.strictEqual(completedRecordingState.hasSession, true);
+  assert.strictEqual(completedRecordingState.active, false);
+  assert.strictEqual(completedRecordingState.completed, true);
+  assert.strictEqual(completedRecordingState.sessionId, session);
+  assert.strictEqual(completedRecordingState.phase, "idle");
+  assert.strictEqual(completedRecordingState.nextSequenceNumber, 5);
+  await api("/api/recording/started", {
+    method: "POST",
+    token,
+    body: {
+      eventId: `${session + 1}-0`,
+      session: session + 1,
+      clientEpochMs: t0 + 720_000,
+      sequenceNumber: 0,
+    },
+    expectStatus: 409,
+  });
   assert.deepStrictEqual(
     getChunks(MAIN_USER).map((c) => c.status),
     ["ready", "ready", "ready", "ready"],

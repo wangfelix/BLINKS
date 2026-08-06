@@ -1,5 +1,9 @@
 import { fromByteArray } from "base64-js";
-import { BleManager, Device } from "react-native-ble-plx";
+import {
+  BleManager,
+  type Device,
+  type Subscription,
+} from "react-native-ble-plx";
 
 import {
   BLE_CONTROL_CHARACTERISTIC_UUID,
@@ -18,6 +22,11 @@ export type CameraLinkStatus =
   | "connecting"
   | "connected";
 
+const SCAN_RESTART_MS = 30_000;
+const SCAN_RETRY_INITIAL_MS = 2_000;
+const SCAN_RETRY_MAX_MS = 30_000;
+const RECONNECT_RETRY_MS = 3_000;
+
 interface CameraLinkEvents {
   // deviceId is the camera's BLE MAC with colons stripped (the server's
   // device identity, same convention as the old WiFi pipeline).
@@ -29,29 +38,38 @@ interface CameraLinkEvents {
 // BLE central for the BLINKS camera: scans by name (the 128-bit service UUID
 // does not fit the advertising packet next to the name), connects, subscribes
 // to frame notifications, and exposes the pause/resume control write. Owns
-// reconnection: any disconnect while running goes back to scanning.
+// reconnection: after the first connection it reconnects directly to the same
+// BLE address, so a camera power cycle does not depend on Android continuing an
+// unfiltered scan while the phone screen is off.
 export class CameraLink {
   private readonly manager = new BleManager();
   private readonly assembler = new FrameAssembler();
   private device: Device | null = null;
+  private knownDeviceId: string | null = null;
   private running = false;
+  private bluetoothPoweredOn = false;
   private connecting = false;
+  private scanning = false;
   private desiredPaused = false;
+  private bluetoothStateSubscription: Subscription | null = null;
+  private scanRestartTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private scanRetryMs = SCAN_RETRY_INITIAL_MS;
 
   constructor(private readonly events: CameraLinkEvents) {}
 
   start(): void {
     if (this.running) return;
     this.running = true;
-    const subscription = this.manager.onStateChange((state) => {
-      if (!this.running) {
-        subscription.remove();
-        return;
-      }
+    this.bluetoothStateSubscription = this.manager.onStateChange((state) => {
+      if (!this.running) return;
       if (state === "PoweredOn") {
-        subscription.remove();
-        this.startScan();
+        this.bluetoothPoweredOn = true;
+        this.ensureConnection();
       } else {
+        this.bluetoothPoweredOn = false;
+        this.stopScan();
+        this.clearReconnectTimer();
         this.events.onStatusChange("bluetoothOff");
       }
     }, true);
@@ -59,8 +77,15 @@ export class CameraLink {
 
   async stop(): Promise<void> {
     this.running = false;
-    this.manager.stopDeviceScan();
-    await this.device?.cancelConnection().catch(() => {});
+    this.bluetoothPoweredOn = false;
+    this.bluetoothStateSubscription?.remove();
+    this.bluetoothStateSubscription = null;
+    this.stopScan();
+    this.clearReconnectTimer();
+    const deviceId = this.device?.id ?? this.knownDeviceId;
+    if (deviceId) {
+      await this.manager.cancelDeviceConnection(deviceId).catch(() => {});
+    }
     this.device = null;
     this.assembler.reset();
     this.events.onStatusChange("idle");
@@ -76,28 +101,132 @@ export class CameraLink {
     });
   }
 
-  private startScan(): void {
-    if (!this.running) return;
-    this.events.onStatusChange("scanning");
-    // No UUID filter: match by advertised name (see ble-constants).
-    this.manager.startDeviceScan(null, null, (error, device) => {
-      if (error || !this.running) return;
-      const name = device?.name ?? device?.localName;
-      if (device && name === BLE_DEVICE_NAME && !this.connecting) {
-        void this.connectTo(device);
-      }
-    });
+  private ensureConnection(): void {
+    if (
+      !this.running ||
+      !this.bluetoothPoweredOn ||
+      this.device ||
+      this.connecting
+    ) {
+      return;
+    }
+    if (this.knownDeviceId) {
+      void this.reconnectToKnownDevice();
+    } else {
+      this.startScan();
+    }
   }
 
-  private async connectTo(device: Device): Promise<void> {
+  private startScan(): void {
+    if (
+      !this.running ||
+      !this.bluetoothPoweredOn ||
+      this.device ||
+      this.connecting ||
+      this.scanning
+    ) {
+      return;
+    }
+    this.scanning = true;
+    this.events.onStatusChange("scanning");
+    // No UUID filter: match by advertised name (see ble-constants).
+    void this.manager
+      .startDeviceScan(null, null, (error, device) => {
+        if (!this.running) return;
+        if (error) {
+          this.handleScanFailure(error);
+          return;
+        }
+        const name = device?.name ?? device?.localName;
+        if (device && name === BLE_DEVICE_NAME && !this.connecting) {
+          this.scanning = false;
+          this.clearScanRestartTimer();
+          void this.manager.stopDeviceScan().catch(() => {});
+          void this.connectToScannedDevice(device);
+        }
+      })
+      .catch((error: unknown) => this.handleScanFailure(error));
+
+    this.scanRestartTimer = setTimeout(() => {
+      this.scanRestartTimer = null;
+      if (!this.scanning) return;
+      this.scanning = false;
+      void this.manager.stopDeviceScan().catch(() => {});
+      this.startScan();
+    }, SCAN_RESTART_MS);
+  }
+
+  private stopScan(): void {
+    this.scanning = false;
+    this.clearScanRestartTimer();
+    void this.manager.stopDeviceScan().catch(() => {});
+  }
+
+  private handleScanFailure(error: unknown): void {
+    if (!this.running || !this.scanning) return;
+    console.warn("BLE camera scan failed; retrying:", error);
+    this.stopScan();
+    const retryMs = this.scanRetryMs;
+    this.scanRetryMs = Math.min(this.scanRetryMs * 2, SCAN_RETRY_MAX_MS);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.startScan();
+    }, retryMs);
+  }
+
+  private async connectToScannedDevice(device: Device): Promise<void> {
     this.connecting = true;
-    this.manager.stopDeviceScan();
+    this.stopScan();
     this.events.onStatusChange("connecting");
     try {
       const connected = await device.connect();
-      this.device = connected;
+      await this.finishConnection(connected);
+    } catch (error) {
+      console.warn("BLE camera connection failed; scanning again:", error);
+      this.device = null;
+    } finally {
+      this.connecting = false;
+      if (this.running && !this.device) this.scheduleReconnect();
+    }
+  }
+
+  private async reconnectToKnownDevice(): Promise<void> {
+    if (!this.knownDeviceId || this.connecting) return;
+    this.connecting = true;
+    this.events.onStatusChange("connecting");
+    try {
+      // Android's autoConnect waits for this known peripheral to become
+      // available and does not require an unfiltered BLE scan to stay active.
+      const connected = await this.manager.connectToDevice(this.knownDeviceId, {
+        autoConnect: true,
+      });
+      await this.finishConnection(connected);
+    } catch (error) {
+      console.warn("BLE camera reconnect failed; retrying:", error);
+      this.device = null;
+    } finally {
+      this.connecting = false;
+      if (this.running && !this.device) this.scheduleReconnect();
+    }
+  }
+
+  private async finishConnection(connected: Device): Promise<void> {
+    if (!this.running) {
+      await connected.cancelConnection().catch(() => {});
+      return;
+    }
+    try {
       await connected.requestMTU(517).catch(() => {});
       await connected.discoverAllServicesAndCharacteristics();
+      if (!this.running) {
+        await connected.cancelConnection().catch(() => {});
+        return;
+      }
+
+      this.device = connected;
+      this.knownDeviceId = connected.id;
+      this.scanRetryMs = SCAN_RETRY_INITIAL_MS;
+      this.clearReconnectTimer();
 
       const deviceId = connected.id.replace(/:/g, "");
       this.events.onDeviceIdentified(deviceId);
@@ -105,7 +234,7 @@ export class CameraLink {
       connected.onDisconnected(() => {
         this.assembler.reset();
         this.device = null;
-        if (this.running) this.startScan();
+        if (this.running) this.scheduleReconnect();
       });
 
       connected.monitorCharacteristicForService(
@@ -123,12 +252,39 @@ export class CameraLink {
       if (this.desiredPaused) await this.writePausedState().catch(() => {});
 
       this.events.onStatusChange("connected");
-    } catch {
+    } catch (error) {
       this.device = null;
-      if (this.running) this.startScan();
-    } finally {
-      this.connecting = false;
+      await connected.cancelConnection().catch(() => {});
+      throw error;
     }
+  }
+
+  private scheduleReconnect(): void {
+    if (
+      !this.running ||
+      !this.bluetoothPoweredOn ||
+      this.device ||
+      this.connecting ||
+      this.reconnectTimer
+    ) {
+      return;
+    }
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.ensureConnection();
+    }, RECONNECT_RETRY_MS);
+  }
+
+  private clearScanRestartTimer(): void {
+    if (!this.scanRestartTimer) return;
+    clearTimeout(this.scanRestartTimer);
+    this.scanRestartTimer = null;
+  }
+
+  private clearReconnectTimer(): void {
+    if (!this.reconnectTimer) return;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
   }
 
   private async writePausedState(): Promise<void> {

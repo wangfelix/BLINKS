@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAdminTableColumns = exports.isAdminTableName = exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = exports.RecordingEventConflictError = exports.RECORDING_EVENT_TYPES = exports.ADMIN_TABLE_NAMES = void 0;
+exports.getAdminTableColumns = exports.isAdminTableName = exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = exports.CAMERA_FORM_FACTORS = exports.RecordingEventConflictError = exports.RECORDING_EVENT_TYPES = exports.ADMIN_TABLE_NAMES = void 0;
 exports.chunkStartOf = chunkStartOf;
 exports.initDb = initDb;
 exports.pinRoundResponseList = pinRoundResponseList;
@@ -17,12 +17,14 @@ exports.insertFrame = insertFrame;
 exports.closeIdleChunks = closeIdleChunks;
 exports.recordRecordingEvent = recordRecordingEvent;
 exports.latestRecordingEvent = latestRecordingEvent;
+exports.listRecordingEventsForSession = listRecordingEventsForSession;
 exports.listPausedParticipants = listPausedParticipants;
 exports.closeFillingChunksForSession = closeFillingChunksForSession;
 exports.listChunksOnDay = listChunksOnDay;
 exports.getParticipant = getParticipant;
 exports.ensureParticipant = ensureParticipant;
 exports.upsertParticipantProfile = upsertParticipantProfile;
+exports.setCameraFormFactor = setCameraFormFactor;
 exports.setPushToken = setPushToken;
 exports.setLastReminderDay = setLastReminderDay;
 exports.listPushParticipants = listPushParticipants;
@@ -52,6 +54,7 @@ exports.getAdminFrameAvailabilityByPath = getAdminFrameAvailabilityByPath;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const time_1 = require("./time");
 exports.ADMIN_TABLE_NAMES = [
+    "participants",
     "frames",
     "chunks",
     "activity_lists",
@@ -67,6 +70,8 @@ exports.RECORDING_EVENT_TYPES = [
 class RecordingEventConflictError extends Error {
 }
 exports.RecordingEventConflictError = RecordingEventConflictError;
+// --- DRM row shapes ---------------------------------------------------------
+exports.CAMERA_FORM_FACTORS = ["necklace", "glasses"];
 exports.ACTIVITY_LIST_KINDS = [
     "self",
     "vlm_proposal",
@@ -107,12 +112,14 @@ let getRecordingEventByIdStmt;
 let getRecordingEventBySequenceStmt;
 let insertRecordingEventStmt;
 let latestRecordingEventStmt;
+let listRecordingEventsForSessionStmt;
 let listPausedParticipantsStmt;
 let recordRecordingEventTx;
 // DRM statements
 let getParticipantStmt;
 let insertParticipantStmt;
 let updateProfileStmt;
+let updateCameraFormFactorStmt;
 let updatePushTokenStmt;
 let updateLastReminderDayStmt;
 let listPushParticipantsStmt;
@@ -350,6 +357,7 @@ function initDb(dbPath) {
       work_description  TEXT,
       wake_time         TEXT,
       bed_time          TEXT,
+      camera_form_factor TEXT CHECK (camera_form_factor IN ('necklace', 'glasses')),
       arm               TEXT NOT NULL DEFAULT 'main',
       push_token        TEXT,
       last_reminder_day TEXT,
@@ -357,6 +365,7 @@ function initDb(dbPath) {
       updated_at        INTEGER
     );
   `);
+    migrateAddTableColumn("participants", "camera_form_factor", "camera_form_factor TEXT CHECK (camera_form_factor IN ('necklace', 'glasses'))");
     const reconstructionsExist = tableExists("reconstructions");
     if (reconstructionsExist &&
         !tableHasColumn("reconstructions", "round")) {
@@ -984,6 +993,13 @@ function initDb(dbPath) {
     ORDER BY session DESC, sequence_number DESC
     LIMIT 1
   `);
+    listRecordingEventsForSessionStmt = db.prepare(`
+    SELECT participant, event_id, session, event_type, client_epoch_ms,
+           server_received_epoch_ms, sequence_number
+    FROM recording_events
+    WHERE participant = ? AND session = ?
+    ORDER BY sequence_number
+  `);
     listPausedParticipantsStmt = db.prepare(`
     SELECT participant FROM (
       SELECT participant, event_type,
@@ -1016,7 +1032,8 @@ function initDb(dbPath) {
     });
     // --- DRM statements --------------------------------------------------------
     getParticipantStmt = db.prepare(`
-    SELECT username, occupation, work_description, wake_time, bed_time, arm,
+    SELECT username, occupation, work_description, wake_time, bed_time,
+           camera_form_factor, arm,
            push_token, last_reminder_day, created_at, updated_at
     FROM participants WHERE username = ?
   `);
@@ -1029,6 +1046,11 @@ function initDb(dbPath) {
         updated_at = ?
     WHERE username = ?
   `);
+    updateCameraFormFactorStmt = db.prepare(`
+    UPDATE participants
+    SET camera_form_factor = ?, updated_at = ?
+    WHERE username = ?
+  `);
     updatePushTokenStmt = db.prepare(`
     UPDATE participants SET push_token = ?, updated_at = ? WHERE username = ?
   `);
@@ -1036,7 +1058,8 @@ function initDb(dbPath) {
     UPDATE participants SET last_reminder_day = ? WHERE username = ?
   `);
     listPushParticipantsStmt = db.prepare(`
-    SELECT username, occupation, work_description, wake_time, bed_time, arm,
+    SELECT username, occupation, work_description, wake_time, bed_time,
+           camera_form_factor, arm,
            push_token, last_reminder_day, created_at, updated_at
     FROM participants WHERE push_token IS NOT NULL
   `);
@@ -1407,6 +1430,9 @@ function recordRecordingEvent(participant, event) {
 function latestRecordingEvent(participant) {
     return latestRecordingEventStmt.get(participant);
 }
+function listRecordingEventsForSession(participant, session) {
+    return listRecordingEventsForSessionStmt.all(participant, session);
+}
 // Restores the current defense-in-depth pause gate after a server restart.
 function listPausedParticipants() {
     return listPausedParticipantsStmt.all().map((row) => row.participant);
@@ -1441,6 +1467,13 @@ function ensureParticipant(username) {
 function upsertParticipantProfile(username, occupation, workDescription, wakeTime, bedTime) {
     ensureParticipant(username);
     updateProfileStmt.run(occupation, workDescription, wakeTime, bedTime, Date.now(), username);
+}
+// Camera form factor is participant-level research metadata. The study uses
+// one physical camera enclosure per participant, so changing the setup updates
+// this one normalized value instead of duplicating it across every frame.
+function setCameraFormFactor(username, cameraFormFactor) {
+    ensureParticipant(username);
+    updateCameraFormFactorStmt.run(cameraFormFactor, Date.now(), username);
 }
 function setPushToken(username, pushToken) {
     ensureParticipant(username);
@@ -1579,7 +1612,26 @@ function exportFramesCsv(q) {
 // --- Research admin read model ---------------------------------------------
 const isAdminTableName = (value) => exports.ADMIN_TABLE_NAMES.includes(value);
 exports.isAdminTableName = isAdminTableName;
-const getAdminTableColumns = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name);
+const ADMIN_TABLE_COLUMN_OVERRIDES = {
+    // Research admins need the participant-to-camera mapping, but neither the
+    // obsolete arm nor operational push/reminder fields belong in this export.
+    participants: [
+        "username",
+        "occupation",
+        "work_description",
+        "wake_time",
+        "bed_time",
+        "camera_form_factor",
+        "created_at",
+        "updated_at",
+    ],
+};
+const getAdminTableColumns = (table) => {
+    const override = ADMIN_TABLE_COLUMN_OVERRIDES[table];
+    if (override)
+        return [...override];
+    return db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name);
+};
 exports.getAdminTableColumns = getAdminTableColumns;
 const quoteIdentifier = (identifier) => `"${identifier.replace(/"/g, '""')}"`;
 const adminTableFilter = (columns, query) => {
@@ -1605,13 +1657,14 @@ function getAdminTableCounts() {
 }
 function listAdminTableRows(table, query) {
     const columns = (0, exports.getAdminTableColumns)(table);
+    const selectedColumns = columns.map(quoteIdentifier).join(", ");
     const { whereClause, params } = adminTableFilter(columns, query);
     const countStatement = db.prepare(`SELECT COUNT(*) AS count FROM ${table}${whereClause}`);
     const total = (params.search === undefined
         ? countStatement.get()
         : countStatement.get(params));
     const rows = db
-        .prepare(`SELECT * FROM ${table}${whereClause}
+        .prepare(`SELECT ${selectedColumns} FROM ${table}${whereClause}
        ORDER BY rowid ASC LIMIT @limit OFFSET @offset`)
         .all({ ...params, limit: query.limit, offset: query.offset });
     return {
@@ -1629,8 +1682,9 @@ const csvCell = (value) => {
 };
 function exportAdminTableCsv(table) {
     const columns = (0, exports.getAdminTableColumns)(table);
+    const selectedColumns = columns.map(quoteIdentifier).join(", ");
     const rows = db
-        .prepare(`SELECT * FROM ${table} ORDER BY rowid ASC`)
+        .prepare(`SELECT ${selectedColumns} FROM ${table} ORDER BY rowid ASC`)
         .all();
     return [
         columns.map(csvCell).join(","),

@@ -16,7 +16,7 @@ import {
   loadStoredSession,
   storeSession,
 } from "@/authentication/storage/token-storage";
-import { flushPendingRecordingEvents } from "@/capture/storage/recording-event-queue";
+import { recordingSessionStore } from "@/capture/model/recording-session-store";
 
 type AuthStatus = "restoring" | "signedOut" | "signedIn";
 
@@ -39,7 +39,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       .then((stored) => {
         if (stored) {
           sessionHolder.setSession(stored.token, stored.username);
-          void flushPendingRecordingEvents();
+          void recordingSessionStore.restore();
           setUsername(stored.username);
           setStatus("signedIn");
         } else {
@@ -50,6 +50,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const signOut = useCallback(async () => {
+    await recordingSessionStore.suspend();
     sessionHolder.setSession(null, null);
     setUsername(null);
     setStatus("signedOut");
@@ -70,7 +71,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const response = await loginRequest(name, password);
     sessionHolder.setSession(response.token, response.username);
     await storeSession({ token: response.token, username: response.username });
-    void flushPendingRecordingEvents();
+    void recordingSessionStore.restore();
     setUsername(response.username);
     setStatus("signedIn");
   }, []);

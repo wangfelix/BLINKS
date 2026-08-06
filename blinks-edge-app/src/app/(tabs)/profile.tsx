@@ -1,4 +1,10 @@
-import { SignOutIcon, UserCircleIcon } from "phosphor-react-native";
+import { useRouter } from "expo-router";
+import {
+  CaretRightIcon,
+  GearSixIcon,
+  SignOutIcon,
+  UserCircleIcon,
+} from "phosphor-react-native";
 import { StyleSheet, View } from "react-native";
 
 import { AppButton } from "@/application/components/app-button";
@@ -12,6 +18,7 @@ import { OccupationCard } from "@/profile/components/occupation-card";
 import { useProfileModel } from "@/profile/model/use-profile-model";
 
 const ProfileScreen = () => {
+  const router = useRouter();
   const tabBarHeight = useCustomTabBarHeight();
   const {
     username,
@@ -40,6 +47,18 @@ const ProfileScreen = () => {
       </AppCard>
 
       <OccupationCard />
+
+      <AppCard
+        onPress={() => router.push("/study-settings")}
+        style={styles.settingsCard}
+      >
+        <GearSixIcon size={28} color={colors.primary} weight="fill" />
+        <View style={styles.settingsText}>
+          <AppText variant="subheading">Study Settings</AppText>
+          <AppText variant="caption">Device setup options</AppText>
+        </View>
+        <CaretRightIcon size={20} color={colors.textMuted} />
+      </AppCard>
 
       <AppCard style={styles.passwordCard}>
         <AppText variant="subheading">Change password</AppText>
@@ -95,6 +114,12 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   identityText: { gap: spacing.xs },
+  settingsCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  settingsText: { flex: 1, gap: spacing.xs },
   passwordCard: { gap: spacing.lg },
 });
 

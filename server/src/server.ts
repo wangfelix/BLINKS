@@ -32,6 +32,8 @@ import {
 import {
   ActivityRow,
   ActivityWriteInput,
+  CAMERA_FORM_FACTORS,
+  CameraFormFactor,
   closeFillingChunksForSession,
   closeIdleChunks,
   countFramesOnDay,
@@ -63,6 +65,7 @@ import {
   listFramesOnDay,
   listPhotoFramesOnDay,
   listPausedParticipants,
+  listRecordingEventsForSession,
   listSessions,
   latestRecordingEvent,
   markRoundResponseOpened,
@@ -74,6 +77,7 @@ import {
   RecordingEventInput,
   RecordingEventType,
   replaceActivities,
+  setCameraFormFactor,
   setPushToken,
   softDeleteFrameRow,
   upsertParticipantProfile,
@@ -98,7 +102,7 @@ import {
 // token (issued at /api/login) on the upgrade request and declares the session
 // it is writing into, so BLE/WS reconnects continue the same session.
 //
-//   WS /ingest?session=<epochSeconds>&device=<cameraId>
+//   WS /ingest?session=<epochSeconds>&device=<cameraId>[&recordingType=test]
 //     per frame: JSON text {"t":<captureEpochMs>,"n":<cameraFrameCounter>}
 //                followed by the binary JPEG
 //
@@ -142,6 +146,20 @@ function looksLikeJpeg(buffer: Buffer): boolean {
   const eoi =
     buffer[buffer.length - 2] === 0xff && buffer[buffer.length - 1] === 0xd9;
   return soi && eoi;
+}
+
+// Test sessions deliberately have no rows in recordings.db, otherwise a lab
+// check could become the participant's study day or create VLM work. Resume
+// their per-session numbering directly from the isolated Test directory.
+function maxTestFrameIndex(imagesDir: string): number {
+  let maxIndex = 0;
+  for (const entry of fs.readdirSync(imagesDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const match = /^frame-(\d+)-\d+\.jpg$/.exec(entry.name);
+    if (!match) continue;
+    maxIndex = Math.max(maxIndex, Number(match[1]));
+  }
+  return maxIndex;
 }
 
 ensureDir(RECORDINGS_DIR);
@@ -895,6 +913,7 @@ app.get("/api/profile", requireAuth, (req: AuthenticatedRequest, res) => {
     workDescription: participant?.work_description ?? null,
     wakeTime: participant?.wake_time ?? null,
     bedTime: participant?.bed_time ?? null,
+    cameraFormFactor: participant?.camera_form_factor ?? null,
     drmWebUrl: WEB_URL,
   });
 });
@@ -937,6 +956,28 @@ app.put("/api/profile", requireAuth, (req: AuthenticatedRequest, res) => {
   );
   res.json({ ok: true });
 });
+
+app.put(
+  "/api/study-settings/camera-form-factor",
+  requireAuth,
+  (req: AuthenticatedRequest, res) => {
+    const { cameraFormFactor } = req.body as { cameraFormFactor?: unknown };
+    if (
+      typeof cameraFormFactor !== "string" ||
+      !(CAMERA_FORM_FACTORS as readonly string[]).includes(cameraFormFactor)
+    ) {
+      res.status(400).json({
+        error: "cameraFormFactor must be necklace or glasses",
+      });
+      return;
+    }
+    setCameraFormFactor(
+      req.participant!,
+      cameraFormFactor as CameraFormFactor,
+    );
+    res.json({ ok: true, cameraFormFactor });
+  },
+);
 
 app.post("/api/register-push", requireAuth, (req: AuthenticatedRequest, res) => {
   const { expoPushToken } = req.body as { expoPushToken?: unknown };
@@ -1625,6 +1666,74 @@ app.post(
 
 // --- Recording lifecycle events + pause gate --------------------------------
 
+interface RecordingStateResponse {
+  hasSession: boolean;
+  active: boolean;
+  completed: boolean;
+  sessionId: number | null;
+  startedAtMs: number | null;
+  phase: "idle" | "recording" | "paused";
+  nextSequenceNumber: number;
+  accumulatedActiveMs: number;
+}
+
+function getRecordingState(participant: string): RecordingStateResponse {
+  const latest = latestRecordingEvent(participant);
+  if (!latest) {
+    return {
+      hasSession: false,
+      active: false,
+      completed: false,
+      sessionId: null,
+      startedAtMs: null,
+      phase: "idle",
+      nextSequenceNumber: 0,
+      accumulatedActiveMs: 0,
+    };
+  }
+
+  const events = listRecordingEventsForSession(participant, latest.session);
+  const startedAtMs =
+    events.find((event) => event.event_type === "start")?.client_epoch_ms ??
+    latest.session * 1_000;
+  let activeSinceMs: number | null = null;
+  let accumulatedActiveMs = 0;
+  for (const event of events) {
+    if (event.event_type === "start" || event.event_type === "resume") {
+      if (activeSinceMs === null) activeSinceMs = event.client_epoch_ms;
+      continue;
+    }
+    if (
+      (event.event_type === "pause" || event.event_type === "end") &&
+      activeSinceMs !== null
+    ) {
+      accumulatedActiveMs += Math.max(0, event.client_epoch_ms - activeSinceMs);
+      activeSinceMs = null;
+    }
+  }
+
+  const completed = latest.event_type === "end";
+  const phase = completed
+    ? "idle"
+    : latest.event_type === "pause"
+      ? "paused"
+      : "recording";
+  if (phase === "recording" && activeSinceMs !== null) {
+    accumulatedActiveMs += Math.max(0, Date.now() - activeSinceMs);
+  }
+
+  return {
+    hasSession: true,
+    active: !completed,
+    completed,
+    sessionId: latest.session,
+    startedAtMs,
+    phase,
+    nextSequenceNumber: latest.sequence_number + 1,
+    accumulatedActiveMs,
+  };
+}
+
 interface RecordingEventPayload {
   eventId?: unknown;
   session?: unknown;
@@ -1703,6 +1812,18 @@ function handleRecordingEvent(
   }
 
   const participant = req.participant!;
+  const latest = latestRecordingEvent(participant);
+  if (
+    eventType === "start" &&
+    latest !== undefined &&
+    latest.session !== event.session
+  ) {
+    res.status(409).json({
+      error: "this participant already has a recording session",
+      code: "recording_session_exists",
+    });
+    return;
+  }
   try {
     const stored = recordRecordingEvent(participant, event);
     const { paused, latestEventId } = syncPauseGate(participant);
@@ -1730,6 +1851,10 @@ function handleRecordingEvent(
     throw eventError;
   }
 }
+
+app.get("/api/recording/state", requireAuth, (req: AuthenticatedRequest, res) => {
+  res.json(getRecordingState(req.participant!));
+});
 
 app.post(
   "/api/recording/started",
@@ -1773,6 +1898,8 @@ wss.on("connection", (ws: WebSocket, req) => {
 
   const device = sanitize(requestUrl.searchParams.get("device") ?? "");
   const session = Number(requestUrl.searchParams.get("session"));
+  const recordingTypeParam =
+    requestUrl.searchParams.get("recordingType") ?? "study";
   if (!device || !Number.isInteger(session) || session <= 0) {
     console.error(
       `Rejected WS connection for ${participant}: bad device/session params`,
@@ -1780,22 +1907,42 @@ wss.on("connection", (ws: WebSocket, req) => {
     ws.close(1008, "device and session query params required");
     return;
   }
+  if (recordingTypeParam !== "study" && recordingTypeParam !== "test") {
+    console.error(
+      `Rejected WS connection for ${participant}: bad recordingType param`,
+    );
+    ws.close(1008, "recordingType must be study or test");
+    return;
+  }
+  const isTestRecording = recordingTypeParam === "test";
+  if (isTestRecording && latestRecordingEvent(participant) !== undefined) {
+    console.error(
+      `Rejected test recording for ${participant}: main session already exists`,
+    );
+    ws.close(1008, "test recording is only available before the main session");
+    return;
+  }
 
-  const sessionDir = path.join(
-    RECORDINGS_DIR,
-    participant,
-    device,
-    String(session),
-  );
+  const sessionDir = isTestRecording
+    ? path.join(
+        RECORDINGS_DIR,
+        participant,
+        "Test",
+        device,
+        String(session),
+      )
+    : path.join(RECORDINGS_DIR, participant, device, String(session));
   const imagesDir = path.join(sessionDir, "images");
   ensureDir(imagesDir);
 
   // Continue numbering across reconnects within the same declared session.
-  let frameNumber = maxFrameIndex(participant, device, session);
+  let frameNumber = isTestRecording
+    ? maxTestFrameIndex(imagesDir)
+    : maxFrameIndex(participant, device, session);
   let pendingMeta: { t: number; n: number | null } | null = null;
 
   console.log(
-    `Phone connected: participant=${participant} device=${device} session=${session} (resuming at frame ${frameNumber})`,
+    `Phone connected: participant=${participant} device=${device} session=${session} type=${recordingTypeParam} (resuming at frame ${frameNumber})`,
   );
 
   ws.on("message", (data: Buffer, isBinary: boolean) => {
@@ -1822,7 +1969,7 @@ wss.on("connection", (ws: WebSocket, req) => {
 
     // Defense in depth: never persist a frame for a paused participant, no
     // matter what the phone or camera did with the pause state.
-    if (pausedParticipants.has(participant)) {
+    if (!isTestRecording && pausedParticipants.has(participant)) {
       pendingMeta = null;
       console.log(
         `[${participant}/${device}] dropped frame: participant is paused`,
@@ -1855,23 +2002,25 @@ wss.on("connection", (ws: WebSocket, req) => {
       if (err) console.error(`Failed to write ${fileName}:`, err);
     });
 
-    insertFrame({
-      participant,
-      device,
-      session,
-      frame_index: frameNumber,
-      capture_epoch_ms: captureEpochMs ?? receivedEpochMs,
-      received_epoch_ms: receivedEpochMs,
-      file_path: path.relative(RECORDINGS_DIR, filePath),
-      device_frame: cameraFrame,
-      byte_length: buffer.length,
-      jpeg_ok: jpegOk ? 1 : 0,
-    });
+    if (!isTestRecording) {
+      insertFrame({
+        participant,
+        device,
+        session,
+        frame_index: frameNumber,
+        capture_epoch_ms: captureEpochMs ?? receivedEpochMs,
+        received_epoch_ms: receivedEpochMs,
+        file_path: path.relative(RECORDINGS_DIR, filePath),
+        device_frame: cameraFrame,
+        byte_length: buffer.length,
+        jpeg_ok: jpegOk ? 1 : 0,
+      });
+    }
   });
 
   ws.on("close", () => {
     console.log(
-      `Phone disconnected: ${participant}/${device} session=${session} (at frame ${frameNumber})`,
+      `Phone disconnected: ${participant}/${device} session=${session} type=${recordingTypeParam} (at frame ${frameNumber})`,
     );
   });
 

@@ -289,6 +289,7 @@ then restart Metro with `--clear`:
 ```
 EXPO_PUBLIC_SERVER_URL=http://192.168.0.x:3000              # laptop LAN IP (same WiFi)
 EXPO_PUBLIC_SERVER_URL=https://<name>.ngrok-free.dev        # ngrok-tunneled server (any network)
+EXPO_PUBLIC_STUDY_SETTINGS_PIN=2626                         # current/default PIN
 # (unset) -> falls back to https://blinks.win.kit.edu (production; WS uses wss://)
 ```
 

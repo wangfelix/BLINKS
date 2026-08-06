@@ -1,6 +1,7 @@
 import { API_BASE, ApiError } from "@/lib/api-client";
 
 export const ADMIN_TABLES = [
+  "participants",
   "frames",
   "chunks",
   "activity_lists",
@@ -165,9 +166,7 @@ export const getAdminTable = (
   });
   if (search !== "") params.set("search", search);
   if (column !== null) params.set("column", column);
-  return adminFetch<AdminTableResponse>(
-    `/api/admin/tables/${table}?${params}`,
-  );
+  return adminFetch<AdminTableResponse>(`/api/admin/tables/${table}?${params}`);
 };
 
 export const getAdminPhotoFilters = () =>

@@ -11,7 +11,9 @@ const NOTIFICATION_ID = "blinks-fgs";
 // connectedDevice service type matches the BLE use case and has no daily time
 // cap; the config plugin plugins/with-notifee-foreground-service-type.js
 // overrides notifee's manifest so Android 14+ accepts it.
-export const startCaptureForegroundService = async (): Promise<void> => {
+export const startCaptureForegroundService = async (
+  isTestRecording = false,
+): Promise<void> => {
   const channelId = await notifee.createChannel({
     id: CHANNEL_ID,
     name: "BLINKS recording",
@@ -19,8 +21,12 @@ export const startCaptureForegroundService = async (): Promise<void> => {
   });
   await notifee.displayNotification({
     id: NOTIFICATION_ID,
-    title: "BLINKS is recording",
-    body: "Receiving camera frames over Bluetooth",
+    title: isTestRecording
+      ? "BLINKS test recording"
+      : "BLINKS is recording",
+    body: isTestRecording
+      ? "Checking the camera connection"
+      : "Receiving camera frames over Bluetooth",
     android: {
       channelId,
       asForegroundService: true,

@@ -53,6 +53,10 @@ const RootNavigator = () => {
             animation: "fade",
           }}
         />
+        <Stack.Screen
+          name="study-settings"
+          options={{ headerShown: true, title: "Study Settings" }}
+        />
         <Stack.Screen name="session-detail" options={{ headerShown: true }} />
       </Stack.Protected>
       <Stack.Protected guard={needsOnboarding}>

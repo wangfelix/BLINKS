@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import { dayKeyFromEpochMs, dayUtcRange } from "./time";
 
 export const ADMIN_TABLE_NAMES = [
+  "participants",
   "frames",
   "chunks",
   "activity_lists",
@@ -138,12 +139,16 @@ export class RecordingEventConflictError extends Error {}
 
 // --- DRM row shapes ---------------------------------------------------------
 
+export const CAMERA_FORM_FACTORS = ["necklace", "glasses"] as const;
+export type CameraFormFactor = (typeof CAMERA_FORM_FACTORS)[number];
+
 export interface ParticipantRow {
   username: string;
   occupation: string | null;
   work_description: string | null;
   wake_time: string | null; // "HH:MM" local study time, from app onboarding
   bed_time: string | null; // "HH:MM"; drives the fallback push reminder
+  camera_form_factor: CameraFormFactor | null;
   arm: string; // Legacy column retained for SQLite compatibility; workflow ignores it.
   push_token: string | null;
   last_reminder_day: string | null;
@@ -342,6 +347,7 @@ let getRecordingEventByIdStmt: Database.Statement;
 let getRecordingEventBySequenceStmt: Database.Statement;
 let insertRecordingEventStmt: Database.Statement;
 let latestRecordingEventStmt: Database.Statement;
+let listRecordingEventsForSessionStmt: Database.Statement;
 let listPausedParticipantsStmt: Database.Statement;
 let recordRecordingEventTx: Database.Transaction<
   (
@@ -355,6 +361,7 @@ let recordRecordingEventTx: Database.Transaction<
 let getParticipantStmt: Database.Statement;
 let insertParticipantStmt: Database.Statement;
 let updateProfileStmt: Database.Statement;
+let updateCameraFormFactorStmt: Database.Statement;
 let updatePushTokenStmt: Database.Statement;
 let updateLastReminderDayStmt: Database.Statement;
 let listPushParticipantsStmt: Database.Statement;
@@ -667,6 +674,7 @@ export function initDb(dbPath: string): void {
       work_description  TEXT,
       wake_time         TEXT,
       bed_time          TEXT,
+      camera_form_factor TEXT CHECK (camera_form_factor IN ('necklace', 'glasses')),
       arm               TEXT NOT NULL DEFAULT 'main',
       push_token        TEXT,
       last_reminder_day TEXT,
@@ -674,6 +682,11 @@ export function initDb(dbPath: string): void {
       updated_at        INTEGER
     );
   `);
+  migrateAddTableColumn(
+    "participants",
+    "camera_form_factor",
+    "camera_form_factor TEXT CHECK (camera_form_factor IN ('necklace', 'glasses'))",
+  );
 
   const reconstructionsExist = tableExists("reconstructions");
   if (
@@ -1405,6 +1418,14 @@ export function initDb(dbPath: string): void {
     LIMIT 1
   `);
 
+  listRecordingEventsForSessionStmt = db.prepare(`
+    SELECT participant, event_id, session, event_type, client_epoch_ms,
+           server_received_epoch_ms, sequence_number
+    FROM recording_events
+    WHERE participant = ? AND session = ?
+    ORDER BY sequence_number
+  `);
+
   listPausedParticipantsStmt = db.prepare(`
     SELECT participant FROM (
       SELECT participant, event_type,
@@ -1469,7 +1490,8 @@ export function initDb(dbPath: string): void {
   // --- DRM statements --------------------------------------------------------
 
   getParticipantStmt = db.prepare(`
-    SELECT username, occupation, work_description, wake_time, bed_time, arm,
+    SELECT username, occupation, work_description, wake_time, bed_time,
+           camera_form_factor, arm,
            push_token, last_reminder_day, created_at, updated_at
     FROM participants WHERE username = ?
   `);
@@ -1485,6 +1507,12 @@ export function initDb(dbPath: string): void {
     WHERE username = ?
   `);
 
+  updateCameraFormFactorStmt = db.prepare(`
+    UPDATE participants
+    SET camera_form_factor = ?, updated_at = ?
+    WHERE username = ?
+  `);
+
   updatePushTokenStmt = db.prepare(`
     UPDATE participants SET push_token = ?, updated_at = ? WHERE username = ?
   `);
@@ -1494,7 +1522,8 @@ export function initDb(dbPath: string): void {
   `);
 
   listPushParticipantsStmt = db.prepare(`
-    SELECT username, occupation, work_description, wake_time, bed_time, arm,
+    SELECT username, occupation, work_description, wake_time, bed_time,
+           camera_form_factor, arm,
            push_token, last_reminder_day, created_at, updated_at
     FROM participants WHERE push_token IS NOT NULL
   `);
@@ -2040,6 +2069,16 @@ export function latestRecordingEvent(
     | undefined;
 }
 
+export function listRecordingEventsForSession(
+  participant: string,
+  session: number,
+): RecordingEventRow[] {
+  return listRecordingEventsForSessionStmt.all(
+    participant,
+    session,
+  ) as RecordingEventRow[];
+}
+
 // Restores the current defense-in-depth pause gate after a server restart.
 export function listPausedParticipants(): string[] {
   return (
@@ -2107,6 +2146,17 @@ export function upsertParticipantProfile(
     Date.now(),
     username,
   );
+}
+
+// Camera form factor is participant-level research metadata. The study uses
+// one physical camera enclosure per participant, so changing the setup updates
+// this one normalized value instead of duplicating it across every frame.
+export function setCameraFormFactor(
+  username: string,
+  cameraFormFactor: CameraFormFactor,
+): void {
+  ensureParticipant(username);
+  updateCameraFormFactorStmt.run(cameraFormFactor, Date.now(), username);
 }
 
 export function setPushToken(username: string, pushToken: string): void {
@@ -2349,10 +2399,30 @@ export function exportFramesCsv(q: ExportQuery): string {
 export const isAdminTableName = (value: string): value is AdminTableName =>
   (ADMIN_TABLE_NAMES as readonly string[]).includes(value);
 
-export const getAdminTableColumns = (table: AdminTableName): string[] =>
-  (
+const ADMIN_TABLE_COLUMN_OVERRIDES: Partial<
+  Record<AdminTableName, readonly string[]>
+> = {
+  // Research admins need the participant-to-camera mapping, but neither the
+  // obsolete arm nor operational push/reminder fields belong in this export.
+  participants: [
+    "username",
+    "occupation",
+    "work_description",
+    "wake_time",
+    "bed_time",
+    "camera_form_factor",
+    "created_at",
+    "updated_at",
+  ],
+};
+
+export const getAdminTableColumns = (table: AdminTableName): string[] => {
+  const override = ADMIN_TABLE_COLUMN_OVERRIDES[table];
+  if (override) return [...override];
+  return (
     db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
   ).map((column) => column.name);
+};
 
 const quoteIdentifier = (identifier: string): string =>
   `"${identifier.replace(/"/g, '""')}"`;
@@ -2398,6 +2468,7 @@ export function listAdminTableRows(
   query: AdminTableQuery,
 ): AdminTablePage {
   const columns = getAdminTableColumns(table);
+  const selectedColumns = columns.map(quoteIdentifier).join(", ");
   const { whereClause, params } = adminTableFilter(columns, query);
   const countStatement = db.prepare(
     `SELECT COUNT(*) AS count FROM ${table}${whereClause}`,
@@ -2409,7 +2480,7 @@ export function listAdminTableRows(
   ) as { count: number };
   const rows = db
     .prepare(
-      `SELECT * FROM ${table}${whereClause}
+      `SELECT ${selectedColumns} FROM ${table}${whereClause}
        ORDER BY rowid ASC LIMIT @limit OFFSET @offset`,
     )
     .all({ ...params, limit: query.limit, offset: query.offset }) as Record<
@@ -2432,8 +2503,9 @@ const csvCell = (value: AdminCellValue): string => {
 
 export function exportAdminTableCsv(table: AdminTableName): string {
   const columns = getAdminTableColumns(table);
+  const selectedColumns = columns.map(quoteIdentifier).join(", ");
   const rows = db
-    .prepare(`SELECT * FROM ${table} ORDER BY rowid ASC`)
+    .prepare(`SELECT ${selectedColumns} FROM ${table} ORDER BY rowid ASC`)
     .all() as Record<string, AdminCellValue>[];
   return [
     columns.map(csvCell).join(","),

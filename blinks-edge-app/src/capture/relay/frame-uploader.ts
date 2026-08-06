@@ -2,6 +2,7 @@ import { appConfig } from "@/application/config/app-config";
 import { sessionHolder } from "@/authentication/storage/session-holder";
 
 export type UploaderStatus = "disconnected" | "connecting" | "connected";
+export type RecordingType = "study" | "test";
 
 export interface UploadFrame {
   captureEpochMs: number;
@@ -43,7 +44,11 @@ export class FrameUploader {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
-    private readonly config: { sessionId: number; deviceId: string },
+    private readonly config: {
+      sessionId: number;
+      deviceId: string;
+      recordingType: RecordingType;
+    },
     private readonly events: FrameUploaderEvents,
   ) {}
 
@@ -84,7 +89,7 @@ export class FrameUploader {
     if (!token) return;
 
     this.events.onStatusChange("connecting");
-    const url = `${appConfig.webSocketUrl}/ingest?session=${this.config.sessionId}&device=${this.config.deviceId}`;
+    const url = `${appConfig.webSocketUrl}/ingest?session=${this.config.sessionId}&device=${this.config.deviceId}&recordingType=${this.config.recordingType}`;
     const webSocket = new (WebSocket as unknown as WebSocketWithHeaders)(
       url,
       null,

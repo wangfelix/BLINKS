@@ -1,4 +1,5 @@
 import { apiClient } from "@/application/api/api-client";
+import type { CameraFormFactor } from "@/study-settings/types/camera-form-factor";
 
 // Shape returned by GET /api/profile (server/src/server.ts). Keep in sync
 // with the server when the API changes. wakeTime/bedTime are the participant's
@@ -11,6 +12,7 @@ export interface ParticipantProfile {
   workDescription: string | null;
   wakeTime: string | null;
   bedTime: string | null;
+  cameraFormFactor: CameraFormFactor | null;
   drmWebUrl: string;
 }
 

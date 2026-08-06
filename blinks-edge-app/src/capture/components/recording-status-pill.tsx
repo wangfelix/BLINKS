@@ -13,9 +13,13 @@ import { colors, radius, spacing } from "@/application/theme/theme";
 
 interface RecordingStatusPillProps {
   isPaused: boolean;
+  isTestSession?: boolean;
 }
 
-export const RecordingStatusPill = ({ isPaused }: RecordingStatusPillProps) => {
+export const RecordingStatusPill = ({
+  isPaused,
+  isTestSession = false,
+}: RecordingStatusPillProps) => {
   const pulse = useSharedValue(1);
 
   useEffect(() => {
@@ -34,7 +38,13 @@ export const RecordingStatusPill = ({ isPaused }: RecordingStatusPillProps) => {
     <View style={styles.pill}>
       <Animated.View style={[styles.dot, dotStyle]} />
       <AppText variant="label" color={colors.textOnAccent}>
-        {isPaused ? "PAUSED" : "RECORDING"}
+        {isTestSession
+          ? isPaused
+            ? "TEST PAUSED"
+            : "TEST RECORDING"
+          : isPaused
+            ? "PAUSED"
+            : "RECORDING"}
       </AppText>
     </View>
   );

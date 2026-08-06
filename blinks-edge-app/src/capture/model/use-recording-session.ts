@@ -8,6 +8,7 @@ import {
 export interface RecordingSessionHandle {
   session: RecordingSessionState;
   startSession: () => Promise<void>;
+  startTestSession: () => Promise<void>;
   pauseSession: () => Promise<void>;
   resumeSession: () => Promise<void>;
   endSession: () => Promise<void>;
@@ -22,6 +23,7 @@ export const useRecordingSession = (): RecordingSessionHandle => {
   return {
     session,
     startSession: recordingSessionStore.start,
+    startTestSession: recordingSessionStore.startTest,
     pauseSession: recordingSessionStore.pause,
     resumeSession: recordingSessionStore.resume,
     endSession: recordingSessionStore.end,

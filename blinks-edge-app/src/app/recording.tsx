@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppButton } from "@/application/components/app-button";
 import { AppText } from "@/application/components/app-text";
 import { colors, radius, spacing } from "@/application/theme/theme";
+import { EndSessionConfirmationModal } from "@/capture/components/end-session-confirmation-modal";
 import { RecordingMetadataCard } from "@/capture/components/recording-metadata-card";
 import { RecordingStatusPill } from "@/capture/components/recording-status-pill";
 import { useRecordingScreenModel } from "@/capture/model/use-recording-screen-model";
@@ -20,13 +21,19 @@ const RecordingScreen = () => {
   const {
     isIdle,
     isPaused,
+    isTestSession,
     elapsedLabel,
     cameraStatusLabel,
     serverStatusLabel,
     framesLabel,
     lastFrameLabel,
+    isEndSessionAvailable,
+    isEndConfirmationVisible,
+    isEnding,
     togglePause,
     confirmEndSession,
+    cancelEndSession,
+    endSelectedSession,
     closeScreen,
   } = useRecordingScreenModel();
 
@@ -66,7 +73,10 @@ const RecordingScreen = () => {
           },
         ]}
       >
-        <RecordingStatusPill isPaused={isPaused} />
+        <RecordingStatusPill
+          isPaused={isPaused}
+          isTestSession={isTestSession}
+        />
 
         <View style={styles.elapsedBlock}>
           <AppText style={styles.elapsedTime} color={colors.textOnAccent}>
@@ -93,19 +103,49 @@ const RecordingScreen = () => {
             variant="onColor"
             style={styles.pauseButton}
           />
-          <Pressable
-            onPress={confirmEndSession}
-            style={({ pressed }) => [
-              styles.endButton,
-              pressed && { opacity: 0.7 },
-            ]}
-          >
-            <AppText variant="subheading" color={colors.textOnAccent}>
-              End session
-            </AppText>
-          </Pressable>
+          <View style={styles.endButtonBlock}>
+            <Pressable
+              onPress={confirmEndSession}
+              disabled={!isEndSessionAvailable}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isEndSessionAvailable
+                  ? isTestSession
+                    ? "End test session"
+                    : "End session"
+                  : "End session, available from 19:00"
+              }
+              accessibilityState={{ disabled: !isEndSessionAvailable }}
+              style={({ pressed }) => [
+                styles.endButton,
+                pressed && styles.endButtonPressed,
+                !isEndSessionAvailable && styles.endButtonDisabled,
+              ]}
+            >
+              <AppText variant="subheading" color={colors.textOnAccent}>
+                {isTestSession ? "End test session" : "End session"}
+              </AppText>
+            </Pressable>
+            {!isEndSessionAvailable && (
+              <AppText
+                variant="caption"
+                color="rgba(255,255,255,0.75)"
+                style={styles.endAvailabilityLabel}
+              >
+                Available from 19:00
+              </AppText>
+            )}
+          </View>
         </View>
       </View>
+
+      <EndSessionConfirmationModal
+        visible={isEndConfirmationVisible}
+        isEnding={isEnding}
+        isTestSession={isTestSession}
+        onCancel={cancelEndSession}
+        onConfirm={() => void endSelectedSession()}
+      />
     </Animated.View>
   );
 };
@@ -125,6 +165,7 @@ const styles = StyleSheet.create({
   },
   buttonColumn: { gap: spacing.md },
   pauseButton: { minHeight: 60 },
+  endButtonBlock: { gap: spacing.sm },
   endButton: {
     minHeight: 52,
     borderRadius: radius.md,
@@ -133,6 +174,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  endButtonPressed: { opacity: 0.7 },
+  endButtonDisabled: { opacity: 0.42 },
+  endAvailabilityLabel: { textAlign: "center" },
   idleContainer: {
     flex: 1,
     backgroundColor: colors.background,

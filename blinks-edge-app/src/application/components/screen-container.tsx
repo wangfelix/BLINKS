@@ -9,6 +9,9 @@ interface ScreenContainerProps {
   children: ReactNode;
   scrollable?: boolean;
   keyboardAware?: boolean;
+  // Set false for routes rendered below a native Stack header, which already
+  // consumes the top safe area.
+  includeTopInset?: boolean;
   // Extra bottom padding so content scrolls clear of the floating tab bar.
   bottomSpacing?: number;
 }
@@ -17,10 +20,14 @@ export const ScreenContainer = ({
   children,
   scrollable = false,
   keyboardAware = false,
+  includeTopInset = true,
   bottomSpacing = 0,
 }: ScreenContainerProps) => {
   const insets = useSafeAreaInsets();
-  const containerStyle = [styles.container, { paddingTop: insets.top + spacing.lg }];
+  const containerStyle = [
+    styles.container,
+    { paddingTop: (includeTopInset ? insets.top : 0) + spacing.lg },
+  ];
 
   if (scrollable && keyboardAware) {
     return (

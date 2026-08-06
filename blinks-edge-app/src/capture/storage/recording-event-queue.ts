@@ -87,3 +87,19 @@ export const flushPendingRecordingEvents = (): Promise<void> =>
       await storeQueue(username, events);
     }
   });
+
+export const getNextQueuedSequenceNumber = (
+  session: number,
+): Promise<number> =>
+  withQueueLock(async () => {
+    const username = sessionHolder.getUsername();
+    if (!username) return 0;
+    const events = await loadQueue(username);
+    return events.reduce(
+      (next, event) =>
+        event.session === session
+          ? Math.max(next, event.sequenceNumber + 1)
+          : next,
+      0,
+    );
+  });

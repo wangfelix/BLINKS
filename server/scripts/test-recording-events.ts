@@ -19,6 +19,7 @@ import {
   insertFrame,
   latestRecordingEvent,
   listPausedParticipants,
+  listRecordingEventsForSession,
   recordRecordingEvent,
 } from "../src/db";
 
@@ -82,6 +83,17 @@ assert.deepStrictEqual(
   listPausedParticipants(),
   [participant],
   "pause gate can be rebuilt from the append-only event stream",
+);
+assert.deepStrictEqual(
+  listRecordingEventsForSession(participant, secondSession).map((row) => [
+    row.event_type,
+    row.sequence_number,
+  ]),
+  [
+    ["start", 0],
+    ["pause", 1],
+  ],
+  "an unfinished session can be reconstructed in sequence order",
 );
 
 const storedDb = new Database(dbPath, { readonly: true });

@@ -57,6 +57,11 @@ const tableCopy: Record<
   AdminTableName,
   { label: string; description: string }
 > = {
+  participants: {
+    label: "Participants",
+    description:
+      "Research profile, camera type, schedule, and reminder metadata",
+  },
   frames: {
     label: "Frames",
     description: "Capture, file, anonymization, and deletion metadata",

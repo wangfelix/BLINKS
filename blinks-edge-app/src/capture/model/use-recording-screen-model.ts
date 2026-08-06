@@ -1,7 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert } from "react-native";
 
 import {
   formatDurationMs,
@@ -13,6 +12,7 @@ import {
   useRecordingSession,
 } from "@/capture/model/use-recording-session";
 import { UploaderStatus } from "@/capture/relay/frame-uploader";
+import { isStudySessionEndAvailable } from "@/capture/utils/end-session-availability";
 import { sessionKeys } from "@/sessions/query-options/session-queries";
 
 const cameraStatusLabels: Record<CameraLinkStatus, string> = {
@@ -39,6 +39,10 @@ export const useRecordingScreenModel = () => {
 
   const isPaused = session.phase === "paused";
   const isIdle = session.phase === "idle";
+  const isTestSession = session.kind === "test";
+  const [isEndConfirmationVisible, setIsEndConfirmationVisible] =
+    useState(false);
+  const [isEnding, setIsEnding] = useState(false);
 
   // Re-render once per second so the elapsed time ticks.
   const [, setTick] = useState(0);
@@ -58,6 +62,9 @@ export const useRecordingScreenModel = () => {
     session.queuedFrames > 0
       ? `${session.framesUploaded} sent · ${session.queuedFrames} queued`
       : `${session.framesUploaded} sent`;
+  const isEndSessionAvailable =
+    isTestSession ||
+    isStudySessionEndAvailable(Date.now(), session.sessionId);
 
   // ---- ACTIONS ----
 
@@ -70,26 +77,31 @@ export const useRecordingScreenModel = () => {
   };
 
   const confirmEndSession = () => {
-    Alert.alert(
-      "End session?",
-      "This stops today's recording. You can review the frames in History.",
-      [
-        { text: "Keep recording", style: "cancel" },
-        {
-          text: "End session",
-          style: "destructive",
-          onPress: () => {
-            void (async () => {
-              await endSession();
-              await queryClient.invalidateQueries({
-                queryKey: sessionKeys.all,
-              });
-              router.back();
-            })();
-          },
-        },
-      ],
-    );
+    if (!isEndSessionAvailable || isEnding) return;
+    setIsEndConfirmationVisible(true);
+  };
+
+  const cancelEndSession = () => {
+    if (isEnding) return;
+    setIsEndConfirmationVisible(false);
+  };
+
+  const endSelectedSession = async () => {
+    if (!isEndSessionAvailable || isEnding) return;
+
+    setIsEnding(true);
+    try {
+      await endSession();
+      if (!isTestSession) {
+        await queryClient.invalidateQueries({
+          queryKey: sessionKeys.all,
+        });
+      }
+      setIsEndConfirmationVisible(false);
+      router.back();
+    } finally {
+      setIsEnding(false);
+    }
   };
 
   const closeScreen = () => router.back();
@@ -99,14 +111,20 @@ export const useRecordingScreenModel = () => {
   return {
     isIdle,
     isPaused,
+    isTestSession,
     elapsedLabel,
     cameraStatusLabel,
     serverStatusLabel,
     framesLabel,
     lastFrameLabel,
     framesReceived: session.framesReceived,
+    isEndSessionAvailable,
+    isEndConfirmationVisible,
+    isEnding,
     togglePause,
     confirmEndSession,
+    cancelEndSession,
+    endSelectedSession,
     closeScreen,
   };
 };

@@ -16,6 +16,7 @@ import {
   listAdminPhotos,
   listAdminPhotoSessions,
   listAdminTableRows,
+  setCameraFormFactor,
 } from "../src/db";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "blinks-admin-data-"));
@@ -24,6 +25,7 @@ const dbPath = path.join(tempDir, "recordings.db");
 try {
   initDb(dbPath);
   ensureParticipant("participant-a");
+  setCameraFormFactor("participant-a", "glasses");
   const captureTime = 1_750_000_000_000;
   insertFrame({
     participant: "participant-a",
@@ -39,10 +41,29 @@ try {
   });
 
   assert.strictEqual(isAdminTableName("frames"), true);
-  assert.strictEqual(isAdminTableName("participants"), false);
+  assert.strictEqual(isAdminTableName("participants"), true);
   assert.strictEqual(getAdminParticipantCount(), 1);
+  assert.strictEqual(getAdminTableCounts().participants, 1);
   assert.strictEqual(getAdminTableCounts().frames, 1);
   assert.strictEqual(getAdminTableCounts().chunks, 1);
+
+  const participantPage = listAdminTableRows("participants", {
+    limit: 50,
+    offset: 0,
+    search: "glasses",
+    column: "camera_form_factor",
+  });
+  assert.strictEqual(participantPage.total, 1);
+  assert.strictEqual(participantPage.rows[0].username, "participant-a");
+  assert.strictEqual(participantPage.rows[0].camera_form_factor, "glasses");
+  const participantCsv = exportAdminTableCsv("participants");
+  assert.ok(
+    participantCsv.startsWith(
+      "username,occupation,work_description,wake_time,bed_time,camera_form_factor,created_at,updated_at",
+    ),
+  );
+  assert.ok(participantCsv.includes("participant-a,,,,,glasses,"));
+  assert.ok(!participantCsv.includes("push_token"));
 
   const framePage = listAdminTableRows("frames", { limit: 50, offset: 0 });
   assert.strictEqual(framePage.total, 1);

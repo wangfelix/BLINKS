@@ -28,6 +28,35 @@
 
 // ---- Sampling rate --------------------------------------------------------
 #define CAPTURE_INTERVAL_MS 15000
+#define CAMERA_WARMUP_MS 500
+
+// ---- BLE connected-idle power --------------------------------------------
+// Units follow the BLE specification: interval = 1.25 ms, timeout = 10 ms.
+// A 30-50 ms base interval preserves burst throughput. Slave latency lets the
+// camera skip up to nine empty events (at most 500 ms idle) without dropping
+// the logical connection; queued notifications use the next available event.
+#define BLE_CONN_INTERVAL_MIN_UNITS 24
+#define BLE_CONN_INTERVAL_MAX_UNITS 40
+#define BLE_CONN_SLAVE_LATENCY 9
+#define BLE_CONN_TIMEOUT_UNITS 600
+
+// After returning a captured frame, the driver fills its single buffer again.
+// Wait for that parked frame before putting the sensor in standby so the
+// camera driver is idle while the sensor's internal imaging is suspended.
+#define CAMERA_BUFFER_READY_TIMEOUT_MS 500
+
+// Sensor-specific software-standby registers. The XIAO camera connector does
+// not expose a hardware PWDN GPIO, so standby is controlled over SCCB.
+#define OV2640_COM2_REG               0x0109
+#define OV2640_SOFTWARE_STANDBY_MASK  0x10
+#define OV3660_SYSTEM_CONTROL0_REG    0x3008
+#define OV3660_SOFTWARE_STANDBY_MASK  0x40
+
+static_assert(CAMERA_WARMUP_MS < CAPTURE_INTERVAL_MS,
+              "Camera warm-up must be shorter than the capture interval");
+static_assert(BLE_CONN_TIMEOUT_UNITS * 4 >
+                  BLE_CONN_INTERVAL_MAX_UNITS * (BLE_CONN_SLAVE_LATENCY + 1),
+              "BLE supervision timeout is too short for the idle latency");
 
 // On-board user LED (GPIO21, active-low): fast ~2 Hz blink = searching for a
 // phone, solid = connected + paused, slow ~1 Hz blink = connected + recording.
@@ -41,6 +70,11 @@ volatile bool         paused      = false;
 volatile uint16_t     currentMtu  = 23;   // updated on negotiation
 unsigned long         lastCapture = 0;
 uint32_t              frameCounter = 0;
+sensor_t*             cameraSensor = nullptr;
+bool                  cameraStandbySupported = false;
+bool                  cameraInStandby = false;
+bool                  cameraWarming = false;
+unsigned long         cameraWakeStarted = 0;
 
 void setLed(bool on) { digitalWrite(LED_PIN, on ? LOW : HIGH); }
 
@@ -58,7 +92,95 @@ void updateStatusLed() {
   }
 }
 
+void resetCameraPowerState() {
+  cameraSensor = nullptr;
+  cameraStandbySupported = false;
+  cameraInStandby = false;
+  cameraWarming = false;
+  cameraWakeStarted = 0;
+}
+
+void configureCameraPowerControl(sensor_t* sensor) {
+  cameraSensor = sensor;
+  cameraInStandby = false;
+  cameraWarming = false;
+  cameraWakeStarted = 0;
+  cameraStandbySupported = sensor && sensor->set_reg &&
+      (sensor->id.PID == OV2640_PID || sensor->id.PID == OV3660_PID);
+
+  if (!sensor) {
+    Serial.println("Camera sensor unavailable; standby disabled");
+    return;
+  }
+
+  Serial.printf("Camera sensor PID: 0x%04x (%s software standby)\n",
+                (unsigned)sensor->id.PID,
+                cameraStandbySupported ? "using" : "no");
+}
+
+bool setCameraStandby(bool standby) {
+  if (!cameraStandbySupported || !cameraSensor) return false;
+  if (cameraInStandby == standby) return true;
+
+  int result = -1;
+  if (cameraSensor->id.PID == OV2640_PID) {
+    result = cameraSensor->set_reg(
+        cameraSensor,
+        OV2640_COM2_REG,
+        OV2640_SOFTWARE_STANDBY_MASK,
+        standby ? OV2640_SOFTWARE_STANDBY_MASK : 0);
+  } else if (cameraSensor->id.PID == OV3660_PID) {
+    result = cameraSensor->set_reg(
+        cameraSensor,
+        OV3660_SYSTEM_CONTROL0_REG,
+        OV3660_SOFTWARE_STANDBY_MASK,
+        standby ? OV3660_SOFTWARE_STANDBY_MASK : 0);
+  }
+
+  if (result != 0) {
+    Serial.printf("Camera %s failed (%d)\n", standby ? "standby" : "wake", result);
+    return false;
+  }
+
+  cameraInStandby = standby;
+  if (standby) {
+    cameraWarming = false;
+    Serial.println("Camera standby");
+  } else {
+    Serial.printf("Camera awake; warming for %u ms\n",
+                  (unsigned)CAMERA_WARMUP_MS);
+  }
+  return true;
+}
+
+bool waitForBufferedFrame(unsigned long timeoutMs) {
+  unsigned long started = millis();
+  do {
+    if (esp_camera_available_frames()) return true;
+    if (timeoutMs == 0) return false;
+    delay(5);
+  } while (millis() - started < timeoutMs);
+  return esp_camera_available_frames();
+}
+
+bool enterCameraStandby(unsigned long bufferTimeoutMs) {
+  if (!cameraStandbySupported) return false;
+  if (cameraInStandby) return true;
+  if (!waitForBufferedFrame(bufferTimeoutMs)) return false;
+
+  if (!setCameraStandby(true)) {
+    // A failed standby write leaves the sensor awake. Keep capture working and
+    // disable further standby attempts until the camera is reinitialized.
+    cameraStandbySupported = false;
+    Serial.println("Camera standby disabled until reinitialization");
+    return false;
+  }
+  return true;
+}
+
 bool initCamera() {
+  resetCameraPowerState();
+
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -102,6 +224,28 @@ bool initCamera() {
   }
   sensor_t *s = esp_camera_sensor_get();
   s->set_framesize(s, FRAMESIZE_VGA);
+  configureCameraPowerControl(s);
+  return true;
+}
+
+bool wakeCameraForCapture() {
+  if (!cameraStandbySupported || !cameraInStandby) return true;
+
+  if (!setCameraStandby(false)) {
+    // If a sensor accepted standby but cannot be woken over SCCB, reset the
+    // driver so recording can continue instead of remaining stuck asleep.
+    Serial.println("Camera wake failed, reinitializing driver");
+    esp_camera_deinit();
+    resetCameraPowerState();
+    delay(100);
+    if (!initCamera()) {
+      Serial.println("Camera reinit after wake failure FAILED");
+      return false;
+    }
+  }
+
+  cameraWarming = true;
+  cameraWakeStarted = millis();
   return true;
 }
 
@@ -112,6 +256,7 @@ void recoverCameraIfWedged() {
   if (++captureFailures < 3) return;
   Serial.println("Camera unresponsive, reinitializing driver");
   esp_camera_deinit();
+  resetCameraPowerState();
   delay(100);
   Serial.println(initCamera() ? "Camera reinitialized" : "Camera reinit FAILED");
   captureFailures = 0;
@@ -120,7 +265,15 @@ void recoverCameraIfWedged() {
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* s, NimBLEConnInfo& connInfo) override {
     connected = true;
-    Serial.println("Central connected");
+    Serial.printf("Central connected: interval=%.2f ms, latency=%u, timeout=%u ms\n",
+                  connInfo.getConnInterval() * 1.25f,
+                  connInfo.getConnLatency(),
+                  connInfo.getConnTimeout() * 10);
+    s->updateConnParams(connInfo.getConnHandle(),
+                        BLE_CONN_INTERVAL_MIN_UNITS,
+                        BLE_CONN_INTERVAL_MAX_UNITS,
+                        BLE_CONN_SLAVE_LATENCY,
+                        BLE_CONN_TIMEOUT_UNITS);
   }
   void onDisconnect(NimBLEServer* s, NimBLEConnInfo& connInfo, int reason) override {
     connected = false;
@@ -134,6 +287,12 @@ class ServerCallbacks : public NimBLEServerCallbacks {
   void onMTUChange(uint16_t mtu, NimBLEConnInfo& connInfo) override {
     currentMtu = mtu;
     Serial.printf("MTU negotiated: %u\n", mtu);
+  }
+  void onConnParamsUpdate(NimBLEConnInfo& connInfo) override {
+    Serial.printf("BLE low-power parameters: interval=%.2f ms, latency=%u, timeout=%u ms\n",
+                  connInfo.getConnInterval() * 1.25f,
+                  connInfo.getConnLatency(),
+                  connInfo.getConnTimeout() * 10);
   }
 };
 
@@ -206,7 +365,14 @@ void setup() {
   }
   Serial.println("Camera ready");
 
-  NimBLEDevice::init(DEVICE_NAME);
+  if (!NimBLEDevice::init(DEVICE_NAME)) {
+    Serial.println("Halting due to BLE initialization failure");
+    while (true) delay(1000);
+  }
+  esp_err_t bleSleepResult = esp_bt_sleep_enable();
+  Serial.printf("BLE modem sleep: %s (0x%x)\n",
+                bleSleepResult == ESP_OK ? "enabled" : "UNAVAILABLE",
+                (unsigned)bleSleepResult);
   NimBLEDevice::setMTU(517); // The app also requests this MTU after connecting.
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
@@ -231,8 +397,42 @@ void setup() {
 void loop() {
   updateStatusLed();
 
-  if (connected && !paused && millis() - lastCapture >= CAPTURE_INTERVAL_MS) {
+  unsigned long now = millis();
+  bool recording = connected && !paused;
+  unsigned long sinceLastCapture = now - lastCapture;
+  const unsigned long warmupThreshold = CAPTURE_INTERVAL_MS - CAMERA_WARMUP_MS;
+
+  if (!recording) {
+    cameraWarming = false;
+    enterCameraStandby(0);
+    delay(10);
+    return;
+  }
+
+  // Keep the sensor asleep until the warm-up window begins. This also puts a
+  // freshly reinitialized camera back to sleep when the next capture is far
+  // enough away.
+  if (!cameraInStandby && !cameraWarming &&
+      sinceLastCapture < warmupThreshold) {
+    enterCameraStandby(0);
+  }
+
+  if (cameraInStandby && sinceLastCapture >= warmupThreshold) {
+    if (!wakeCameraForCapture()) {
+      delay(10);
+      return;
+    }
+  }
+
+  now = millis();
+  sinceLastCapture = now - lastCapture;
+  bool warmupComplete = !cameraWarming ||
+      now - cameraWakeStarted >= CAMERA_WARMUP_MS;
+
+  if (!cameraInStandby && warmupComplete &&
+      sinceLastCapture >= CAPTURE_INTERVAL_MS) {
     lastCapture = millis();
+    cameraWarming = false;
 
     // The buffered frame may be one interval old. Returning it lets the
     // WHEN_EMPTY driver capture a current frame for the next get().
@@ -259,6 +459,13 @@ void loop() {
     }
     memcpy(jpegCopy, fb->buf, jpegLen);
     esp_camera_fb_return(fb);
+
+    // The JPEG copy is independent of the camera driver. Park one framebuffer
+    // and put the sensor back into standby before the slower BLE transmission.
+    if (cameraStandbySupported &&
+        !enterCameraStandby(CAMERA_BUFFER_READY_TIMEOUT_MS)) {
+      Serial.println("Camera stayed awake after capture");
+    }
 
     frameCounter++;
     Serial.printf("Frame %lu: %u bytes, mtu=%u\n",

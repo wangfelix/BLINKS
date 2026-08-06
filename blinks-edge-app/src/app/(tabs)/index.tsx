@@ -14,8 +14,10 @@ const DashboardScreen = () => {
   const tabBarHeight = useCustomTabBarHeight();
   const {
     username,
-    hasSessionToday,
+    hasSession,
     isSessionActive,
+    isTestSessionActive,
+    isRestoringSession,
     canOpenSession,
     startButtonLabel,
     openSession,
@@ -31,17 +33,21 @@ const DashboardScreen = () => {
       <AppCard style={styles.todayCard}>
         <CalendarCheckIcon
           size={28}
-          color={hasSessionToday ? colors.success : colors.textMuted}
-          weight={hasSessionToday ? "fill" : "regular"}
+          color={hasSession ? colors.success : colors.textMuted}
+          weight={hasSession ? "fill" : "regular"}
         />
         <View style={styles.todayText}>
           <AppText variant="subheading">Your recording day</AppText>
           <AppText variant="caption">
-            {isSessionActive
-              ? "Recording in progress — wear the glasses through your day"
-              : hasSessionToday
-                ? "Completed — reconstruct your day on the website this evening"
-                : "Not started yet — start the session when your day begins"}
+            {isRestoringSession
+              ? "Restoring your unfinished recording…"
+              : isTestSessionActive
+                ? "Lab test in progress — your main recording has not started"
+              : isSessionActive
+                ? "Recording in progress — wear the glasses through your day"
+                : hasSession
+                  ? "Completed — reconstruct your day on the website this evening"
+                  : "Not started yet — start the session when your day begins"}
           </AppText>
         </View>
       </AppCard>
@@ -55,7 +61,9 @@ const DashboardScreen = () => {
       />
       {!canOpenSession ? (
         <AppText variant="caption" style={styles.hint}>
-          One session per day — you are done for today.
+          {isRestoringSession
+            ? "Reconnecting to your existing session."
+            : "Your study recording session is complete."}
         </AppText>
       ) : null}
     </ScreenContainer>

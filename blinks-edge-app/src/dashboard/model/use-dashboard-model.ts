@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { Alert } from "react-native";
 
-import { toLocalDayKey } from "@/application/utils/format-time";
 import { useAuth } from "@/authentication/context/auth-context";
 import { useRecordingSession } from "@/capture/model/use-recording-session";
 import { requestCapturePermissions } from "@/capture/permissions/request-capture-permissions";
@@ -20,25 +19,34 @@ export const useDashboardModel = () => {
   // ---- STATE ----
 
   const sessions = sessionsQuery.data ?? [];
-  const isSessionActive = session.phase !== "idle";
-  const todayKey = toLocalDayKey(Date.now());
+  const isSessionActive =
+    session.kind === "study" && session.phase !== "idle";
+  const isTestSessionActive =
+    session.kind === "test" && session.phase !== "idle";
+  const isAnySessionActive = isSessionActive || isTestSessionActive;
+  const isRestoringSession = session.restorationStatus === "restoring";
 
-  // A session running right now may not have reached the server list yet.
-  const hasSessionToday =
-    isSessionActive ||
-    sessions.some((entry) => toLocalDayKey(entry.startedAtMs) === todayKey);
+  // Lifecycle state covers a session that has not produced a frame yet; the
+  // frame-derived list remains a fallback for data created by an older app.
+  const hasSession = session.hasKnownSession || sessions.length > 0;
 
-  // One self-administered session per day; an active session can always be
-  // reopened.
-  const canOpenSession = isSessionActive || !hasSessionToday;
-  const startButtonLabel = isSessionActive
-    ? "Return to session"
-    : "Start session";
+  // The study has one session per participant. An unfinished restored session
+  // can be reopened; an explicitly ended session cannot create a new ID.
+  const canOpenSession =
+    !isRestoringSession && (isAnySessionActive || !hasSession);
+  const startButtonLabel = isRestoringSession
+    ? "Restoring session…"
+    : isAnySessionActive
+      ? isTestSessionActive
+        ? "Return to test recording"
+        : "Return to session"
+      : "Start session";
 
   // ---- ACTIONS ----
 
   const openSession = async () => {
-    if (isSessionActive) {
+    if (isRestoringSession) return;
+    if (isAnySessionActive) {
       router.push("/recording");
       return;
     }
@@ -59,8 +67,10 @@ export const useDashboardModel = () => {
   return {
     username,
     isLoading: sessionsQuery.isLoading,
-    hasSessionToday,
+    hasSession,
     isSessionActive,
+    isTestSessionActive,
+    isRestoringSession,
     canOpenSession,
     startButtonLabel,
     openSession,
