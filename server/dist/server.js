@@ -792,7 +792,7 @@ const parseActivityInputs = (body, day, requireLabels, round) => {
             typeof endMs !== "number" ||
             !Number.isFinite(startMs) ||
             !Number.isFinite(endMs) ||
-            endMs < startMs) {
+            endMs <= startMs) {
             return { error: `activity ${index}: invalid startMs/endMs` };
         }
         // Spans are half-open. A final 23:55-00:00 chunk therefore belongs fully
@@ -887,7 +887,9 @@ const parseActivityInputs = (body, day, requireLabels, round) => {
             return { error: "activities must not overlap in time" };
         }
     }
-    return { activities };
+    // Positions are canonical chronological order even if a stale client sends
+    // the replace-all list out of order.
+    return { activities: sortedByStart };
 };
 const roundTimingJson = (responseList) => ({
     firstOpenedAt: responseList?.first_opened_at ?? null,
