@@ -50,12 +50,6 @@ export const AdminLogin = ({
 
   return (
     <StudyFlowShell
-      headerTrailing={
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/70 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur">
-          <ShieldCheckIcon className="size-3.5" aria-hidden />
-          Research admin
-        </span>
-      }
       contentClassName="flex items-center justify-center"
     >
       <Column

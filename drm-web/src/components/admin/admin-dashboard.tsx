@@ -88,10 +88,6 @@ export const AdminDashboard = ({
         <div className="flex min-h-16 w-full flex-wrap items-center justify-between gap-3 px-4 py-2 sm:px-8">
           <div className="flex items-center gap-3">
             <BlinksLogo className="h-10 w-[140px]" sizes="140px" priority />
-            <Badge variant="secondary" className="hidden sm:inline-flex">
-              <ShieldCheckIcon aria-hidden />
-              Research admin
-            </Badge>
           </div>
           <div className="flex items-center gap-2">
             <span className="hidden text-sm text-muted-foreground sm:inline">

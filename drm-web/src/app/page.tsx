@@ -82,11 +82,6 @@ const LandingPage = () => {
 
   return (
     <StudyFlowShell
-      headerTrailing={
-        <span className="rounded-full border border-border/70 bg-background/70 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur">
-          Participant portal
-        </span>
-      }
       contentClassName="flex items-center justify-center"
     >
       <Column
