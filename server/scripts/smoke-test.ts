@@ -877,6 +877,19 @@ const main = async (): Promise<void> => {
   // state: study day resolved, round 1 open, round 2 locked.
   let state = await api("/api/reconstruction/state", { token });
   assert.strictEqual(state.day, TODAY);
+  // The day's epoch extent is server-authoritative: the calendar day plus the
+  // past-midnight overrun (a waking day ends after midnight), extended further
+  // when a recording actually ran later than that. This session recorded around
+  // local noon, so the overrun is what sets the end.
+  assert.strictEqual(
+    state.dayEndMs - state.dayStartMs,
+    24 * 3_600_000 + 4 * 3_600_000,
+    "a study day reaches into the small hours of the next date",
+  );
+  assert.ok(
+    state.dayStartMs <= baseT && baseT < state.dayEndMs,
+    "the day's extent contains its own frames",
+  );
   assert.strictEqual(state.frameCount, 11, "4 base + 7 fixture frames today");
   assert.strictEqual(state.available, true, "DRM_AVAILABLE_FROM_HOUR=0");
   assert.deepStrictEqual(
@@ -918,6 +931,8 @@ const main = async (): Promise<void> => {
   assert.strictEqual(round1.round, 1);
   assert.ok(!("mode" in round1), "round API does not expose redundant mode");
   assert.strictEqual(round1.day, TODAY);
+  assert.strictEqual(round1.dayStartMs, state.dayStartMs);
+  assert.strictEqual(round1.dayEndMs, state.dayEndMs);
   assert.strictEqual(round1.status, "draft", "pinned on first open");
   assert.deepStrictEqual(round1.activities, []);
   assert.ok(!("frames" in round1), "self round must never include frames");
@@ -992,6 +1007,50 @@ const main = async (): Promise<void> => {
     !("vlmRawLabel" in round1Draft.activities[0]),
     "participant responses never expose hidden VLM provenance",
   );
+
+  // Spans are validated against the day's epoch extent, not its calendar date,
+  // so an overnight recording can be reconstructed as one continuous day. A
+  // span leaving the extent on either side is still rejected.
+  const spanOutsideDay = async (startMs: number, endMs: number) =>
+    api("/api/reconstruction/round/1", {
+      method: "PUT",
+      token,
+      body: {
+        activities: [
+          {
+            startMs,
+            endMs,
+            rawLabel: "computer_or_monitor_use",
+            categoryLabel: "work",
+            source: "user",
+          },
+        ],
+      },
+      expectStatus: 400,
+    });
+  await spanOutsideDay(state.dayStartMs - 60_000, state.dayStartMs + 60_000);
+  await spanOutsideDay(state.dayEndMs - 60_000, state.dayEndMs + 60_000);
+  // The exclusive end may sit exactly on the upper bound.
+  await api("/api/reconstruction/round/1", {
+    method: "PUT",
+    token,
+    body: {
+      activities: [
+        {
+          startMs: state.dayEndMs - 300_000,
+          endMs: state.dayEndMs,
+          rawLabel: "computer_or_monitor_use",
+          categoryLabel: "work",
+          source: "user",
+        },
+      ],
+    },
+  });
+  await api("/api/reconstruction/round/1", {
+    method: "PUT",
+    token,
+    body: { activities: round1Activities },
+  });
 
   // Drafts reject labels outside the same closed enum used by the VLM and
   // participant dropdowns.

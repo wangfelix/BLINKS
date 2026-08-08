@@ -8,13 +8,22 @@
 // so DST is handled by the platform; no date libraries.
 // ===========================================================================
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.DAY_OVERRUN_MS = void 0;
 exports.dayKeyFromEpochMs = dayKeyFromEpochMs;
+exports.sessionDayKey = sessionDayKey;
 exports.currentLocalHour = currentLocalHour;
 exports.currentLocalMinutes = currentLocalMinutes;
 exports.timeOfDayToMinutes = timeOfDayToMinutes;
 exports.todayKey = todayKey;
-exports.dayUtcRange = dayUtcRange;
+exports.localDayStartMs = localDayStartMs;
+exports.nextDayKey = nextDayKey;
 const DRM_TZ = process.env.DRM_TZ ?? "Europe/Berlin";
+// A waking day does not end at midnight. Every study day therefore extends
+// past its calendar date by this much, so a participant reconstructing from
+// memory can report the activities that ran into the small hours (going to
+// bed at 00:30 is an ordinary end to a field day, not a second day). This is
+// the diary-study convention of a 04:00 day boundary.
+exports.DAY_OVERRUN_MS = Number(process.env.DRM_DAY_OVERRUN_HOURS ?? 4) * 3600000;
 // en-CA formats as YYYY-MM-DD, exactly the day-key shape the contract fixes.
 const dayKeyFormatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: DRM_TZ,
@@ -38,6 +47,14 @@ const hourMinuteFormatter = new Intl.DateTimeFormat("en-GB", {
 function dayKeyFromEpochMs(epochMs) {
     return dayKeyFormatter.format(new Date(epochMs));
 }
+// The local date a RECORDING SESSION belongs to, from its id (the epoch
+// SECONDS of the participant's Start tap). The study day is anchored on the
+// session rather than on each frame's capture time, so a session that runs
+// past local midnight stays one single study day — the one the participant
+// actually lived and will reconstruct.
+function sessionDayKey(session) {
+    return dayKeyFromEpochMs(session * 1000);
+}
 // Current hour of day (0-23) in the study TZ; drives the evening gate.
 function currentLocalHour() {
     return Number(hourFormatter.format(new Date()));
@@ -60,12 +77,46 @@ function timeOfDayToMinutes(value) {
 function todayKey() {
     return dayKeyFromEpochMs(Date.now());
 }
-// Conservative UTC epoch-ms range guaranteed to contain every instant whose
-// local day is `day` (UTC offsets span -12..+14, so pad by 14h on both sides).
-// Callers narrow SQL scans with this range, then filter exactly with
-// dayKeyFromEpochMs.
-function dayUtcRange(day) {
-    const utcMidnight = Date.parse(`${day}T00:00:00Z`);
-    const padMs = 14 * 3600000;
-    return { fromMs: utcMidnight - padMs, toMs: utcMidnight + 24 * 3600000 + padMs };
+// Wall-clock parts of an instant in the study TZ, used to invert a local
+// date back into an epoch. Intl is the only DST-aware primitive available
+// without a date library.
+const wallClockPartsFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: DRM_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+});
+const timezoneOffsetMsAt = (epochMs) => {
+    const parts = wallClockPartsFormatter.formatToParts(new Date(epochMs));
+    const partValue = (type) => {
+        const part = parts.find((candidate) => candidate.type === type);
+        return part ? Number(part.value) : 0;
+    };
+    const wallClockAsUtc = Date.UTC(partValue("year"), partValue("month") - 1, partValue("day"), partValue("hour"), partValue("minute"), partValue("second"));
+    return wallClockAsUtc - epochMs;
+};
+// Local midnight (epoch ms) that starts day key `day`. Two-pass conversion so
+// DST transitions resolve to the correct instant. Mirrors drm-web's
+// dayTimeToEpochMs; the two must agree.
+function localDayStartMs(day) {
+    const [year, month, dayOfMonth] = day.split("-").map(Number);
+    const wallClockAsUtc = Date.UTC(year, month - 1, dayOfMonth);
+    const firstGuess = wallClockAsUtc - timezoneOffsetMsAt(wallClockAsUtc);
+    return wallClockAsUtc - timezoneOffsetMsAt(firstGuess);
+}
+// Next calendar date key, as a date step rather than +24 hours. Pure calendar
+// arithmetic in UTC: the key is a date string, never an instant, so the study
+// timezone must not enter here.
+function nextDayKey(day) {
+    const [year, month, dayOfMonth] = day.split("-").map(Number);
+    const next = new Date(Date.UTC(year, month - 1, dayOfMonth + 1));
+    return [
+        next.getUTCFullYear(),
+        String(next.getUTCMonth() + 1).padStart(2, "0"),
+        String(next.getUTCDate()).padStart(2, "0"),
+    ].join("-");
 }

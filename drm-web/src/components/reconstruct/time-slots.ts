@@ -1,10 +1,15 @@
 import type { Frame } from "@/lib/api-types";
-import { studyDayBounds } from "@/lib/time";
 import {
   FIVE_MINUTE_MS,
   sortActivities,
   type EditableActivity,
 } from "@/components/reconstruct/editor-types";
+
+/** Server-authoritative epoch extent of the pinned study day. */
+export interface StudyDayBounds {
+  startMs: number;
+  endMs: number;
+}
 
 export interface FiveMinuteSlot {
   startMs: number;
@@ -74,16 +79,19 @@ export const groupFiveMinuteSlots = (
 };
 
 /**
- * Build the complete five-minute grid for the pinned local study day. Live
- * images are grouped into their clock-aligned slot; a slot with no live image
- * remains in the result so the picker can render "No images available".
+ * Build the complete five-minute grid for the pinned study day. The bounds
+ * come from the server: the day is anchored on the recording session, so a
+ * recording that ran past local midnight spans more than its calendar date.
+ * Live images are grouped into their clock-aligned slot; a slot with no live
+ * image remains in the result so the picker can render "No images available".
  */
 export const buildFiveMinuteSlots = (
-  day: string,
+  bounds: StudyDayBounds,
   frames: Frame[],
   activities: EditableActivity[],
 ): FiveMinuteSlot[] => {
-  const { startMs, endMs } = studyDayBounds(day);
+  const startMs = slotStartOf(bounds.startMs);
+  const { endMs } = bounds;
   const liveFramesBySlot = new Map<number, Frame[]>();
   for (const frame of frames) {
     if (frame.deletedAt !== null || frame.imageUrl === null) continue;

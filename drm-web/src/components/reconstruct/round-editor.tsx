@@ -13,7 +13,11 @@ import type {
   Frame,
 } from "@/lib/api-types";
 import { ApiError, saveRoundDraft, submitRound } from "@/lib/api-client";
-import { dayTimeToEpochMs, formatDayLabel, formatTimeSpan } from "@/lib/time";
+import {
+  formatDayLabel,
+  formatTimeSpan,
+  resolveTypedTimeOfDay,
+} from "@/lib/time";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,12 +38,14 @@ import {
   gapHasUnassignedImages,
   hasAllExperienceRatings,
   makeLocalId,
+  selfTimeAnchor,
   sortActivities,
   toActivityInputs,
   type EditableActivity,
   type SpanAdjustmentEffect,
 } from "@/components/reconstruct/editor-types";
 import { FramePickerDialog } from "@/components/reconstruct/frame-picker-dialog";
+import type { StudyDayBounds } from "@/components/reconstruct/time-slots";
 import type { RatedCategory } from "@/components/reconstruct/experience-rating-scale";
 import { PhotoManagementDialog } from "@/components/photos/photo-management-dialog";
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
@@ -178,12 +184,15 @@ const adjustmentNotice = (
 export const RoundEditor = ({
   round,
   day,
+  dayBounds,
   initialActivities,
   frames,
   onSubmitted,
 }: {
   round: 1 | 2;
   day: string;
+  /** Server-authoritative epoch extent of the study day (never derived here). */
+  dayBounds: StudyDayBounds;
   initialActivities: Activity[];
   frames: Frame[] | null; // present for the assisted round only
   onSubmitted: () => void;
@@ -423,12 +432,29 @@ export const RoundEditor = ({
     markEdited();
   };
 
+  /**
+   * Self rows carry a wall-clock time with no date. The study day runs past
+   * midnight, so a time that falls before what the participant already
+   * entered is dated to the next day (resolveTypedTimeOfDay); the date is
+   * stored but never shown, because the chronological order already reads
+   * correctly on screen.
+   */
   const handleSelfTimeChange = (
     localId: string,
     field: "startMs" | "endMs",
     timeOfDay: string,
   ) => {
-    const epochMs = timeOfDay === "" ? null : dayTimeToEpochMs(day, timeOfDay);
+    if (timeOfDay === "") {
+      updateRow(localId, { [field]: null }, field === "startMs");
+      return;
+    }
+    const index = rowsRef.current.findIndex((row) => row.localId === localId);
+    const epochMs = resolveTypedTimeOfDay(
+      day,
+      timeOfDay,
+      selfTimeAnchor(rowsRef.current, index, field),
+      dayBounds.endMs,
+    );
     updateRow(localId, { [field]: epochMs }, field === "startMs");
   };
 
@@ -766,7 +792,7 @@ export const RoundEditor = ({
           }}
           title={framePicker.title}
           description={framePicker.description}
-          day={day}
+          dayBounds={dayBounds}
           frames={frames ?? []}
           activities={rows}
           currentActivityId={framePicker.currentActivityId}

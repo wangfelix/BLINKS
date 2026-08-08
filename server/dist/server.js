@@ -777,7 +777,8 @@ const MAX_ACTIVITIES_PER_ROUND = 300;
 // preserving one unambiguous ordered reconstruction. On round 1 every
 // activity must be user-sourced and carries no VLM provenance (there is no
 // VLM proposal the participant could have seen).
-const parseActivityInputs = (body, day, requireLabels, round) => {
+const parseActivityInputs = (body, bounds, requireLabels, round) => {
+    const { day } = bounds;
     const list = body?.activities;
     if (!Array.isArray(list))
         return { error: "activities array is required" };
@@ -795,11 +796,11 @@ const parseActivityInputs = (body, day, requireLabels, round) => {
             endMs <= startMs) {
             return { error: `activity ${index}: invalid startMs/endMs` };
         }
-        // Spans are half-open. A final 23:55-00:00 chunk therefore belongs fully
-        // to the pinned day even though its exclusive end is next-day midnight.
-        const lastIncludedMs = endMs > startMs ? endMs - 1 : endMs;
-        if ((0, time_1.dayKeyFromEpochMs)(startMs) !== day ||
-            (0, time_1.dayKeyFromEpochMs)(lastIncludedMs) !== day) {
+        // Spans are half-open, so the exclusive end may sit exactly on the day's
+        // upper bound. The bound is the calendar day extended over whatever the
+        // day's sessions actually recorded, so a recording that ran past midnight
+        // can be reconstructed as one continuous day.
+        if (startMs < bounds.startMs || endMs > bounds.endMs) {
             return { error: `activity ${index}: span must lie within ${day}` };
         }
         if (rawLabel !== null &&
@@ -905,10 +906,13 @@ app.get("/api/reconstruction/state", auth_1.requireAuth, auth_1.requireCompleted
     const round1 = (0, db_1.getRoundResponseList)(participant, 1);
     const round2 = (0, db_1.getRoundResponseList)(participant, 2);
     const day = resolveStudyDay(participant) ?? null;
+    const bounds = day === null ? null : (0, db_1.dayBoundsMs)(participant, day);
     const round1Submitted = round1?.status === "submitted";
     const round2Unlocked = DRM_DEV_MODE || round1Submitted;
     res.json({
         day,
+        dayStartMs: bounds?.startMs ?? null,
+        dayEndMs: bounds?.endMs ?? null,
         frameCount: day === null ? 0 : (0, db_1.countFramesOnDay)(participant, day),
         available: day !== null && (DRM_DEV_MODE || isDayAvailable(day)),
         availableFromHour: AVAILABLE_FROM_HOUR,
@@ -979,7 +983,7 @@ const guardRound = (req, res, forWrite) => {
         res.status(409).json({ error: "this step is already submitted" });
         return undefined;
     }
-    return { round, day };
+    return { round, day, ...(0, db_1.dayBoundsMs)(participant, day) };
 };
 app.get("/api/reconstruction/round/:round", auth_1.requireAuth, auth_1.requireCompletedOnboarding, auth_1.requireActiveStudy, (req, res) => {
     const guard = guardRound(req, res, false);
@@ -996,6 +1000,11 @@ app.get("/api/reconstruction/round/:round", auth_1.requireAuth, auth_1.requireCo
     const payload = {
         round,
         day,
+        // The day's epoch extent, so the client never re-derives it from the
+        // day key: a session that ran past local midnight makes the study day
+        // longer than its calendar date.
+        dayStartMs: guard.startMs,
+        dayEndMs: guard.endMs,
         status: responseList?.status ?? "none",
     };
     // Frames and VLM output go ONLY to round 2. Round 1 is from memory, so
@@ -1144,7 +1153,7 @@ app.put("/api/reconstruction/round/:round", auth_1.requireAuth, auth_1.requireCo
     const guard = guardRound(req, res, true);
     if (!guard)
         return;
-    const { activities, error } = parseActivityInputs(req.body, guard.day, false, guard.round);
+    const { activities, error } = parseActivityInputs(req.body, guard, false, guard.round);
     if (!activities) {
         res.status(400).json({ error: error });
         return;
@@ -1166,7 +1175,7 @@ app.post("/api/reconstruction/round/:round/submit", auth_1.requireAuth, auth_1.r
     const guard = guardRound(req, res, true);
     if (!guard)
         return;
-    const { activities, error } = parseActivityInputs(req.body, guard.day, true, guard.round);
+    const { activities, error } = parseActivityInputs(req.body, guard, true, guard.round);
     if (!activities) {
         res.status(400).json({ error: error });
         return;

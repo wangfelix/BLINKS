@@ -88,6 +88,13 @@ export interface RoundState {
 export interface StudyStateResponse {
   /** The pinned study day (YYYY-MM-DD, study TZ); null before any frames. */
   day: string | null;
+  /**
+   * Epoch extent of that day. The study day is anchored on the recording
+   * session, so a recording that ran past local midnight makes the day longer
+   * than its calendar date; never re-derive these from `day`. Null with `day`.
+   */
+  dayStartMs: number | null;
+  dayEndMs: number | null;
   frameCount: number;
   /** The evening gate: today's day opens at availableFromHour (server-enforced). */
   available: boolean;
@@ -133,6 +140,9 @@ export interface PhotoDayResponse {
 export interface RoundResponse {
   round: 1 | 2;
   day: string;
+  /** Epoch extent of the study day; see StudyStateResponse.dayStartMs. */
+  dayStartMs: number;
+  dayEndMs: number;
   status: ReconstructionStatus;
   activities: Activity[];
   /** Present ONLY for round 2 (anti-leak, enforced server-side). */

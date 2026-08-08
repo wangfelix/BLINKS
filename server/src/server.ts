@@ -37,6 +37,7 @@ import {
   closeFillingChunksForSession,
   closeIdleChunks,
   countFramesOnDay,
+  dayBoundsMs,
   createVlmProposal,
   ensureParticipant,
   exportAdminTableCsv,
@@ -86,12 +87,7 @@ import { ACTIVITY_LABEL_SET } from "./activity-vocabulary";
 import { injectIncorrectAnnotations } from "./incorrect-annotation-injection";
 import { segmentDay } from "./segmentation";
 import { getPushSchedulerStatus, startPushScheduler } from "./push";
-import {
-  currentLocalHour,
-  dayKeyFromEpochMs,
-  timeOfDayToMinutes,
-  todayKey,
-} from "./time";
+import { currentLocalHour, timeOfDayToMinutes, todayKey } from "./time";
 
 // ===========================================================================
 // BLINKS ingestion + API server (BLE phone-relay architecture).
@@ -1106,10 +1102,11 @@ const MAX_ACTIVITIES_PER_ROUND = 300;
 // VLM proposal the participant could have seen).
 const parseActivityInputs = (
   body: unknown,
-  day: string,
+  bounds: { day: string; startMs: number; endMs: number },
   requireLabels: boolean,
   round: 1 | 2,
 ): { activities?: ActivityWriteInput[]; error?: string } => {
+  const { day } = bounds;
   const list = (body as { activities?: unknown } | undefined)?.activities;
   if (!Array.isArray(list)) return { error: "activities array is required" };
   if (list.length > MAX_ACTIVITIES_PER_ROUND) {
@@ -1138,13 +1135,11 @@ const parseActivityInputs = (
     ) {
       return { error: `activity ${index}: invalid startMs/endMs` };
     }
-    // Spans are half-open. A final 23:55-00:00 chunk therefore belongs fully
-    // to the pinned day even though its exclusive end is next-day midnight.
-    const lastIncludedMs = endMs > startMs ? endMs - 1 : endMs;
-    if (
-      dayKeyFromEpochMs(startMs) !== day ||
-      dayKeyFromEpochMs(lastIncludedMs) !== day
-    ) {
+    // Spans are half-open, so the exclusive end may sit exactly on the day's
+    // upper bound. The bound is the calendar day extended over whatever the
+    // day's sessions actually recorded, so a recording that ran past midnight
+    // can be reconstructed as one continuous day.
+    if (startMs < bounds.startMs || endMs > bounds.endMs) {
       return { error: `activity ${index}: span must lie within ${day}` };
     }
     if (
@@ -1274,10 +1269,13 @@ app.get(
     const round1 = getRoundResponseList(participant, 1);
     const round2 = getRoundResponseList(participant, 2);
     const day = resolveStudyDay(participant) ?? null;
+    const bounds = day === null ? null : dayBoundsMs(participant, day);
     const round1Submitted = round1?.status === "submitted";
     const round2Unlocked = DRM_DEV_MODE || round1Submitted;
     res.json({
       day,
+      dayStartMs: bounds?.startMs ?? null,
+      dayEndMs: bounds?.endMs ?? null,
       frameCount: day === null ? 0 : countFramesOnDay(participant, day),
       available: day !== null && (DRM_DEV_MODE || isDayAvailable(day)),
       availableFromHour: AVAILABLE_FROM_HOUR,
@@ -1331,7 +1329,9 @@ const guardRound = (
   req: AuthenticatedRequest,
   res: express.Response,
   forWrite: boolean,
-): { round: 1 | 2; day: string } | undefined => {
+):
+  | { round: 1 | 2; day: string; startMs: number; endMs: number }
+  | undefined => {
   const round = Number(req.params.round);
   if (round !== 1 && round !== 2) {
     res.status(400).json({ error: "round must be 1 or 2" });
@@ -1365,7 +1365,7 @@ const guardRound = (
     res.status(409).json({ error: "this step is already submitted" });
     return undefined;
   }
-  return { round, day };
+  return { round, day, ...dayBoundsMs(participant, day) };
 };
 
 app.get(
@@ -1390,6 +1390,11 @@ app.get(
     const payload: Record<string, unknown> = {
       round,
       day,
+      // The day's epoch extent, so the client never re-derives it from the
+      // day key: a session that ran past local midnight makes the study day
+      // longer than its calendar date.
+      dayStartMs: guard.startMs,
+      dayEndMs: guard.endMs,
       status: responseList?.status ?? "none",
     };
 
@@ -1600,7 +1605,7 @@ app.put(
     if (!guard) return;
     const { activities, error } = parseActivityInputs(
       req.body,
-      guard.day,
+      guard,
       false,
       guard.round,
     );
@@ -1636,7 +1641,7 @@ app.post(
     if (!guard) return;
     const { activities, error } = parseActivityInputs(
       req.body,
-      guard.day,
+      guard,
       true,
       guard.round,
     );

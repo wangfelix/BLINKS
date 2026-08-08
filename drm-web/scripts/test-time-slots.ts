@@ -2,7 +2,7 @@
 // Run from drm-web/:  ../server/node_modules/.bin/tsx scripts/test-time-slots.ts
 
 import type { Frame } from "../src/lib/api-types";
-import { dayTimeToEpochMs } from "../src/lib/time";
+import { dayTimeToEpochMs, nextDayKey } from "../src/lib/time";
 import type { EditableActivity } from "../src/components/reconstruct/editor-types";
 import {
   buildFiveMinuteSlots,
@@ -10,6 +10,11 @@ import {
 } from "../src/components/reconstruct/time-slots";
 
 const DAY = "2026-08-06";
+// The server sends the day's epoch extent; an ordinary day is its calendar day.
+const DAY_BOUNDS = {
+  startMs: dayTimeToEpochMs(DAY, "00:00"),
+  endMs: dayTimeToEpochMs(nextDayKey(DAY), "00:00"),
+};
 
 const activity = (
   localId: string,
@@ -57,7 +62,7 @@ const check = (name: string, actual: unknown, expected: unknown) => {
 
 const rows = [activity("work", "09:00", "09:15")];
 const slots = buildFiveMinuteSlots(
-  DAY,
+  DAY_BOUNDS,
   [
     frame("09:01", 1),
     frame("09:02", 2),
@@ -134,6 +139,39 @@ check(
     ["unassigned", 1],
     ["empty", 1],
   ],
+);
+
+// A recording that ran past local midnight makes the study day longer than
+// its calendar date: the grid must extend to cover the overrun instead of
+// clipping the frames captured after midnight.
+const overnightBounds = {
+  startMs: dayTimeToEpochMs(DAY, "00:00"),
+  endMs: dayTimeToEpochMs(nextDayKey(DAY), "00:55"),
+};
+const overnightFrame: Frame = {
+  device: "camera",
+  session: 1,
+  frameIndex: 99,
+  captureEpochMs: dayTimeToEpochMs(nextDayKey(DAY), "00:51"),
+  imageUrl: "/frames/99.jpg",
+  deletedAt: null,
+};
+const overnightSlots = buildFiveMinuteSlots(
+  overnightBounds,
+  [overnightFrame],
+  [],
+);
+check(
+  "a past-midnight recording extends the grid instead of clipping",
+  overnightSlots.length,
+  288 + 11,
+);
+check(
+  "a frame captured after midnight lands in its own slot",
+  overnightSlots
+    .filter((slot) => slot.frames.length > 0)
+    .map((slot) => slot.frames.map((candidate) => candidate.frameIndex)),
+  [[99]],
 );
 
 if (failures > 0) {

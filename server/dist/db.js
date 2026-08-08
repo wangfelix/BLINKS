@@ -28,6 +28,7 @@ exports.setCameraFormFactor = setCameraFormFactor;
 exports.setPushToken = setPushToken;
 exports.setLastReminderDay = setLastReminderDay;
 exports.listPushParticipants = listPushParticipants;
+exports.dayBoundsMs = dayBoundsMs;
 exports.aggregateFrameDays = aggregateFrameDays;
 exports.listFramesOnDay = listFramesOnDay;
 exports.listPhotoFramesOnDay = listPhotoFramesOnDay;
@@ -125,6 +126,7 @@ let updateLastReminderDayStmt;
 let listPushParticipantsStmt;
 let frameDayStatsStmt;
 let framesInRangeStmt;
+let dayScopeStmt;
 let photoFramesInRangeStmt;
 let getRoundResponseListStmt;
 let insertRoundResponseListStmt;
@@ -1064,7 +1066,7 @@ function initDb(dbPath) {
     FROM participants WHERE push_token IS NOT NULL
   `);
     frameDayStatsStmt = db.prepare(`
-    SELECT f.capture_epoch_ms, f.face_status, c.status AS chunk_status
+    SELECT f.session, f.capture_epoch_ms, f.face_status, c.status AS chunk_status
     FROM frames f
     LEFT JOIN chunks c
       ON c.participant = f.participant AND c.chunk_start_ms = f.chunk_start_ms
@@ -1085,6 +1087,21 @@ function initDb(dbPath) {
     WHERE f.participant = ? AND f.capture_epoch_ms BETWEEN ? AND ?
       AND f.deleted_at IS NULL
     ORDER BY f.capture_epoch_ms
+  `);
+    // Compact per-session/per-chunk index of a participant's frames. One row
+    // per (session, 5-minute window) — a few hundred rows for a study day — so
+    // the session-anchored day scope can be resolved in memory without a
+    // timezone-aware SQL query (SQLite has no timezone support). Soft-deleted
+    // rows are included: a deleted frame still bounds the day it was captured
+    // in, and photo management must keep showing its tombstone.
+    dayScopeStmt = db.prepare(`
+    SELECT session,
+           chunk_start_ms,
+           MIN(capture_epoch_ms) AS min_ms,
+           MAX(capture_epoch_ms) AS max_ms
+    FROM frames
+    WHERE participant = ?
+    GROUP BY session, chunk_start_ms
   `);
     // Photo management keeps soft-deleted rows visible as timestamped
     // tombstones. Only frames that completed face anonymization are included:
@@ -1446,12 +1463,16 @@ function closeFillingChunksForSession(participant, session) {
         now: Date.now(),
     }).changes;
 }
-// Every chunk of one local day, ordered by window start. Windows are
-// clock-aligned, so a chunk never straddles the local-midnight day boundary.
+// Every chunk of one study day, ordered by window start. A chunk belongs to
+// the day whose sessions filled it: windows are clock-aligned and 5 minutes
+// long, so two sessions on different days can never share one.
 function listChunksOnDay(participant, day) {
-    const { fromMs, toMs } = (0, time_1.dayUtcRange)(day);
-    const rows = chunksInRangeStmt.all(participant, fromMs, toMs);
-    return rows.filter((row) => (0, time_1.dayKeyFromEpochMs)(row.chunk_start_ms) === day);
+    const scope = resolveDayScope(participant, day);
+    if (scope === undefined || scope.chunkStarts.size === 0)
+        return [];
+    const starts = [...scope.chunkStarts];
+    const rows = chunksInRangeStmt.all(participant, Math.min(...starts), Math.max(...starts));
+    return rows.filter((row) => scope.chunkStarts.has(row.chunk_start_ms));
 }
 // --- DRM: participants -------------------------------------------------------
 function getParticipant(username) {
@@ -1485,16 +1506,55 @@ function setLastReminderDay(username, day) {
 function listPushParticipants() {
     return listPushParticipantsStmt.all();
 }
-// --- DRM: day aggregation ----------------------------------------------------
-// Distinct local study days (>=1 frame) for a participant, ascending by day,
-// with frame + VLM-pending counts. Day keys are computed in the study TZ from
-// capture_epoch_ms (SQLite has no timezone support, so bucketing happens here;
-// a participant's whole study is a few thousand rows).
+function resolveDayScope(participant, day) {
+    const rows = dayScopeStmt.all(participant);
+    const scope = {
+        sessions: new Set(),
+        chunkStarts: new Set(),
+        firstCaptureMs: Number.POSITIVE_INFINITY,
+        lastCaptureMs: Number.NEGATIVE_INFINITY,
+    };
+    for (const row of rows) {
+        if ((0, time_1.sessionDayKey)(row.session) !== day)
+            continue;
+        scope.sessions.add(row.session);
+        if (row.chunk_start_ms !== null)
+            scope.chunkStarts.add(row.chunk_start_ms);
+        scope.firstCaptureMs = Math.min(scope.firstCaptureMs, row.min_ms);
+        scope.lastCaptureMs = Math.max(scope.lastCaptureMs, row.max_ms);
+    }
+    return scope.sessions.size > 0 ? scope : undefined;
+}
+// Epoch bounds of one study day: the local calendar day, extended past
+// midnight by DAY_OVERRUN_MS (a waking day ends after midnight, and round 1
+// reconstructs from memory rather than from camera coverage) and further if
+// the day's sessions actually recorded beyond that. The start moves only if a
+// phone clock was skewed backwards. Every reconstructed activity span is
+// validated against this.
+function dayBoundsMs(participant, day) {
+    const calendarStartMs = (0, time_1.localDayStartMs)(day);
+    const overrunEndMs = (0, time_1.localDayStartMs)((0, time_1.nextDayKey)(day)) + time_1.DAY_OVERRUN_MS;
+    const scope = resolveDayScope(participant, day);
+    if (scope === undefined) {
+        return { startMs: calendarStartMs, endMs: overrunEndMs };
+    }
+    // Segmented activities use complete chunk boundaries, so the day must reach
+    // the END of the window holding the last frame, not just that frame.
+    const lastWindowEndMs = chunkStartOf(scope.lastCaptureMs) + exports.CHUNK_WINDOW_MS;
+    return {
+        startMs: Math.min(calendarStartMs, chunkStartOf(scope.firstCaptureMs)),
+        endMs: Math.max(overrunEndMs, lastWindowEndMs),
+    };
+}
+// Distinct study days (>=1 frame) for a participant, ascending by day, with
+// frame + VLM-pending counts. A frame's day is its SESSION's local start date
+// (SQLite has no timezone support, so bucketing happens here; a participant's
+// whole study is a few thousand rows).
 function aggregateFrameDays(participant) {
     const rows = frameDayStatsStmt.all(participant);
     const byDay = new Map();
     for (const row of rows) {
-        const day = (0, time_1.dayKeyFromEpochMs)(row.capture_epoch_ms);
+        const day = (0, time_1.sessionDayKey)(row.session);
         let aggregate = byDay.get(day);
         if (!aggregate) {
             aggregate = { day, frameCount: 0, vlmPendingCount: 0 };
@@ -1515,19 +1575,24 @@ function aggregateFrameDays(participant) {
     }
     return Array.from(byDay.values()).sort((a, b) => (a.day < b.day ? -1 : 1));
 }
-// Every frame of one local day, ordered by capture time. A conservative UTC
-// range narrows the indexed scan; the exact local-day filter happens here.
+// Every frame of one study day, ordered by capture time. The scope's capture
+// range narrows the indexed scan; the exact membership test is the session
+// set, so a frame captured after midnight still belongs to its session's day.
 function listFramesOnDay(participant, day) {
-    const { fromMs, toMs } = (0, time_1.dayUtcRange)(day);
-    const rows = framesInRangeStmt.all(participant, fromMs, toMs);
-    return rows.filter((row) => (0, time_1.dayKeyFromEpochMs)(row.capture_epoch_ms) === day);
+    const scope = resolveDayScope(participant, day);
+    if (scope === undefined)
+        return [];
+    const rows = framesInRangeStmt.all(participant, scope.firstCaptureMs, scope.lastCaptureMs);
+    return rows.filter((row) => scope.sessions.has(row.session));
 }
-// Every anonymized frame audit row on one local day, including soft-deleted
+// Every anonymized frame audit row on one study day, including soft-deleted
 // tombstones in their original chronological position.
 function listPhotoFramesOnDay(participant, day) {
-    const { fromMs, toMs } = (0, time_1.dayUtcRange)(day);
-    const rows = photoFramesInRangeStmt.all(participant, fromMs, toMs);
-    return rows.filter((row) => (0, time_1.dayKeyFromEpochMs)(row.capture_epoch_ms) === day);
+    const scope = resolveDayScope(participant, day);
+    if (scope === undefined)
+        return [];
+    const rows = photoFramesInRangeStmt.all(participant, scope.firstCaptureMs, scope.lastCaptureMs);
+    return rows.filter((row) => scope.sessions.has(row.session));
 }
 function countFramesOnDay(participant, day) {
     return listFramesOnDay(participant, day).length;

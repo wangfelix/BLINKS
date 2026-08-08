@@ -259,6 +259,35 @@ export const hasAllExperienceRatings = (rows: EditableActivity[]): boolean =>
   });
 
 /**
+ * The chronology anchor for a wall-clock time typed into row `index`: the
+ * latest boundary the participant has already committed *before* it. A typed
+ * time that falls before this anchor belongs to the next calendar date (see
+ * resolveTypedTimeOfDay). An end time anchors on its own row's start, so
+ * "23:00 to 00:30" rolls without depending on neighbouring rows. Returns null
+ * when nothing precedes the row, which leaves the typed time on the study day
+ * itself — a day that genuinely begins at 00:30 must not roll.
+ */
+export const selfTimeAnchor = (
+  rows: EditableActivity[],
+  index: number,
+  field: "startMs" | "endMs",
+): number | null => {
+  if (index < 0 || index >= rows.length) return null;
+  if (field === "endMs" && rows[index].startMs !== null) {
+    return rows[index].startMs;
+  }
+  let anchor: number | null = null;
+  for (const row of rows.slice(0, index)) {
+    for (const boundary of [row.startMs, row.endMs]) {
+      if (boundary !== null && (anchor === null || boundary > anchor)) {
+        anchor = boundary;
+      }
+    }
+  }
+  return anchor;
+};
+
+/**
  * Validation shared by autosave display and submit. Self rows must have
  * complete, strictly ordered, non-overlapping times; assisted rows get their
  * times from frames so only label/category can be missing. Every row needs a

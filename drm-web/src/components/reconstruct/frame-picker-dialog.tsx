@@ -12,7 +12,7 @@ import {
 import type { Frame } from "@/lib/api-types";
 import { frameImageSrc } from "@/lib/api-client";
 import { activityDisplayLabel } from "@/lib/activity-vocabulary";
-import { formatTimeOfDay, formatTimeSpan, studyDayBounds } from "@/lib/time";
+import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -29,6 +29,7 @@ import {
 } from "@/components/reconstruct/editor-types";
 import {
   buildFiveMinuteSlots,
+  type StudyDayBounds,
   groupFiveMinuteSlots,
   slotOverlapsSpan,
   slotStartOf,
@@ -180,7 +181,7 @@ export const FramePickerDialog = ({
   onOpenChange,
   title,
   description,
-  day,
+  dayBounds,
   frames,
   activities,
   currentActivityId,
@@ -194,7 +195,7 @@ export const FramePickerDialog = ({
   onOpenChange: (open: boolean) => void;
   title: string;
   description: string;
-  day: string;
+  dayBounds: StudyDayBounds;
   frames: Frame[];
   activities: EditableActivity[];
   currentActivityId?: string;
@@ -204,7 +205,6 @@ export const FramePickerDialog = ({
   confirmLabel: string;
   onConfirm: (startMs: number, endMs: number) => void;
 }) => {
-  const dayBounds = useMemo(() => studyDayBounds(day), [day]);
   const normalizedInitialStart =
     initialStartMs === undefined
       ? null
@@ -217,9 +217,18 @@ export const FramePickerDialog = ({
   const [endMs, setEndMs] = useState<number | null>(normalizedInitialEnd);
   const [clickAnchorMs, setClickAnchorMs] = useState<number | null>(null);
 
+  // Depend on the two numbers, not the bounds object: a caller passing a fresh
+  // object literal must not rebuild (and re-virtualize) the whole grid on
+  // every selection change.
+  const { startMs: dayStartMs, endMs: dayEndMs } = dayBounds;
   const slots = useMemo(
-    () => buildFiveMinuteSlots(day, frames, activities),
-    [activities, day, frames],
+    () =>
+      buildFiveMinuteSlots(
+        { startMs: dayStartMs, endMs: dayEndMs },
+        frames,
+        activities,
+      ),
+    [activities, dayEndMs, dayStartMs, frames],
   );
 
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
@@ -448,8 +457,13 @@ export const FramePickerDialog = ({
     clickAnchorMs === null
       ? "Choose a five-minute slot, or set Start and End directly."
       : "Choose another slot to extend the range, or apply this five-minute span.";
+  // "24:00" reads better than "00:00" for an exclusive end on local midnight.
+  // A day whose recording ran past midnight ends at a real wall-clock time
+  // instead, which is already unambiguous.
   const boundaryLabel = (epochMs: number): string =>
-    epochMs === dayBounds.endMs ? "24:00" : formatTimeOfDay(epochMs);
+    epochMs === dayBounds.endMs && formatTimeOfDay(epochMs) === "00:00"
+      ? "24:00"
+      : formatTimeOfDay(epochMs);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

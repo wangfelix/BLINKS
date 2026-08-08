@@ -94,10 +94,30 @@ export const nextDayKey = (dayKey: string): string => {
   ].join("-");
 };
 
-/** Epoch bounds of one complete pinned study day, including DST day length. */
-export const studyDayBounds = (
+// The epoch extent of a study day is NOT derived here. The day is anchored on
+// the recording session, so a recording that ran past local midnight makes the
+// day longer than its calendar date; the server sends dayStartMs/dayEndMs.
+
+/**
+ * A wall-clock "HH:MM" typed into a chronological reconstruction -> epoch ms.
+ *
+ * The participant types times without a date, but a study day runs past local
+ * midnight: going to bed at 00:30 ends the field day rather than starting a
+ * new one. The reconstruction is entered in chronological order, so a time
+ * that would land BEFORE the preceding entry belongs to the next calendar
+ * date. The roll is taken only when the result still fits inside the day,
+ * which confines it to the small hours: an out-of-order entry from the middle
+ * of the day keeps its own date and surfaces as an ordinary overlap warning
+ * instead of silently jumping a day.
+ */
+export const resolveTypedTimeOfDay = (
   dayKey: string,
-): { startMs: number; endMs: number } => ({
-  startMs: dayTimeToEpochMs(dayKey, "00:00"),
-  endMs: dayTimeToEpochMs(nextDayKey(dayKey), "00:00"),
-});
+  timeOfDay: string,
+  anchorMs: number | null,
+  dayEndMs: number,
+): number => {
+  const sameDay = dayTimeToEpochMs(dayKey, timeOfDay);
+  if (anchorMs === null || sameDay >= anchorMs) return sameDay;
+  const rolled = dayTimeToEpochMs(nextDayKey(dayKey), timeOfDay);
+  return rolled <= dayEndMs ? rolled : sameDay;
+};

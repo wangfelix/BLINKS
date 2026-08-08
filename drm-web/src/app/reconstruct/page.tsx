@@ -281,6 +281,10 @@ export const ActiveRoundView = ({
     <RoundEditor
       round={round}
       day={reconstruction.day}
+      dayBounds={{
+        startMs: reconstruction.dayStartMs,
+        endMs: reconstruction.dayEndMs,
+      }}
       initialActivities={reconstruction.activities}
       frames={reconstruction.frames ?? null}
       onSubmitted={() => onSubmitted(round)}
