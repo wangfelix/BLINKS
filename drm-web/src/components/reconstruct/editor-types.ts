@@ -190,6 +190,143 @@ export const claimActivitySpan = (
   return { rows: sortActivities(resolved), effects };
 };
 
+/**
+ * True when two neighbouring activities now carry the same activity AND the
+ * same category, so keeping them apart records a distinction the participant
+ * no longer makes. Segmentation already joins matching chunks, so this can
+ * only become true through an edit — which is exactly when the merge control
+ * should draw attention to itself. Merging stays a deliberate click: the
+ * participant may still be part-way through relabelling the pair.
+ */
+export const activitiesInviteMerge = (
+  first: EditableActivity,
+  second: EditableActivity,
+): boolean =>
+  first.rawLabel !== null &&
+  first.rawLabel === second.rawLabel &&
+  first.categoryLabel !== null &&
+  first.categoryLabel === second.categoryLabel;
+
+export interface MergeResolution {
+  rows: EditableActivity[];
+  /** Answers dropped because the two activities disagreed; drives the notice. */
+  clearedLabel: boolean;
+  clearedCategory: boolean;
+  clearedRating: boolean;
+}
+
+/** Keep an answer only when both merged activities already agreed on it. */
+const agreedValue = <T,>(first: T, second: T): T | null =>
+  first === second ? first : null;
+
+/**
+ * Merge one activity with the activity that follows it into a single span
+ * [first.start, second.end). The 5-minute segmentation splits a continuous
+ * stretch of work whenever the VLM's argmax wobbles, so rejoining those rows
+ * is the most common assisted-round correction.
+ *
+ * The merged row IS the first row extended: it keeps that row's identity,
+ * source, and immutable-proposal link, the same way a split row keeps its
+ * provenance, so the assisted list stays a queryable edit history against the
+ * untouched proposal. Participant answers follow a different rule — activity
+ * and category survive only where the two rows already agreed, and are
+ * otherwise cleared so the participant re-answers for the merged span rather
+ * than inheriting an arbitrary half of it.
+ *
+ * The experience rating is subordinate to the category: only the rating that
+ * matches the SURVIVING category can survive, and only if the two rows gave it
+ * the same answer. A cleared category therefore clears both ratings, and the
+ * rating belonging to the other category is dropped rather than carried along.
+ * Analysis only ever reads the rating matching the final category, and the
+ * server stores both fields as sent, so a row can hold a stale answer in the
+ * field its category does not use; without this rule two such rows could merge
+ * into a rating the participant never gave for the merged span.
+ *
+ * Returns the input rows unchanged when there is nothing to merge (unknown
+ * row, no following row, or either span incomplete).
+ */
+export const mergeWithNextActivity = (
+  rows: EditableActivity[],
+  localId: string,
+): MergeResolution => {
+  const unchanged: MergeResolution = {
+    rows,
+    clearedLabel: false,
+    clearedCategory: false,
+    clearedRating: false,
+  };
+  const sorted = sortActivities(rows);
+  const index = sorted.findIndex((row) => row.localId === localId);
+  if (index < 0 || index + 1 >= sorted.length) return unchanged;
+
+  const first = sorted[index];
+  const second = sorted[index + 1];
+  if (
+    first.startMs === null ||
+    first.endMs === null ||
+    second.startMs === null ||
+    second.endMs === null
+  ) {
+    return unchanged;
+  }
+
+  const rawLabel = agreedValue(first.rawLabel, second.rawLabel);
+  const categoryLabel = agreedValue(first.categoryLabel, second.categoryLabel);
+  const workloadRating =
+    categoryLabel === "work"
+      ? agreedValue(first.workloadRating, second.workloadRating)
+      : null;
+  const recoveryRating =
+    categoryLabel === "break"
+      ? agreedValue(first.recoveryRating, second.recoveryRating)
+      : null;
+  const merged: EditableActivity = {
+    ...first,
+    // A gap between the two (left by an earlier deletion) is absorbed, so the
+    // merged span stays contiguous and its images stay assigned.
+    endMs: second.endMs,
+    rawLabel,
+    categoryLabel,
+    workloadRating,
+    recoveryRating,
+  };
+
+  // "Cleared" means an answer existed on one of the two rows and did not
+  // survive the merge. Two already-blank rows (an unlabelled chunk the VLM
+  // failed on) lose nothing and need no extra explanation.
+  const wasCleared = <T,>(mergedValue: T | null, a: T | null, b: T | null) =>
+    mergedValue === null && (a !== null || b !== null);
+
+  // Only report a rating the participant now has to answer again. A rating
+  // dropped from the field the surviving category does not use is not one of
+  // them: nothing reads it, and naming it would send the participant looking
+  // for a scale that is not on screen. An `other` activity is never rated.
+  const hadAnyRating =
+    first.workloadRating !== null ||
+    second.workloadRating !== null ||
+    first.recoveryRating !== null ||
+    second.recoveryRating !== null;
+  const clearedRating =
+    categoryLabel === "work"
+      ? wasCleared(workloadRating, first.workloadRating, second.workloadRating)
+      : categoryLabel === "break"
+        ? wasCleared(recoveryRating, first.recoveryRating, second.recoveryRating)
+        : categoryLabel === null && hadAnyRating;
+
+  return {
+    rows: sorted
+      .map((row) => (row.localId === localId ? merged : row))
+      .filter((row) => row.localId !== second.localId),
+    clearedLabel: wasCleared(rawLabel, first.rawLabel, second.rawLabel),
+    clearedCategory: wasCleared(
+      categoryLabel,
+      first.categoryLabel,
+      second.categoryLabel,
+    ),
+    clearedRating,
+  };
+};
+
 /** Backward-compatible convenience for callers that only need the rows. */
 export const resolveSpanOverlaps = (
   rows: EditableActivity[],

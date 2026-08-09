@@ -2,7 +2,13 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleCheckIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
+import {
+  CircleCheckIcon,
+  FoldVerticalIcon,
+  PlusIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
 
 import type {
   Activity,
@@ -32,12 +38,14 @@ import { Text } from "@/components/layout/text";
 import { AssistedActivityRow } from "@/components/reconstruct/assisted-activity-row";
 import { SelfActivityRow } from "@/components/reconstruct/self-activity-row";
 import {
+  activitiesInviteMerge,
   computeRowIssues,
   claimActivitySpan,
   fromServerActivity,
   gapHasUnassignedImages,
   hasAllExperienceRatings,
   makeLocalId,
+  mergeWithNextActivity,
   selfTimeAnchor,
   sortActivities,
   toActivityInputs,
@@ -103,14 +111,24 @@ const hasStartedFillingIn = (row: EditableActivity): boolean =>
   row.rawLabel !== null ||
   row.categoryLabel !== null;
 
-const InsertBetweenButton = ({
-  onClick,
+/**
+ * The controls that live in the gap between two activity cards: split the day
+ * further (insert) or join the two neighbouring activities (merge). Merge is
+ * offered only where there is a following activity to merge with.
+ */
+const ActivityGapControls = ({
+  onInsert,
+  onMerge,
+  suggestsMerge = false,
   hasUnassignedImages,
 }: {
-  onClick: () => void;
+  onInsert: () => void;
+  onMerge?: () => void;
+  /** The two neighbours now carry identical answers; invite the merge. */
+  suggestsMerge?: boolean;
   hasUnassignedImages: boolean;
 }) => (
-  <Row justify="center">
+  <Row justify="center" gap="xs" align="center">
     <Button
       variant={hasUnassignedImages ? "destructive" : "ghost"}
       size="xs"
@@ -119,7 +137,7 @@ const InsertBetweenButton = ({
           ? "h-9 border border-destructive/30 bg-destructive/10 px-3 text-destructive hover:bg-destructive/20"
           : "h-9 px-3 text-muted-foreground"
       }
-      onClick={onClick}
+      onClick={onInsert}
       aria-label={
         hasUnassignedImages
           ? "Insert activity — unassigned images in this gap"
@@ -134,6 +152,34 @@ const InsertBetweenButton = ({
         </span>
       )}
     </Button>
+    {onMerge !== undefined && (
+      <Button
+        variant="ghost"
+        size="xs"
+        // Same shape as the unassigned-images treatment on Insert activity,
+        // in amber rather than red: merging is a suggestion, not a problem.
+        // Amber also keeps it clear of the yellow dev-mode injected-row tint.
+        className={
+          suggestsMerge
+            ? "h-9 border border-amber-300 bg-amber-100 px-3 font-medium text-amber-900 hover:bg-amber-200 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/60"
+            : "h-9 px-3 text-muted-foreground"
+        }
+        onClick={onMerge}
+        aria-label={
+          suggestsMerge
+            ? "Merge these two activities into one — they now have the same activity and type"
+            : "Merge these two activities into one"
+        }
+      >
+        <FoldVerticalIcon />
+        Merge
+        {suggestsMerge && (
+          <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-amber-950">
+            Same activity
+          </span>
+        )}
+      </Button>
+    )}
   </Row>
 );
 
@@ -355,6 +401,41 @@ export const RoundEditor = ({
         recoveryRating: null,
       },
     ]);
+    markEdited();
+  };
+
+  /**
+   * Join an activity with the one after it. Answers the two rows agreed on
+   * survive; anything they disagreed on is cleared, and the notice explains
+   * why the merged entry now needs an answer.
+   */
+  const mergeWithNext = (localId: string) => {
+    pendingNoticeRef.current = null;
+    const resolution = mergeWithNextActivity(rowsRef.current, localId);
+    if (resolution.rows === rowsRef.current) return;
+    const cleared = [
+      resolution.clearedLabel ? "activity" : null,
+      resolution.clearedCategory ? "activity type" : null,
+      resolution.clearedRating ? "rating" : null,
+    ].filter((entry): entry is string => entry !== null);
+    if (cleared.length > 0) {
+      const list =
+        cleared.length === 1
+          ? cleared[0]
+          : `${cleared.slice(0, -1).join(", ")} and ${cleared.at(-1)}`;
+      pendingNoticeRef.current = {
+        notice: {
+          title: "Activities merged",
+          description:
+            cleared.length === 1
+              ? `The two activities had a different ${list}, so it was cleared. Choose the one that fits the merged activity.`
+              : `The two activities had a different ${list}, so those were cleared. Choose the ones that fit the merged activity.`,
+        },
+        spanFingerprint: spanFingerprint(toActivityInputs(resolution.rows)),
+      };
+    }
+    rowsRef.current = resolution.rows;
+    setRows(resolution.rows);
     markEdited();
   };
 
@@ -613,9 +694,9 @@ export const RoundEditor = ({
 
       {isAssistedRound ? (
         <Column gap="xs">
-          <InsertBetweenButton
+          <ActivityGapControls
             hasUnassignedImages={hasUnassignedImagesAfter(null)}
-            onClick={() =>
+            onInsert={() =>
               setBoundaryDialog({ mode: "insert", afterLocalId: null })
             }
           />
@@ -624,7 +705,7 @@ export const RoundEditor = ({
               No activities yet — use “Insert activity” to add the first one.
             </Text>
           )}
-          {rows.map((row) => (
+          {rows.map((row, index) => (
             <Fragment key={row.localId}>
               <AssistedActivityRow
                 activity={row}
@@ -653,14 +734,23 @@ export const RoundEditor = ({
                   })
                 }
               />
-              <InsertBetweenButton
+              <ActivityGapControls
                 hasUnassignedImages={hasUnassignedImagesAfter(row.localId)}
-                onClick={() =>
+                onInsert={() =>
                   setBoundaryDialog({
                     mode: "insert",
                     afterLocalId: row.localId,
                   })
                 }
+                {...(rows[index + 1] === undefined
+                  ? {}
+                  : {
+                      onMerge: () => mergeWithNext(row.localId),
+                      suggestsMerge: activitiesInviteMerge(
+                        row,
+                        rows[index + 1],
+                      ),
+                    })}
               />
             </Fragment>
           ))}
