@@ -55,15 +55,18 @@ const OnboardingScreen = () => {
           label="Occupation"
           value={occupation}
           onChangeText={setOccupation}
-          placeholder="e.g. PhD student"
+          placeholder="e.g. Master Student in Industrial Engineering"
           autoCapitalize="sentences"
+          multiline
+          numberOfLines={2}
           returnKeyType="next"
+          style={styles.occupationInput}
         />
         <AppTextInput
           label="What your work consists of"
           value={workDescription}
           onChangeText={setWorkDescription}
-          placeholder="e.g. writing papers, analyzing data, meetings"
+          placeholder="e.g. writing reports, analyzing data, meetings, programming,..."
           autoCapitalize="sentences"
           multiline
         />
@@ -111,6 +114,7 @@ const styles = StyleSheet.create({
   },
   header: { gap: spacing.md },
   form: { gap: spacing.lg },
+  occupationInput: { minHeight: 64, textAlignVertical: "center" },
   timeRow: { flexDirection: "row", gap: spacing.md },
   timeField: { flex: 1 },
 });

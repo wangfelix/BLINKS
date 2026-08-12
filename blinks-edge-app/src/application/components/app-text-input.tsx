@@ -21,6 +21,7 @@ export const AppTextInput = ({
   label,
   labelStyle,
   errorMessage,
+  style: inputStyle,
   ...inputProps
 }: AppTextInputProps) => {
   const [isFocused, setIsFocused] = useState(false);
@@ -36,6 +37,7 @@ export const AppTextInput = ({
           inputProps.multiline && styles.inputMultiline,
           isFocused && styles.inputFocused,
           !!errorMessage && styles.inputError,
+          inputStyle,
         ]}
         placeholderTextColor={colors.textMuted}
         onFocus={() => setIsFocused(true)}
