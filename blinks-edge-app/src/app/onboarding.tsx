@@ -24,7 +24,9 @@ const OnboardingScreen = () => {
     bedTime,
     setBedTime,
     canSubmit,
-    validationError,
+    formError,
+    wakeTimeError,
+    bedTimeError,
     isSubmitting,
     submit,
   } = useOnboardingModel();
@@ -79,6 +81,7 @@ const OnboardingScreen = () => {
               placeholder="07:30"
               keyboardType="numbers-and-punctuation"
               maxLength={5}
+              errorMessage={wakeTimeError}
             />
           </View>
           <View style={styles.timeField}>
@@ -89,10 +92,15 @@ const OnboardingScreen = () => {
               placeholder="23:00"
               keyboardType="numbers-and-punctuation"
               maxLength={5}
-              errorMessage={validationError}
+              errorMessage={bedTimeError}
             />
           </View>
         </View>
+        {formError ? (
+          <AppText variant="caption" color={colors.danger}>
+            {formError}
+          </AppText>
+        ) : null}
         <AppButton
           label="Continue"
           onPress={submit}

@@ -5,6 +5,9 @@ import { isValidTimeOfDay } from "@/profile/api/profile-api";
 import { useUpdateProfileMutation } from "@/profile/model/use-update-profile-mutation";
 import { profileQueryOptions } from "@/profile/query-options/profile-queries";
 
+const TIME_FORMAT_ERROR =
+  "Times must be HH:MM (24-hour), e.g. 07:30 or 23:00.";
+
 // Backs the "About you" card on the Profile tab: shows the stored occupation,
 // work description and daily schedule with an inline edit flow (same PUT
 // mutation as onboarding — the server requires all four fields together).
@@ -19,7 +22,9 @@ export const useOccupationModel = () => {
   const [workDescriptionDraft, setWorkDescriptionDraft] = useState("");
   const [wakeTimeDraft, setWakeTimeDraft] = useState("");
   const [bedTimeDraft, setBedTimeDraft] = useState("");
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [wakeTimeError, setWakeTimeError] = useState<string | null>(null);
+  const [bedTimeError, setBedTimeError] = useState<string | null>(null);
 
   // ---- ACTIONS ----
 
@@ -28,13 +33,17 @@ export const useOccupationModel = () => {
     setWorkDescriptionDraft(profileQuery.data?.workDescription ?? "");
     setWakeTimeDraft(profileQuery.data?.wakeTime ?? "");
     setBedTimeDraft(profileQuery.data?.bedTime ?? "");
-    setValidationError(null);
+    setFormError(null);
+    setWakeTimeError(null);
+    setBedTimeError(null);
     setIsEditing(true);
   };
 
   const cancelEditing = () => {
     setIsEditing(false);
-    setValidationError(null);
+    setFormError(null);
+    setWakeTimeError(null);
+    setBedTimeError(null);
   };
 
   const saveEdits = () => {
@@ -48,14 +57,22 @@ export const useOccupationModel = () => {
       !trimmedWakeTime ||
       !trimmedBedTime
     ) {
-      setValidationError("Fill in all fields.");
+      setFormError("Fill in all fields.");
+      setWakeTimeError(null);
+      setBedTimeError(null);
       return;
     }
-    if (!isValidTimeOfDay(trimmedWakeTime) || !isValidTimeOfDay(trimmedBedTime)) {
-      setValidationError("Times must be HH:MM (24-hour), e.g. 07:30 or 23:00.");
+    const isWakeTimeValid = isValidTimeOfDay(trimmedWakeTime);
+    const isBedTimeValid = isValidTimeOfDay(trimmedBedTime);
+    if (!isWakeTimeValid || !isBedTimeValid) {
+      setFormError(null);
+      setWakeTimeError(isWakeTimeValid ? null : TIME_FORMAT_ERROR);
+      setBedTimeError(isBedTimeValid ? null : TIME_FORMAT_ERROR);
       return;
     }
-    setValidationError(null);
+    setFormError(null);
+    setWakeTimeError(null);
+    setBedTimeError(null);
     updateProfileMutation.mutate(
       {
         occupation: trimmedOccupation,
@@ -66,7 +83,7 @@ export const useOccupationModel = () => {
       {
         onSuccess: () => setIsEditing(false),
         onError: () =>
-          setValidationError(
+          setFormError(
             "Saving failed. Check the connection and try again.",
           ),
       },
@@ -90,7 +107,9 @@ export const useOccupationModel = () => {
     setWakeTimeDraft,
     bedTimeDraft,
     setBedTimeDraft,
-    validationError,
+    formError,
+    wakeTimeError,
+    bedTimeError,
     isSaving: updateProfileMutation.isPending,
     startEditing,
     cancelEditing,

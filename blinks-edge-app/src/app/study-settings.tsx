@@ -112,8 +112,7 @@ const StudySettingsScreen = () => {
           <View style={styles.headerText}>
             <AppText variant="subheading">Camera type</AppText>
             <AppText variant="caption">
-              Select how this participant wears the camera. This value is
-              stored on the server for research-data filtering.
+              Select how this participant wears the camera.
             </AppText>
           </View>
         </View>
@@ -149,10 +148,6 @@ const StudySettingsScreen = () => {
             );
           })}
         </View>
-
-        <AppText variant="caption">
-          You can correct this selection at any time from this page.
-        </AppText>
       </AppCard>
 
       <AppCard style={styles.card}>
@@ -194,11 +189,6 @@ const StudySettingsScreen = () => {
             );
           })}
         </View>
-
-        <AppText variant="caption">
-          Changes apply to the next camera image, including during an active
-          recording.
-        </AppText>
       </AppCard>
 
       <AppCard style={styles.card}>

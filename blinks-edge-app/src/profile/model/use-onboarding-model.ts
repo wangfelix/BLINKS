@@ -3,6 +3,9 @@ import { useState } from "react";
 import { isValidTimeOfDay } from "@/profile/api/profile-api";
 import { useUpdateProfileMutation } from "@/profile/model/use-update-profile-mutation";
 
+const TIME_FORMAT_ERROR =
+  "Times must be HH:MM (24-hour), e.g. 07:30 or 23:00.";
+
 export const useOnboardingModel = () => {
   // ---- STATE ----
 
@@ -10,7 +13,9 @@ export const useOnboardingModel = () => {
   const [workDescription, setWorkDescription] = useState("");
   const [wakeTime, setWakeTime] = useState("");
   const [bedTime, setBedTime] = useState("");
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [wakeTimeError, setWakeTimeError] = useState<string | null>(null);
+  const [bedTimeError, setBedTimeError] = useState<string | null>(null);
 
   const updateProfileMutation = useUpdateProfileMutation();
 
@@ -36,14 +41,22 @@ export const useOnboardingModel = () => {
       !trimmedWakeTime ||
       !trimmedBedTime
     ) {
-      setValidationError("Fill in all fields.");
+      setFormError("Fill in all fields.");
+      setWakeTimeError(null);
+      setBedTimeError(null);
       return;
     }
-    if (!isValidTimeOfDay(trimmedWakeTime) || !isValidTimeOfDay(trimmedBedTime)) {
-      setValidationError("Times must be HH:MM (24-hour), e.g. 07:30 or 23:00.");
+    const isWakeTimeValid = isValidTimeOfDay(trimmedWakeTime);
+    const isBedTimeValid = isValidTimeOfDay(trimmedBedTime);
+    if (!isWakeTimeValid || !isBedTimeValid) {
+      setFormError(null);
+      setWakeTimeError(isWakeTimeValid ? null : TIME_FORMAT_ERROR);
+      setBedTimeError(isBedTimeValid ? null : TIME_FORMAT_ERROR);
       return;
     }
-    setValidationError(null);
+    setFormError(null);
+    setWakeTimeError(null);
+    setBedTimeError(null);
     updateProfileMutation.mutate(
       {
         occupation: trimmedOccupation,
@@ -53,7 +66,7 @@ export const useOnboardingModel = () => {
       },
       {
         onError: () =>
-          setValidationError(
+          setFormError(
             "Saving failed. Check the connection and try again.",
           ),
       },
@@ -72,7 +85,9 @@ export const useOnboardingModel = () => {
     bedTime,
     setBedTime,
     canSubmit,
-    validationError,
+    formError,
+    wakeTimeError,
+    bedTimeError,
     isSubmitting: updateProfileMutation.isPending,
     submit,
   };
