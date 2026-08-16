@@ -35,7 +35,10 @@ import {
 } from "@/components/ui/dialog";
 import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
-import { AssistedActivityRow } from "@/components/reconstruct/assisted-activity-row";
+import {
+  AssistedActivityRow,
+  type MergeHighlightPhase,
+} from "@/components/reconstruct/assisted-activity-row";
 import { SelfActivityRow } from "@/components/reconstruct/self-activity-row";
 import {
   activitiesInviteMerge,
@@ -59,6 +62,8 @@ import { PhotoManagementDialog } from "@/components/photos/photo-management-dial
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
 
 const AUTOSAVE_DEBOUNCE_MS = 1500;
+const MERGE_HIGHLIGHT_HOLD_MS = 2000;
+const MERGE_HIGHLIGHT_FADE_MS = 400;
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -91,6 +96,12 @@ interface EditorNotice {
 interface PendingEditorNotice {
   notice: Omit<EditorNotice, "id">;
   spanFingerprint: string;
+}
+
+interface MergeHighlightState {
+  localId: string;
+  phase: MergeHighlightPhase;
+  sequence: number;
 }
 
 // No idle text: the indicator only appears once a save is actually happening.
@@ -258,6 +269,8 @@ export const RoundEditor = ({
   >(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [notice, setNotice] = useState<EditorNotice | null>(null);
+  const [mergeHighlight, setMergeHighlight] =
+    useState<MergeHighlightState | null>(null);
 
   const deleteCandidate =
     deleteCandidateLocalId === null
@@ -279,12 +292,29 @@ export const RoundEditor = ({
   const pendingSaveRef = useRef(false);
   const autosaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingNoticeRef = useRef<PendingEditorNotice | null>(null);
+  const mergeHighlightSequenceRef = useRef(0);
 
   useEffect(() => {
     if (notice === null) return;
     const timeout = setTimeout(() => setNotice(null), 7000);
     return () => clearTimeout(timeout);
   }, [notice]);
+
+  useEffect(() => {
+    if (mergeHighlight === null) return;
+    const { phase, sequence } = mergeHighlight;
+    // Hold the resulting card at full yellow before the card component fades
+    // it back. The sequence makes a later merge restart both timers safely.
+    const timeout = setTimeout(
+      () =>
+        setMergeHighlight((current) => {
+          if (current?.sequence !== sequence) return current;
+          return phase === "holding" ? { ...current, phase: "fading" } : null;
+        }),
+      phase === "holding" ? MERGE_HIGHLIGHT_HOLD_MS : MERGE_HIGHLIGHT_FADE_MS,
+    );
+    return () => clearTimeout(timeout);
+  }, [mergeHighlight]);
 
   const markEdited = () => setEditVersion((version) => version + 1);
 
@@ -434,6 +464,12 @@ export const RoundEditor = ({
         spanFingerprint: spanFingerprint(toActivityInputs(resolution.rows)),
       };
     }
+    mergeHighlightSequenceRef.current += 1;
+    setMergeHighlight({
+      localId,
+      phase: "holding",
+      sequence: mergeHighlightSequenceRef.current,
+    });
     rowsRef.current = resolution.rows;
     setRows(resolution.rows);
     markEdited();
@@ -712,6 +748,11 @@ export const RoundEditor = ({
                 dayFrames={frames ?? []}
                 issue={issueByLocalId.get(row.localId) ?? null}
                 highlightIssues={hasStartedFillingIn(row)}
+                mergeHighlightPhase={
+                  mergeHighlight?.localId === row.localId
+                    ? mergeHighlight.phase
+                    : null
+                }
                 onChangeLabel={(rawLabel: ActivityLabel) =>
                   updateRow(row.localId, { rawLabel })
                 }

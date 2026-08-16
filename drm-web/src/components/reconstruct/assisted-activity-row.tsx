@@ -29,6 +29,8 @@ import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
 
 const THUMBNAIL_COUNT = 5;
 
+export type MergeHighlightPhase = "holding" | "fading";
+
 const AssistedFieldRow = ({
   label,
   htmlFor,
@@ -61,6 +63,7 @@ export const AssistedActivityRow = ({
   dayFrames,
   issue,
   highlightIssues,
+  mergeHighlightPhase,
   onChangeLabel,
   onChangeCategory,
   onChangeExperienceRating,
@@ -72,6 +75,7 @@ export const AssistedActivityRow = ({
   dayFrames: Frame[];
   issue: string | null;
   highlightIssues: boolean;
+  mergeHighlightPhase: MergeHighlightPhase | null;
   onChangeLabel: (rawLabel: ActivityLabel) => void;
   onChangeCategory: (category: CategoryLabel) => void;
   onChangeExperienceRating: (
@@ -118,6 +122,10 @@ export const AssistedActivityRow = ({
         "overflow-hidden rounded-2xl border bg-card [contain-intrinsic-size:auto_23rem] [content-visibility:auto]",
         activity.isIncorrectAnnotationInjected &&
           "border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/20",
+        mergeHighlightPhase === "holding" &&
+          "border-yellow-400 bg-yellow-100 dark:border-yellow-600 dark:bg-yellow-900/60",
+        mergeHighlightPhase === "fading" &&
+          "transition-[background-color,border-color] duration-[800ms] ease-out motion-reduce:transition-none",
       )}
     >
       <div className="relative isolate overflow-hidden bg-muted">
