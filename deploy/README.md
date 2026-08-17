@@ -30,7 +30,7 @@ install Node 20+ at `/usr/bin/node`, npm, Python 3 with `venv`, Apache, certbot,
 and curl; obtain the Let's Encrypt certificate before the first scripted
 deploy. Also create the two gitignored production files:
 
-- `drm-web/.env.local` with both real LimeSurvey URLs.
+- `drm-web/.env.local` with both real LimeSurvey URLs and the payout URL.
 - `server/vlm/.env` with a non-empty `KIT_API_KEY`.
 
 The deploy script installs and enables the tracked systemd units, required
@@ -73,8 +73,8 @@ Design points worth knowing:
 - **Only a clean, tracked checkout is deployable.** Local tracked edits abort
   before building, and `deploy/deploy.sh` itself must have arrived through Git.
 - **`drm-web/.env.local` is checked first.** `NEXT_PUBLIC_*` is inlined at build
-  time, so building without it yields a bundle whose LimeSurvey links are empty
-  and nothing fails loudly afterwards. Missing file or missing survey URL aborts.
+  time, while the payout redirect reads `PAYOUT_URL` from the web service's
+  environment at runtime. A missing file or required URL aborts deployment.
 - **Standalone assets are removed before copying.** `cp -r public .next/standalone/`
   onto an existing directory nests it as `public/public` rather than merging, so
   the script deletes `public` and `.next/static` in the standalone tree first.

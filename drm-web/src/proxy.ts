@@ -43,5 +43,12 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/onboarding", "/reconstruct/:path*", "/survey", "/done"],
+  matcher: [
+    "/",
+    "/onboarding",
+    "/reconstruct/:path*",
+    "/survey",
+    "/payout",
+    "/done",
+  ],
 };

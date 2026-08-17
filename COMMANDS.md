@@ -252,8 +252,8 @@ behavior. Authentication and submitted-round finality still apply.
   `API_PROXY_TARGET=http://127.0.0.1:3100 npm run dev`.
 - Login uses the same participant credentials as the app.
 - Copy `drm-web/.env.example` to `.env.local` to configure both external survey
-  links. The pre-study URL receives `participant_id`; the final URL receives
-  `participantId`.
+  links and the server-only payout redirect. The pre-study URL receives
+  `participant_id`; the final URL receives `participantId`.
 
 ### Seed clickable demo data (no camera/VLM run needed)
 

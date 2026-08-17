@@ -101,10 +101,16 @@ Env vars:
 | `NEXT_PUBLIC_DRM_TZ`                | `Europe/Berlin`         | Study timezone; keep in sync with the server's `DRM_TZ`  |
 | `NEXT_PUBLIC_ONBOARDING_SURVEY_URL` | (required)              | Pre-study LimeSurvey base URL; app adds `participant_id` |
 | `NEXT_PUBLIC_FINAL_SURVEY_URL`      | (required)              | Final LimeSurvey base URL; app adds `participantId`      |
+| `PAYOUT_URL`                        | (required)              | Server-only payout destination used by `/payout`         |
 
-Copy `.env.example` to `.env.local` for development. `NEXT_PUBLIC_*` values
-are compiled into the client bundle, so production values must be present when
-running `npm run build`.
+Copy `.env.example` to `.env.local` for development. `NEXT_PUBLIC_*` values are
+compiled into the client bundle, so production values must be present when
+running `npm run build`. `PAYOUT_URL` is read only by the server-side `/payout`
+redirect and is not included in the client bundle.
+
+The redirect keeps the destination out of tracked source and public JavaScript.
+A participant who follows the redirect can still see the final destination in
+their browser, as with any external link.
 
 With `DRM_DEV_MODE=1` on both the web app and API server, a floating menu
 links directly to the onboarding preview, Self DRM, VLM-assisted DRM, the
@@ -180,6 +186,7 @@ RestartSec=5
 Environment=NODE_ENV=production
 Environment=PORT=3001
 Environment=HOSTNAME=127.0.0.1
+EnvironmentFile=/root/BLINKS/drm-web/.env.local
 
 [Install]
 WantedBy=multi-user.target
@@ -203,7 +210,8 @@ cd /root/BLINKS && git pull && cd drm-web && npm ci && npm run build && cp -r pu
 
 ## Before the study
 
-- Set both survey URLs at **build time**. The pre-study questionnaire is
+- Set both survey URLs at **build time**, and set the server-only payout URL in
+  the same `.env.local` file. The pre-study questionnaire is
   `https://survey.win.kit.edu/index.php/462485?lang=en` and receives
   `participant_id`; the final questionnaire receives `participantId`.
 - Map both parameters to their respective hidden participant-ID question in

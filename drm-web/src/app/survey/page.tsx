@@ -33,6 +33,7 @@ const SurveyContent = () => {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [questionnaireOpened, setQuestionnaireOpened] = useState(false);
+  const [payoutLinkOpened, setPayoutLinkOpened] = useState(false);
   const profileQuery = useQuery({
     queryKey: ["profile"],
     queryFn: getProfile,
@@ -84,66 +85,96 @@ const SurveyContent = () => {
               <CardTitle>Final questionnaire</CardTitle>
               <CardDescription>
                 Thank you! Both reconstruction steps are submitted. Complete the
-                final questionnaire in a separate tab, then return here.
+                final questionnaire in a separate tab, then open and complete
+                the payout information form before proceeding.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5 pt-6">
-              <div className="flex justify-center">
+              <div className="flex flex-col items-center gap-3">
                 <a
                   href={surveyUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={buttonVariants({ size: "lg" })}
+                  className={buttonVariants({
+                    size: "lg",
+                    className: "w-full max-w-64",
+                  })}
                   onClick={() => setQuestionnaireOpened(true)}
                 >
-                  Open final questionnaire
+                  1. Open final questionnaire
                   <ExternalLinkIcon />
                 </a>
+                {questionnaireOpened ? (
+                  <a
+                    href="/payout"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={buttonVariants({
+                      variant: "default",
+                      size: "lg",
+                      className: "w-full max-w-64",
+                    })}
+                    onClick={() => setPayoutLinkOpened(true)}
+                  >
+                    2. Payout Link
+                    <ExternalLinkIcon />
+                  </a>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    className="w-full max-w-64"
+                    disabled
+                  >
+                    2. Payout Link
+                    <ExternalLinkIcon />
+                  </Button>
+                )}
               </div>
 
-              {questionnaireOpened && (
-                <div className="animate-in space-y-3 border-t pt-5 duration-300 fade-in slide-in-from-bottom-2 motion-reduce:animate-none">
-                  <p
-                    className="text-sm text-muted-foreground"
-                    aria-live="polite"
+              <div className="space-y-3 border-t pt-5">
+                <p className="text-sm text-muted-foreground" aria-live="polite">
+                  {payoutLinkOpened
+                    ? "The payout link opened in a new tab. Return here when you are ready to proceed."
+                    : questionnaireOpened
+                      ? "The questionnaire opened in a new tab. Complete it, then open the payout link."
+                      : "Open and complete the final questionnaire first. The payout link will then become available."}
+                </p>
+                <div className="flex justify-end">
+                  <Button
+                    variant="secondary"
+                    disabled={
+                      !payoutLinkOpened || completeStudyMutation.isPending
+                    }
+                    onClick={() => completeStudyMutation.mutate()}
                   >
-                    The questionnaire opened in a new tab. Return here after its
-                    confirmation page.
-                  </p>
-                  <div className="flex justify-end">
-                    <Button
-                      variant="secondary"
-                      disabled={completeStudyMutation.isPending}
-                      onClick={() => completeStudyMutation.mutate()}
-                    >
-                      {completeStudyMutation.isPending ? (
-                        <>
-                          <LoaderCircleIcon
-                            className="animate-spin"
-                            aria-hidden
-                          />
-                          Finishing…
-                        </>
-                      ) : (
-                        <>
-                          I have completed the questionnaire
-                          <ArrowRightIcon aria-hidden />
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                  {completeStudyMutation.isError && (
-                    <Alert variant="destructive" aria-live="polite">
-                      <AlertTitle>Could not finish the study</AlertTitle>
-                      <AlertDescription>
-                        {completeStudyMutation.error instanceof ApiError
-                          ? completeStudyMutation.error.message
-                          : "Please try again or contact the study team."}
-                      </AlertDescription>
-                    </Alert>
-                  )}
+                    {completeStudyMutation.isPending ? (
+                      <>
+                        <LoaderCircleIcon
+                          className="animate-spin"
+                          aria-hidden
+                        />
+                        Finishing…
+                      </>
+                    ) : (
+                      <>
+                        Continue
+                        <ArrowRightIcon aria-hidden />
+                      </>
+                    )}
+                  </Button>
                 </div>
-              )}
+                {completeStudyMutation.isError && (
+                  <Alert variant="destructive" aria-live="polite">
+                    <AlertTitle>Could not finish the study</AlertTitle>
+                    <AlertDescription>
+                      {completeStudyMutation.error instanceof ApiError
+                        ? completeStudyMutation.error.message
+                        : "Please try again or contact the study team."}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
             </CardContent>
           </Card>
         )}

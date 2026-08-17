@@ -90,10 +90,10 @@ echo "    roll back with: git checkout <previous-sha> && $0"
 # NEXT_PUBLIC_* is inlined at build time. Building without this file produces a
 # bundle whose LimeSurvey links are undefined, and nothing fails loudly later.
 [ -f "$REPO/drm-web/.env.local" ] \
-  || die "drm-web/.env.local is missing — the survey URLs would be baked in empty.
+  || die "drm-web/.env.local is missing — the survey and payout links would be unavailable.
        cp drm-web/.env.example drm-web/.env.local and set the real URLs first."
 
-for v in NEXT_PUBLIC_ONBOARDING_SURVEY_URL NEXT_PUBLIC_FINAL_SURVEY_URL; do
+for v in NEXT_PUBLIC_ONBOARDING_SURVEY_URL NEXT_PUBLIC_FINAL_SURVEY_URL PAYOUT_URL; do
   grep -qE "^${v}=.+" "$REPO/drm-web/.env.local" || die "$v is unset in drm-web/.env.local"
 done
 
