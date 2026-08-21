@@ -1,14 +1,14 @@
 # BLINKS smart-glasses BLE camera firmware
 
-Firmware for the custom Blinks glasses PCB with an ESP32-S3-MINI-1-N4R2,
+Firmware for the custom Blinks glasses PCB with an ESP32-S3-MINI-1U-N4R2,
 TY-OV2640-40MM camera, and LP5815 RGB status LED. The existing
 `camera-firmware/` directory remains the independent XIAO ESP32-S3 Sense
 bodycam/necklace target.
 
 The glasses use the same phone-facing contract as the existing camera:
 `BLINKS-CAM`, the same BLE service and characteristics, VGA JPEG capture every
-15 seconds, pause/resume commands, camera recovery, and software standby
-between samples.
+15 seconds, pause/resume commands, camera recovery, and sensor standby between
+samples.
 
 ## Camera GPIO map
 
@@ -47,9 +47,7 @@ five camera signals.
 The LP5815 status LED is at address `0x2D` on the separate system I2C bus:
 SDA GPIO12 and SCL GPIO11. ESP32 Arduino 3.3.8 builds the camera SCCB driver on
 I2C controller 1, while `status_led.h` deliberately uses controller 0 for the
-system bus. All three LED channels are driven equally, so the existing on/off
-blink behavior
-does not depend on the board's RGB channel order.
+system bus. See "Status LED" below for how it is driven.
 
 ## Camera standby: hardware PWDN, not SCCB
 
@@ -79,12 +77,68 @@ reinitialization instead of capturing from a dead sensor. `set_framesize` is
 re-applied after each wake as insurance in case a module revision does not
 retain its registers across power-down.
 
+## Status LED: red only, and off after five minutes
+
+The LP5815 is the glasses' second-largest firmware-controllable battery load
+after the camera, so it is configured for cost rather than visibility.
+
+* **One channel, not three.** Only the sink named by `STATUS_LED_CHANNEL` in
+  `status_led.h` is enabled and given a dot current; the other two are switched
+  off in `DEVICE_CONFIG_1`.
+* **Half current.** `STATUS_LED_DOT_CURRENT` is `0x18`, about 9% of the
+  LP5815's 25.5 mA ceiling, so roughly 2.4 mA lit rather than the ~14 mA the
+  original three-channel white configuration drew. Dim it further with this constant
+  rather than the PWM value: dot current lowers the instantaneous draw, PWM only
+  shortens the on-time and leaves the peak unchanged.
+* **Short flashes, not a 50%-on blink.** The LED is lit for
+  `STATUS_LED_FLASH_MS` (50 ms) out of each period rather than half of it, which
+  reads the same to a wearer at roughly a tenth of the average current. The
+  cadences are unchanged, so the states stay distinguishable: a flash every
+  500 ms while searching, every 1000 ms while recording, and solid while paused.
+  `loop()` polls about every 10 ms, so the flash window must stay well above
+  that or it will occasionally be skipped.
+* **Off after `STATUS_LED_ACTIVE_MS`** (5 minutes from power-on). The indicator
+  exists so the participant can confirm the glasses are recording while putting
+  them on; nobody watches it afterwards. Past the window `updateStatusLed()`
+  holds the LED dark regardless of connection or pause state.
+
+`STATUS_LED_CHANNEL` defaults to 0 because TI's reference wiring is OUT0=red,
+OUT1=green, OUT2=blue, but **this has not been verified against the board**. If
+the indicator comes up green or blue, set it to 1 or 2.
+
+Note that this removes the recording indicator for all but the first five
+minutes of a session, which is a deliberate trade against bystander-facing
+visibility. Raise `STATUS_LED_ACTIVE_MS` or set it very large to undo it.
+
+## Avoiding load peaks
+
+The glasses draw from one 200 mAh cell at a time through the power MUX, and its
+protection circuit latches off on a large enough current step — the cell then
+reads ~1.7 V and the MUX quietly fails over to the other one. The firmware
+therefore never switches two big loads on together:
+
+* **The sensor is powered down before every BLE burst, unconditionally.**
+  `parkCameraNow()` waits briefly for the driver to buffer a frame, then asserts
+  PWDN whether or not that wait succeeded. The previous code skipped standby on
+  a timeout and transmitted with the camera still running, which is the one
+  overlap these cells cannot absorb. A driver wedge is recoverable through
+  `recoverCameraIfWedged()`; a current spike is not.
+* **Boot brings the LED driver, the camera and the radio up one at a time,**
+  separated by `LOAD_STAGGER_MS`, and parks the sensor before BLE starts.
+* **Driver restarts hold PWDN across the gap.** `restartCameraDriver()` is used
+  by both recovery paths so the reinitialization inrush never stacks on top of
+  an active radio link.
+
+Not yet done: BLE transmit power is still `ESP_PWR_LVL_P9` (+9 dBm) on both
+boards. That is the largest remaining lever on peak current, but it trades
+against link margin, so it wants measuring rather than assuming.
+
 ## Bring-up prerequisites (verified 2026-08-11)
 
 The camera was confirmed working on the prototype board: OV2640 ACKs at 0x30
 with `PIDH=0x26 VER=0x42`, and `esp_camera_init()` returns `ESP_OK` and captures
-a valid 640x480 JPEG. Two board-level conditions must both hold, and neither is
-visible from the firmware:
+a valid 640x480 JPEG. Three board-level conditions must all hold, and none of
+them is visible from the firmware:
 
 1. **Power switch toward the camera connector, battery connected.** 3V3 also
    comes from USB `VBUS`, so the ESP32 boots and flashes over USB alone while
@@ -92,6 +146,14 @@ visible from the firmware:
    the magnetometer all go dark in that state.
 2. **Camera FPC in the correct orientation** — the opposite of the intuitive
    one. Photograph it before disassembling anything.
+3. **External antenna seated on the U.FL connector.** The module is an
+   ESP32-S3-MINI-**1U**, which has no PCB antenna, so an unseated or loose
+   coaxial connector leaves the radio transmitting into an unterminated port.
+   The device still works at arm's length, which is what makes this hard to
+   spot: it presents as intermittent "Camera Connecting...", frames arriving at
+   30 s or 45 s instead of 15 s, and a large frame deficit over a full day —
+   all of which look like firmware faults. Check this connector on every unit
+   before it goes out, and re-check it after any reassembly.
 
 `glasses-camera-diagnostic/` reproduces the check and documents the diagnostic
 signatures for each failure mode.
@@ -125,14 +187,14 @@ Equivalent local compile command:
 
 ```text
 LP5815 status LED ready on I2C controller 0
-Camera sensor PID: 0x0026 (using software standby)
+Camera sensor PID: 0x0026 (hardware PWDN standby on GPIO9)
 Camera ready
 BLE modem sleep: enabled (0x0)
-Advertising as BLINKS-CAM
+Advertising as BLINKS-CAM (ok=1)
 Camera standby
 ```
 
-The status LED blinks quickly while looking for the phone, stays on while
-connected and paused, and blinks slowly while recording. A missing or failed
-LP5815 does not stop camera capture; the firmware reports the failure and
-continues without the LED.
+The status LED flashes twice a second while looking for the phone, stays solid
+while connected and paused, and flashes once a second while recording — then
+goes dark five minutes after power-on. A missing or failed LP5815 does not stop
+camera capture; the firmware reports the failure and continues without the LED.

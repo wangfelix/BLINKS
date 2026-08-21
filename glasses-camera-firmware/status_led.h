@@ -24,9 +24,20 @@ static constexpr uint8_t LP5815_REG_FLAG_CLEAR = 0x13;
 static constexpr uint8_t LP5815_REG_OUT0_DOT_CURRENT = 0x14;
 static constexpr uint8_t LP5815_REG_OUT0_PWM = 0x18;
 
-// 0x30 is about 19% of the 25.5 mA/channel ceiling. All three channels are
-// driven equally, so the LED is white and does not depend on RGB channel order.
-static constexpr uint8_t STATUS_LED_DOT_CURRENT = 0x30;
+// Which LP5815 output drives the red LED. Only this one channel is enabled and
+// powered; the other two sinks stay off to save current on the glasses' 400 mAh
+// cell. TI's reference wiring is OUT0=red, OUT1=green, OUT2=blue, but the board
+// has not been verified: if the indicator lights up green or blue, change this
+// to 1 or 2.
+static constexpr uint8_t STATUS_LED_CHANNEL = 0;
+
+// Analog current per lit channel, as a fraction of the LP5815's 25.5 mA
+// ceiling. 0x18 is about 9%, so roughly 2.4 mA. Halving the current does not
+// halve apparent brightness — the eye's response is roughly logarithmic, so
+// this still reads as a clear flash. Prefer this knob over the PWM value for
+// dimming: it lowers the instantaneous current, whereas PWM only shortens the
+// on-time within each flash and leaves the peak where it was.
+static constexpr uint8_t STATUS_LED_DOT_CURRENT = 0x18;
 
 static bool statusLedReady = false;
 static bool statusLedOn = false;
@@ -38,12 +49,8 @@ static bool lp5815Write(uint8_t reg, uint8_t value) {
   return statusLedWire.endTransmission() == 0;
 }
 
-static bool lp5815WriteWhite(uint8_t pwm) {
-  bool ok = true;
-  for (uint8_t channel = 0; channel < 3; channel++) {
-    ok = lp5815Write(LP5815_REG_OUT0_PWM + channel, pwm) && ok;
-  }
-  return ok;
+static bool lp5815WritePwm(uint8_t pwm) {
+  return lp5815Write(LP5815_REG_OUT0_PWM + STATUS_LED_CHANNEL, pwm);
 }
 
 void initStatusLed() {
@@ -62,19 +69,19 @@ void initStatusLed() {
 
   bool ok = true;
   ok = lp5815Write(LP5815_REG_DEVICE_CONFIG_0, 0x00) && ok;
-  ok = lp5815Write(LP5815_REG_DEVICE_CONFIG_1, 0x07) && ok;
+  // DEVICE_CONFIG_1 bits 2..0 enable OUT2..OUT0. Enable only the red sink so
+  // the unused two draw nothing.
+  ok = lp5815Write(LP5815_REG_DEVICE_CONFIG_1,
+                   (uint8_t)(1u << STATUS_LED_CHANNEL)) && ok;
   ok = lp5815Write(LP5815_REG_DEVICE_CONFIG_2, 0x00) && ok;
   ok = lp5815Write(LP5815_REG_DEVICE_CONFIG_3, 0x00) && ok;
   ok = lp5815Write(LP5815_REG_DEVICE_CONFIG_4, 0x00) && ok;
   ok = lp5815Write(LP5815_REG_UPDATE_COMMAND, 0x55) && ok;
   delay(2);
 
-  for (uint8_t channel = 0; channel < 3; channel++) {
-    ok = lp5815Write(
-        LP5815_REG_OUT0_DOT_CURRENT + channel,
-        STATUS_LED_DOT_CURRENT) && ok;
-  }
-  ok = lp5815WriteWhite(0x00) && ok;
+  ok = lp5815Write(LP5815_REG_OUT0_DOT_CURRENT + STATUS_LED_CHANNEL,
+                   STATUS_LED_DOT_CURRENT) && ok;
+  ok = lp5815WritePwm(0x00) && ok;
   ok = lp5815Write(LP5815_REG_FLAG_CLEAR, 0x03) && ok;
 
   if (!ok) {
@@ -92,7 +99,7 @@ void setLed(bool on) {
   if (!statusLedReady) return;
   if (statusLedOn == on) return;
 
-  if (!lp5815WriteWhite(on ? 0xFF : 0x00)) {
+  if (!lp5815WritePwm(on ? 0xFF : 0x00)) {
     statusLedReady = false;
     Serial.println("LP5815 status LED write failed; LED disabled");
     return;

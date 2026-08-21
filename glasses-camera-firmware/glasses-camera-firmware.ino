@@ -71,6 +71,12 @@
 // The AEC/AWB settling that follows is covered by CAMERA_WARMUP_MS.
 #define CAMERA_PWDN_WAKE_SETTLE_MS 10
 
+// The glasses run from a 200 mAh cell at a time and its protection circuit
+// latches off on a large enough current step. Switching the LED driver, the
+// camera and the radio on back to back stacks three inrush events; this gap
+// between them lets the bulk capacitance recover before the next load starts.
+#define LOAD_STAGGER_MS 50
+
 // Bank 1 register 0x0A is PIDH and reads 0x26 on a healthy OV2640. Reading it
 // after a wake proves the sensor came back before a capture is attempted.
 #define OV2640_PIDH_REG   0x010A
@@ -84,6 +90,21 @@ static_assert(BLE_CONN_TIMEOUT_UNITS * 4 >
 
 // The board-specific status LED driver exposes setLed(bool). Fast ~2 Hz blink
 // means searching, solid means connected + paused, and slow ~1 Hz means recording.
+//
+// The indicator is only useful while the participant is putting the glasses on
+// and confirming they are recording. After this long it is switched off for the
+// rest of the run: on the glasses' 400 mAh cell a permanently blinking LED
+// costs a noticeable share of the day's capacity, and nobody is looking at it
+// once the device is on someone's face.
+#define STATUS_LED_ACTIVE_MS (5UL * 60UL * 1000UL)
+
+// The indicator only has to be *seen*, not lit continuously. Flashing briefly
+// at the same cadence as the old 50%-on blink reads the same to a wearer while
+// averaging about a tenth of the current. loop() polls every ~10 ms, so the
+// flash window must stay comfortably above that to never be skipped.
+#define STATUS_LED_FLASH_MS          50UL
+#define STATUS_LED_SEARCH_PERIOD_MS  500UL   // searching for a phone
+#define STATUS_LED_RECORD_PERIOD_MS  1000UL  // connected and recording
 
 NimBLEServer*         server      = nullptr;
 NimBLECharacteristic* frameChar   = nullptr;
@@ -100,16 +121,23 @@ bool                  cameraWarming = false;
 unsigned long         cameraWakeStarted = 0;
 
 // Status LED, driven each loop():
-//   not connected      -> fast ~2 Hz blink (searching for a phone)
+//   not connected      -> short flash twice a second (searching for a phone)
 //   connected + paused -> solid on
-//   connected          -> slow ~1 Hz blink (recording + sending frames)
+//   connected          -> short flash once a second (recording + sending)
 void updateStatusLed() {
+  // Past the indicator window the LED stays dark whatever the recording state
+  // is. setLed() is a no-op once the LED is already off, so this costs one I2C
+  // write, not one per loop.
+  if (millis() >= STATUS_LED_ACTIVE_MS) {
+    setLed(false);
+    return;
+  }
   if (!connected) {
-    setLed((millis() / 250) % 2 == 0); // fast ~2 Hz: searching
+    setLed(millis() % STATUS_LED_SEARCH_PERIOD_MS < STATUS_LED_FLASH_MS);
   } else if (paused) {
-    setLed(true);                      // solid: connected, paused
+    setLed(true);  // solid, so pause stays unmistakable against the flashes
   } else {
-    setLed((millis() / 500) % 2 == 0); // slow ~1 Hz: recording
+    setLed(millis() % STATUS_LED_RECORD_PERIOD_MS < STATUS_LED_FLASH_MS);
   }
 }
 
@@ -212,6 +240,17 @@ bool enterCameraStandby(unsigned long bufferTimeoutMs) {
   return true;
 }
 
+// Park the sensor before another load switches on, waiting briefly for the
+// driver to buffer a frame but powering the sensor down regardless if it does
+// not. A driver wedge is recoverable through recoverCameraIfWedged(); a
+// simultaneous camera-plus-radio draw is a current spike we cannot take back.
+void parkCameraNow(unsigned long bufferTimeoutMs) {
+  if (!cameraStandbySupported || cameraInStandby) return;
+  if (enterCameraStandby(bufferTimeoutMs)) return;
+  Serial.println("Buffer wait timed out; powering the sensor down anyway");
+  setCameraStandby(true);
+}
+
 bool initCamera() {
   resetCameraPowerState();
 
@@ -263,6 +302,20 @@ bool initCamera() {
   return true;
 }
 
+// Bring the camera driver back up after a failure, holding the sensor in
+// power-down across the gap so the reinitialization inrush never lands on top
+// of whatever the radio is doing. esp_camera_init() releases PWDN itself.
+bool restartCameraDriver() {
+  esp_camera_deinit();
+  if (PWDN_GPIO_NUM >= 0) {
+    pinMode(PWDN_GPIO_NUM, OUTPUT);
+    digitalWrite(PWDN_GPIO_NUM, CAMERA_PWDN_ASSERTED);
+  }
+  resetCameraPowerState();
+  delay(100);
+  return initCamera();
+}
+
 bool wakeCameraForCapture() {
   if (!cameraStandbySupported || !cameraInStandby) return true;
 
@@ -270,10 +323,7 @@ bool wakeCameraForCapture() {
     // If a sensor accepted standby but cannot be woken over SCCB, reset the
     // driver so recording can continue instead of remaining stuck asleep.
     Serial.println("Camera wake failed, reinitializing driver");
-    esp_camera_deinit();
-    resetCameraPowerState();
-    delay(100);
-    if (!initCamera()) {
+    if (!restartCameraDriver()) {
       Serial.println("Camera reinit after wake failure FAILED");
       return false;
     }
@@ -290,10 +340,8 @@ uint8_t captureFailures = 0;
 void recoverCameraIfWedged() {
   if (++captureFailures < 3) return;
   Serial.println("Camera unresponsive, reinitializing driver");
-  esp_camera_deinit();
-  resetCameraPowerState();
-  delay(100);
-  Serial.println(initCamera() ? "Camera reinitialized" : "Camera reinit FAILED");
+  Serial.println(restartCameraDriver() ? "Camera reinitialized"
+                                       : "Camera reinit FAILED");
   captureFailures = 0;
 }
 
@@ -391,13 +439,19 @@ void setup() {
   Serial.begin(115200);
   Serial.println();
 
+  // Bring the three big loads up one at a time rather than back to back, and
+  // park the sensor before the radio starts, so no two inrush events overlap.
   initStatusLed();
+  delay(LOAD_STAGGER_MS);
 
   if (!initCamera()) {
     Serial.println("Halting due to camera init failure");
     while (true) delay(1000);
   }
   Serial.println("Camera ready");
+
+  parkCameraNow(CAMERA_BUFFER_READY_TIMEOUT_MS);
+  delay(LOAD_STAGGER_MS);
 
   if (!NimBLEDevice::init(DEVICE_NAME)) {
     Serial.println("Halting due to BLE initialization failure");
@@ -494,12 +548,11 @@ void loop() {
     memcpy(jpegCopy, fb->buf, jpegLen);
     esp_camera_fb_return(fb);
 
-    // The JPEG copy is independent of the camera driver. Park one framebuffer
-    // and put the sensor back into standby before the slower BLE transmission.
-    if (cameraStandbySupported &&
-        !enterCameraStandby(CAMERA_BUFFER_READY_TIMEOUT_MS)) {
-      Serial.println("Camera stayed awake after capture");
-    }
+    // The JPEG copy is independent of the camera driver, so the sensor can go
+    // down before the slow BLE transmission. This must not be conditional: a
+    // camera left powered through the radio burst is exactly the simultaneous
+    // draw the cells cannot absorb.
+    parkCameraNow(CAMERA_BUFFER_READY_TIMEOUT_MS);
 
     frameCounter++;
     Serial.printf("Frame %lu: %u bytes, mtu=%u\n",
