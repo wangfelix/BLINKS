@@ -39,6 +39,7 @@ import {
   AssistedActivityRow,
   type MergeHighlightPhase,
 } from "@/components/reconstruct/assisted-activity-row";
+import { AssistedRoundReminder } from "@/components/reconstruct/assisted-round-reminder";
 import { SelfActivityRow } from "@/components/reconstruct/self-activity-row";
 import {
   activitiesInviteMerge,
@@ -141,7 +142,7 @@ const ActivityGapControls = ({
 }) => (
   <Row justify="center" gap="xs" align="center">
     <Button
-      variant={hasUnassignedImages ? "destructive" : "ghost"}
+      variant={hasUnassignedImages ? "destructive" : "outline"}
       size="xs"
       className={
         hasUnassignedImages
@@ -165,7 +166,7 @@ const ActivityGapControls = ({
     </Button>
     {onMerge !== undefined && (
       <Button
-        variant="ghost"
+        variant="outline"
         size="xs"
         // Same shape as the unassigned-images treatment on Insert activity,
         // in amber rather than red: merging is a suggestion, not a problem.
@@ -701,7 +702,7 @@ export const RoundEditor = ({
   // --- Render ------------------------------------------------------------------
 
   const editorHint = isAssistedRound
-    ? "Review the proposed activities, correct the labels and time spans until they match your day."
+    ? "Review the proposed activities, correct the labels, time spans and add missing activities until they match your day."
     : "Reconstruct your day from memory, one activity at a time.";
   const hasUnassignedImagesAfter = (afterLocalId: string | null): boolean =>
     frames !== null && gapHasUnassignedImages(rows, frames, afterLocalId);
@@ -727,6 +728,8 @@ export const RoundEditor = ({
           </Button>
         </Row>
       </Row>
+
+      {isAssistedRound && <AssistedRoundReminder />}
 
       {isAssistedRound ? (
         <Column gap="xs">

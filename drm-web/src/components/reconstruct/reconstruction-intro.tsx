@@ -10,8 +10,8 @@ import {
 
 import { StudyFlowShell } from "@/components/study-flow-shell";
 import { StudyProgress } from "@/components/study-progress";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { AssistedRoundReminder } from "@/components/reconstruct/assisted-round-reminder";
 
 const INTRO_CONTENT = {
   1: {
@@ -25,7 +25,7 @@ const INTRO_CONTENT = {
   2: {
     title: "Review the automated suggestion",
     description:
-      "In the next step, you will see an automatically generated suggestion of a reconstruction of your day. Please adjust the suggested list of entries until it matches your day. You can delete entries, adjust their times, activity types and descriptions.",
+      "In the next step, you will see an automatically generated suggestion of a reconstruction of your day. Please adjust the suggested list of entries until it matches your day. You can delete entries, adjust their times, activity types and descriptions. You can also add activities for which no images have been recorded, e.g. when you paused the recording during the day.",
     icon: SparklesIcon,
     iconClassName:
       "bg-violet-500/10 text-violet-700 ring-violet-500/10 dark:text-violet-300",
@@ -94,16 +94,7 @@ export const ReconstructionIntro = ({
             <p className="mt-3 text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">
               {content.description}
             </p>
-            {round === 2 && (
-              <Alert className="mt-6 border-violet-300/70 bg-violet-500/5 text-left dark:border-violet-400/30">
-
-                <AlertDescription>
-                  Some of the activity labels and activity types shown in Step 2
-                  are deliberately incorrect. Review the activities and correct
-                  anything that does not match your day.
-                </AlertDescription>
-              </Alert>
-            )}
+            {round === 2 && <AssistedRoundReminder className="mt-6" />}
           </div>
         </div>
 
