@@ -6,9 +6,14 @@ TY-OV2640-40MM camera, and LP5815 RGB status LED. The existing
 bodycam/necklace target.
 
 The glasses use the same phone-facing contract as the existing camera:
-`BLINKS-CAM`, the same BLE service and characteristics, VGA JPEG capture every
-15 seconds, pause/resume commands, camera recovery, and sensor standby between
-samples.
+`BLINKS-CAM`, the same BLE service and characteristics, VGA JPEG capture,
+pause/resume commands, camera recovery, and sensor standby between samples.
+
+Three settings diverge deliberately, all for battery life on the glasses' much
+smaller pack: a **30 s capture interval** (bodycam: 15 s), an **80 MHz CPU
+clock** (bodycam: 240 MHz default), and **hardware PWDN standby** instead of the
+SCCB software standby the XIAO is forced to use. Everything else is the same
+sketch with a different pin header and LED driver.
 
 ## Camera GPIO map
 
@@ -49,11 +54,32 @@ SDA GPIO12 and SCL GPIO11. ESP32 Arduino 3.3.8 builds the camera SCCB driver on
 I2C controller 1, while `status_led.h` deliberately uses controller 0 for the
 system bus. See "Status LED" below for how it is driven.
 
-## Camera standby: hardware PWDN, not SCCB
+## Battery: capture interval and CPU clock
 
-This is the **only deliberate behavioural divergence** from `camera-firmware/`.
-Everything else in the sketch is the same file with a different pin header and
-LED driver.
+The glasses reach about **four hours** on the usable half of their 2x200 mAh
+pack, against a bodycam that runs all day on 1000 mAh. Two settings were
+loosened to close the gap:
+
+* **`CAPTURE_INTERVAL_MS` is 30 s**, not 15 s. The server chunks frames into
+  clock-aligned 5-minute windows regardless of rate, so nothing server-side
+  changes — this simply yields ~10 frames per VLM chunk instead of ~20, and
+  `VLM_CHUNK_MAX_FRAMES` (20) is a cap rather than a requirement. **This is a
+  known, accepted asymmetry:** the VLM labels for glasses participants rest on
+  roughly half the visual evidence of bodycam participants', which belongs in
+  the methods write-up.
+* **`CPU_CLOCK_MHZ` is 80**, applied before anything else initializes. Nothing
+  here is CPU-bound — the sensor compresses the JPEG, capture runs over DMA, and
+  the BLE burst is paced by its own `delay()` — while the idle baseline runs for
+  ~29 s of every 30 s cycle and is what actually drains the pack. 80 MHz is the
+  floor: on the ESP32-S3, CPU 240/160/80 all keep APB at 80 MHz, and below that
+  APB follows the CPU and would detune the LEDC-generated 20 MHz camera XCLK.
+
+Neither has been measured yet. The number that decides whether this is enough is
+the **idle current** — the draw while connected but not capturing — because it
+sets a ceiling no capture interval can beat. At 40 mA the glasses cannot exceed
+~5 h even taking no pictures at all; at 25 mA the ceiling is ~8 h.
+
+## Camera standby: hardware PWDN, not SCCB
 
 The XIAO camera connector exposes no PWDN line, so the bodycam firmware parks
 the sensor by writing the OV2640 standby bit over SCCB. On this board that write

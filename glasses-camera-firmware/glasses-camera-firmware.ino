@@ -29,8 +29,26 @@
 #define CONTROL_OP_RESUME 0x02
 
 // ---- Sampling rate --------------------------------------------------------
-#define CAPTURE_INTERVAL_MS 15000
+// 30 s rather than the bodycam's 15 s: the glasses only reach about four hours
+// on the usable half of their 2x200 mAh pack. The server chunks frames into
+// clock-aligned 5-minute windows regardless of rate, so this yields ~10 frames
+// per VLM chunk instead of ~20 (VLM_CHUNK_MAX_FRAMES is a cap, not a
+// requirement). That is a known, accepted difference in the visual evidence
+// behind glasses participants' VLM labels versus bodycam participants'.
+#define CAPTURE_INTERVAL_MS 30000
 #define CAMERA_WARMUP_MS 500
+
+// ---- CPU clock -------------------------------------------------------------
+// The bodycam runs at the 240 MHz default. Nothing in this firmware is
+// CPU-bound — the sensor compresses the JPEG, capture is DMA, and the BLE burst
+// is paced by its own delay() — so the glasses trade clock speed for the idle
+// baseline that dominates their battery: the sensor is parked and the radio
+// merely holding a connection for ~29 s of every 30 s cycle.
+//
+// 80 MHz is the floor. On the ESP32-S3, CPU 240/160/80 all keep APB at 80 MHz;
+// below that APB follows the CPU and would detune the LEDC-generated 20 MHz
+// camera XCLK.
+#define CPU_CLOCK_MHZ 80
 
 // ---- BLE connected-idle power --------------------------------------------
 // Units follow the BLE specification: interval = 1.25 ms, timeout = 10 ms.
@@ -48,7 +66,9 @@
 #define CAMERA_BUFFER_READY_TIMEOUT_MS 500
 
 // ---- Camera standby: hardware PWDN ---------------------------------------
-// THE ONE DELIBERATE BEHAVIOURAL DIVERGENCE FROM camera-firmware/.
+// One of three deliberate divergences from camera-firmware/, alongside the
+// 30 s capture interval and the 80 MHz CPU clock above. Everything else in this
+// sketch is the same file with a different pin header and LED driver.
 //
 // The XIAO camera connector exposes no PWDN line, so the bodycam firmware puts
 // the sensor to sleep over SCCB. This board wires CAM_PWDN to GPIO9 with a 10k
@@ -438,6 +458,11 @@ void sendFrame(const uint8_t* buf, size_t len) {
 void setup() {
   Serial.begin(115200);
   Serial.println();
+
+  // Set the clock before anything else initializes, so every peripheral and the
+  // BLE controller come up at the frequency they will actually run at.
+  setCpuFrequencyMhz(CPU_CLOCK_MHZ);
+  Serial.printf("CPU clock: %u MHz\n", (unsigned)getCpuFrequencyMhz());
 
   // Bring the three big loads up one at a time rather than back to back, and
   // park the sensor before the radio starts, so no two inrush events overlap.
