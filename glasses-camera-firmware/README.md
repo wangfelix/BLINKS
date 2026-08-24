@@ -103,38 +103,39 @@ reinitialization instead of capturing from a dead sensor. `set_framesize` is
 re-applied after each wake as insurance in case a module revision does not
 retain its registers across power-down.
 
-## Status LED: red only, and off after five minutes
+## Status LED: confirm the connection, then stay dark
 
-The LP5815 is the glasses' second-largest firmware-controllable battery load
-after the camera, so it is configured for cost rather than visibility.
+The indicator exists for one moment — the participant puts the glasses on and
+wants to know the phone has picked them up — so it says exactly that and then
+stops:
 
-* **One channel, not three.** Only the sink named by `STATUS_LED_CHANNEL` in
-  `status_led.h` is enabled and given a dot current; the other two are switched
-  off in `DEVICE_CONFIG_1`.
-* **Half current.** `STATUS_LED_DOT_CURRENT` is `0x18`, about 9% of the
-  LP5815's 25.5 mA ceiling, so roughly 2.4 mA lit rather than the ~14 mA the
-  original three-channel white configuration drew. Dim it further with this constant
-  rather than the PWM value: dot current lowers the instantaneous draw, PWM only
-  shortens the on-time and leaves the peak unchanged.
-* **Short flashes, not a 50%-on blink.** The LED is lit for
-  `STATUS_LED_FLASH_MS` (50 ms) out of each period rather than half of it, which
-  reads the same to a wearer at roughly a tenth of the average current. The
-  cadences are unchanged, so the states stay distinguishable: a flash every
-  500 ms while searching, every 1000 ms while recording, and solid while paused.
-  `loop()` polls about every 10 ms, so the flash window must stay well above
-  that or it will occasionally be skipped.
-* **Off after `STATUS_LED_ACTIVE_MS`** (5 minutes from power-on). The indicator
-  exists so the participant can confirm the glasses are recording while putting
-  them on; nobody watches it afterwards. Past the window `updateStatusLed()`
-  holds the LED dark regardless of connection or pause state.
+| Phase | Behaviour |
+| --- | --- |
+| Searching | 50 ms **red** flash every 500 ms |
+| Connected | **three white flashes** (150 ms on, 300 ms apart) |
+| After that | dark for the rest of the run |
 
-`STATUS_LED_CHANNEL` defaults to 0 because TI's reference wiring is OUT0=red,
-OUT1=green, OUT2=blue, but **this has not been verified against the board**. If
-the indicator comes up green or blue, set it to 1 or 2.
+The confirmation plays **once**. A later disconnect does not replay it: by then
+the glasses are on someone's face, and an LED that returned on every dropout
+would blink at them all day for no purpose. There is no longer any recording or
+paused indication, and no timeout — the phase machine simply ends in `LED_DONE`
+and `updateStatusLed()` returns immediately from then on.
 
-Note that this removes the recording indicator for all but the first five
-minutes of a session, which is a deliberate trade against bystander-facing
-visibility. Raise `STATUS_LED_ACTIVE_MS` or set it very large to undo it.
+`STATUS_LED_DOT_CURRENT` is `0x18`, about 9% of the LP5815's 25.5 mA ceiling, so
+roughly 2.4 mA per lit channel. All three sinks are enabled because the
+confirmation is white, but an enabled sink at PWM 0 draws nothing, so the dark
+phase costs the same as if only one were configured. To dim further, use the dot
+current rather than the PWM value: dot current lowers the instantaneous draw,
+PWM only shortens the on-time and leaves the peak where it was.
+
+`STATUS_LED_CHANNEL` picks the red sink for the searching flash and defaults to
+0, because TI's reference wiring is OUT0=red, OUT1=green, OUT2=blue. **This has
+not been verified against the board.** If the searching flash comes up green or
+blue, set it to 1 or 2; the white confirmation drives all three either way and
+will look correct regardless.
+
+Note that the glasses now carry no outward sign of recording beyond the first
+few seconds, which is a deliberate trade against bystander-facing visibility.
 
 ## Avoiding load peaks
 

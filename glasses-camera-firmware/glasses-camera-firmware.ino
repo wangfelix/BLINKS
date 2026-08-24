@@ -108,23 +108,23 @@ static_assert(BLE_CONN_TIMEOUT_UNITS * 4 >
                   BLE_CONN_INTERVAL_MAX_UNITS * (BLE_CONN_SLAVE_LATENCY + 1),
               "BLE supervision timeout is too short for the idle latency");
 
-// The board-specific status LED driver exposes setLed(bool). Fast ~2 Hz blink
-// means searching, solid means connected + paused, and slow ~1 Hz means recording.
+// ---- Status LED ------------------------------------------------------------
+// The indicator exists for one moment: the participant puts the glasses on and
+// wants to know the phone has picked them up. So it flashes red while searching,
+// confirms the connection with three white flashes, and then stays dark for the
+// rest of the run. Nobody watches an indicator on their own face, and on a pack
+// this small a permanently blinking LED is not free.
 //
-// The indicator is only useful while the participant is putting the glasses on
-// and confirming they are recording. After this long it is switched off for the
-// rest of the run: on the glasses' 400 mAh cell a permanently blinking LED
-// costs a noticeable share of the day's capacity, and nobody is looking at it
-// once the device is on someone's face.
-#define STATUS_LED_ACTIVE_MS (5UL * 60UL * 1000UL)
-
-// The indicator only has to be *seen*, not lit continuously. Flashing briefly
-// at the same cadence as the old 50%-on blink reads the same to a wearer while
-// averaging about a tenth of the current. loop() polls every ~10 ms, so the
+// The searching flash is deliberately brief. loop() polls every ~10 ms, so the
 // flash window must stay comfortably above that to never be skipped.
 #define STATUS_LED_FLASH_MS          50UL
-#define STATUS_LED_SEARCH_PERIOD_MS  500UL   // searching for a phone
-#define STATUS_LED_RECORD_PERIOD_MS  1000UL  // connected and recording
+#define STATUS_LED_SEARCH_PERIOD_MS  500UL
+
+// The confirmation is meant to be seen rather than to save current, so its
+// flashes are long enough to read clearly at a glance.
+#define STATUS_LED_CONFIRM_FLASHES   3UL
+#define STATUS_LED_CONFIRM_ON_MS     150UL
+#define STATUS_LED_CONFIRM_PERIOD_MS 300UL
 
 NimBLEServer*         server      = nullptr;
 NimBLECharacteristic* frameChar   = nullptr;
@@ -140,24 +140,45 @@ bool                  cameraInStandby = false;
 bool                  cameraWarming = false;
 unsigned long         cameraWakeStarted = 0;
 
-// Status LED, driven each loop():
-//   not connected      -> short flash twice a second (searching for a phone)
-//   connected + paused -> solid on
-//   connected          -> short flash once a second (recording + sending)
+// Status LED lifecycle, advanced each loop():
+//   Searching   -> brief red flash twice a second, until a phone connects
+//   Confirming  -> three white flashes, so the connection is unmistakable
+//   Done        -> dark for the rest of the run
+//
+// The confirmation plays once. A later disconnect does not replay it: the
+// participant is wearing the glasses by then, and an LED that returned on every
+// dropout would blink at them all day for no purpose.
+enum StatusLedPhase { LED_SEARCHING, LED_CONFIRMING, LED_DONE };
+StatusLedPhase statusLedPhase = LED_SEARCHING;
+unsigned long statusLedConfirmStartedMs = 0;
+
 void updateStatusLed() {
-  // Past the indicator window the LED stays dark whatever the recording state
-  // is. setLed() is a no-op once the LED is already off, so this costs one I2C
-  // write, not one per loop.
-  if (millis() >= STATUS_LED_ACTIVE_MS) {
-    setLed(false);
-    return;
-  }
-  if (!connected) {
-    setLed(millis() % STATUS_LED_SEARCH_PERIOD_MS < STATUS_LED_FLASH_MS);
-  } else if (paused) {
-    setLed(true);  // solid, so pause stays unmistakable against the flashes
-  } else {
-    setLed(millis() % STATUS_LED_RECORD_PERIOD_MS < STATUS_LED_FLASH_MS);
+  switch (statusLedPhase) {
+    case LED_DONE:
+      return;
+
+    case LED_SEARCHING:
+      if (connected) {
+        setLed(false);
+        statusLedPhase = LED_CONFIRMING;
+        statusLedConfirmStartedMs = millis();
+        return;
+      }
+      setLed(millis() % STATUS_LED_SEARCH_PERIOD_MS < STATUS_LED_FLASH_MS);
+      return;
+
+    case LED_CONFIRMING: {
+      const unsigned long elapsed = millis() - statusLedConfirmStartedMs;
+      if (elapsed >=
+          STATUS_LED_CONFIRM_FLASHES * STATUS_LED_CONFIRM_PERIOD_MS) {
+        setLedWhite(false);
+        statusLedPhase = LED_DONE;
+        return;
+      }
+      setLedWhite(elapsed % STATUS_LED_CONFIRM_PERIOD_MS <
+                  STATUS_LED_CONFIRM_ON_MS);
+      return;
+    }
   }
 }
 
