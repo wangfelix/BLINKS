@@ -1,0 +1,6 @@
+# esp32-camera is NOT part of ESP-IDF and is NOT pulled in by the Arduino
+# component. The Arduino IDE gets it from Espressif's precompiled libraries;
+# a "framework = espidf" build compiles everything from source, so the driver
+# has to be requested explicitly or esp_camera.h simply does not exist.
+dependencies:
+  espressif/esp32-camera: "^2.0.0"

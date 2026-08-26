@@ -74,8 +74,9 @@ loosened to close the gap:
   floor: on the ESP32-S3, CPU 240/160/80 all keep APB at 80 MHz, and below that
   APB follows the CPU and would detune the LEDC-generated 20 MHz camera XCLK.
 
-Neither has been measured yet. The number that decides whether this is enough is
-the **idle current** — the draw while connected but not capturing — because it
+Neither has been measured yet — see "Measuring battery draw" below for how to
+get the number without lab equipment. The figure that decides whether this is
+enough is the **idle current** — the draw while connected but not capturing — because it
 sets a ceiling no capture interval can beat. At 40 mA the glasses cannot exceed
 ~5 h even taking no pictures at all; at 25 mA the ceiling is ~8 h.
 
@@ -213,15 +214,72 @@ Equivalent local compile command:
 ## Expected serial output
 
 ```text
+Reset reason: POWERON (clean start)
+CPU clock: 80 MHz
 LP5815 status LED ready on I2C controller 0
 Camera sensor PID: 0x0026 (hardware PWDN standby on GPIO9)
 Camera ready
+Camera standby
 BLE modem sleep: enabled (0x0)
 Advertising as BLINKS-CAM (ok=1)
-Camera standby
 ```
 
-The status LED flashes twice a second while looking for the phone, stays solid
-while connected and paused, and flashes once a second while recording — then
-goes dark five minutes after power-on. A missing or failed LP5815 does not stop
-camera capture; the firmware reports the failure and continues without the LED.
+The status LED flashes red twice a second while looking for the phone, flashes
+white three times once it connects, and is dark from then on. A missing or
+failed LP5815 does not stop camera capture; the firmware reports the failure and
+continues without the LED.
+
+`Reset reason:` is the first line of every boot. `BROWNOUT (supply sagged)` means
+the cell or the power MUX could not hold the rail up, which is the signature of
+the load-peak problem above rather than a firmware fault.
+
+## Measuring battery draw
+
+`battery_log.h` samples the fuel gauge every 5 s and keeps the last 120 samples
+in **RTC memory**. It is diagnostic only and changes nothing about how the
+camera behaves.
+
+RTC memory survives any reset that does not remove power, which buys two things.
+A serial monitor that resets the board on open cannot destroy the measurement.
+And when the device reboots on its own, the samples from the ten minutes leading
+up to it are preserved and printed on the next boot under **"battery log BEFORE
+the last reset"** — so a brownout leaves behind the current and voltage trace
+that caused it. Each sample carries a boot counter because `millis()` restarts.
+
+It exists because the measurement that matters — draw while connected but not
+capturing — can only be taken on battery, and plugging in USB for a serial
+monitor supplies power and starts charging, which destroys exactly the number
+you were after. Plugging USB in does **not** reset the ESP32, so the samples
+survive:
+
+1. Run on battery, no USB, for ten minutes or more.
+2. Plug in USB and open the serial monitor. The device keeps running.
+3. **Press any key.** The pre-USB samples print, oldest first, with a per-phase
+   summary. If opening the monitor resets the board, the log is printed
+   automatically during boot instead; either way it is not lost.
+
+Keep the phone connected for the whole run. A camera that is still searching
+sits in a different, busier power state than a connected one, and the status LED
+goes dark after connecting, so confirm in the app rather than on the glasses.
+
+```text
+===== battery log, this run: 120 samples, newest last =====
+boot  uptime_s  phase   mV    mA   %
+   0       305  idle   3981   -27  71
+   0       310  camera 3974   -96  71
+...
+----- summary (mA) -----
+  idle   n=104  mean=  -27  min=  -31  max=  -24
+  camera n= 16  mean=  -94  min= -142  max=  -71
+```
+
+Negative is discharge. The **idle mean** is the number that sets the runtime
+ceiling: at 40 mA the glasses cannot exceed ~5 h even taking no pictures at all,
+at 25 mA the ceiling is ~8 h, and at 10 mA a full day is in reach. Samples taken
+while USB is attached show charge current, not system draw, so ignore anything
+after the plug-in.
+
+The register map is the BQ27220 one (voltage `0x08`, current `0x0C`, charge
+`0x2C`), chosen because it produces plausible values on this board's gauge where
+the BQ27441 map does not. If the figures look wrong, that assumption is the
+first thing to check.

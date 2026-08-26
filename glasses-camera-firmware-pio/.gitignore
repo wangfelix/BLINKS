@@ -1,0 +1,11 @@
+# Build output and fetched dependencies. The IDF component manager pulls ~30
+# components (esp-dl, esp-sr, rainmaker...) that the Arduino component requires
+# and this firmware never uses; none of it belongs in the repo.
+.pio/
+managed_components/
+dependencies.lock
+
+# Generated from sdkconfig.defaults. Deliberately NOT tracked: a stale copy
+# silently overrides the defaults, since IDF only applies them when this file
+# is absent.
+sdkconfig.blinks-glasses

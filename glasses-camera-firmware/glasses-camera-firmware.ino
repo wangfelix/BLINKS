@@ -17,6 +17,20 @@
 //   - Arduino board ESP32S3 Dev Module, QSPI PSRAM, 4 MB flash, Huge APP
 #include "board_config.h"
 #include "status_led.h"
+#include "battery_log.h"   // diagnostic only; see the header
+
+// esp_pm_configure's verdict, kept so the battery dump can repeat it long after
+// the boot banner has scrolled away. -1 means this build has no power
+// management compiled in at all (the Arduino IDE target).
+int lightSleepStatus = -1;
+
+// Power management exists only in the custom ESP-IDF build
+// (glasses-camera-firmware-pio/). The Arduino IDE links precompiled IDF
+// libraries with CONFIG_PM_ENABLE unset, so every block below compiles away to
+// nothing there and the two builds share this one source file.
+#ifdef CONFIG_PM_ENABLE
+#include "esp_pm.h"
+#endif
 
 // ---- BLE identifiers (must match the app) ---------------------------------
 #define DEVICE_NAME       "BLINKS-CAM"
@@ -126,6 +140,26 @@ static_assert(BLE_CONN_TIMEOUT_UNITS * 4 >
 #define STATUS_LED_CONFIRM_ON_MS     150UL
 #define STATUS_LED_CONFIRM_PERIOD_MS 300UL
 
+#ifdef CONFIG_PM_ENABLE
+// Held whenever a load must not be interrupted: the camera is powered (its DVP
+// capture runs over DMA and would break if APB were gated) or a BLE burst is in
+// flight. esp_pm locks count, so the nested acquire during sendFrame is safe.
+esp_pm_lock_handle_t  captureAwakeLock = nullptr;
+#endif
+
+void holdAwake(bool hold) {
+#ifdef CONFIG_PM_ENABLE
+  if (!captureAwakeLock) return;
+  if (hold) {
+    esp_pm_lock_acquire(captureAwakeLock);
+  } else {
+    esp_pm_lock_release(captureAwakeLock);
+  }
+#else
+  (void)hold;
+#endif
+}
+
 NimBLEServer*         server      = nullptr;
 NimBLECharacteristic* frameChar   = nullptr;
 NimBLECharacteristic* controlChar = nullptr;
@@ -231,9 +265,12 @@ bool setCameraStandby(bool standby) {
     digitalWrite(PWDN_GPIO_NUM, CAMERA_PWDN_ASSERTED);
     cameraInStandby = true;
     cameraWarming = false;
+    holdAwake(false);  // the sensor is off; light sleep is safe again
     Serial.println("Camera standby");
     return true;
   }
+
+  holdAwake(true);  // no light sleep while the sensor streams into the driver
 
   digitalWrite(PWDN_GPIO_NUM, CAMERA_PWDN_RELEASED);
   delay(CAMERA_PWDN_WAKE_SETTLE_MS);
@@ -241,6 +278,7 @@ bool setCameraStandby(bool standby) {
     // Leave cameraInStandby set so the caller reinitializes rather than
     // capturing from a sensor that never came back.
     Serial.println("Camera wake failed: no SCCB answer after PWDN release");
+    holdAwake(false);
     return false;
   }
 
@@ -447,6 +485,9 @@ class ControlCallbacks : public NimBLECharacteristicCallbacks {
 // notification. Gaps in the frame counter identify complete frames that did
 // not reach the app.
 void sendFrame(const uint8_t* buf, size_t len) {
+  // The sensor is already parked by this point, so the lock taken here covers
+  // the radio burst alone.
+  holdAwake(true);
   uint8_t header[9];
   header[0] = 0x01;
   header[1] = (uint8_t)((len >> 24) & 0xFF);
@@ -472,18 +513,51 @@ void sendFrame(const uint8_t* buf, size_t len) {
     frameChar->setValue(out, n + 1);
     frameChar->notify();
     delay(8); // Pace notifications to reduce BLE queue pressure.
-    if (!connected) return;
+    if (!connected) {
+      holdAwake(false);
+      return;
+    }
   }
+  holdAwake(false);
 }
 
 void setup() {
   Serial.begin(115200);
+  // Native USB re-enumerates on every reset, and the host needs a moment to
+  // reopen the port. Anything printed before then is lost, which silently ate
+  // this banner every time. Wait for the host, but never longer than 2 s: on
+  // battery there is no host at all and the camera must still start.
+  const unsigned long usbWaitStartedMs = millis();
+  while (!Serial && millis() - usbWaitStartedMs < 2000UL) delay(10);
+  delay(150);
   Serial.println();
 
   // Set the clock before anything else initializes, so every peripheral and the
   // BLE controller come up at the frequency they will actually run at.
+  printResetReason();
   setCpuFrequencyMhz(CPU_CLOCK_MHZ);
   Serial.printf("CPU clock: %u MHz\n", (unsigned)getCpuFrequencyMhz());
+
+#ifdef CONFIG_PM_ENABLE
+  // Both ends of the DFS range are pinned at CPU_CLOCK_MHZ on purpose: letting
+  // the clock drop below 80 MHz would take APB with it and detune the
+  // LEDC-generated 20 MHz camera XCLK. Light sleep is independent of frequency
+  // scaling, so pinning the frequency keeps the win and drops that risk.
+  esp_pm_config_t pmConfig = {};
+  pmConfig.max_freq_mhz = CPU_CLOCK_MHZ;
+  pmConfig.min_freq_mhz = CPU_CLOCK_MHZ;
+  pmConfig.light_sleep_enable = true;
+  const esp_err_t pmResult = esp_pm_configure(&pmConfig);
+  lightSleepStatus = (int)pmResult;
+  Serial.printf("Light sleep: %s (0x%x)\n",
+                pmResult == ESP_OK ? "enabled" : "UNAVAILABLE",
+                (unsigned)pmResult);
+  if (esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "blinks-capture",
+                         &captureAwakeLock) != ESP_OK) {
+    captureAwakeLock = nullptr;
+    Serial.println("Capture power lock unavailable; sleeping is disabled");
+  }
+#endif
 
   // Bring the three big loads up one at a time rather than back to back, and
   // park the sensor before the radio starts, so no two inrush events overlap.
@@ -495,6 +569,10 @@ void setup() {
     while (true) delay(1000);
   }
   Serial.println("Camera ready");
+
+  // If the previous run ended in a reset rather than a power-off, its battery
+  // samples survived in RTC memory; offer them now while a monitor may be open.
+  batteryDump();
 
   parkCameraNow(CAMERA_BUFFER_READY_TIMEOUT_MS);
   delay(LOAD_STAGGER_MS);
@@ -528,8 +606,22 @@ void setup() {
   Serial.printf("Advertising as %s (ok=%d)\n", DEVICE_NAME, advOk);
 }
 
+// How long loop() may sleep before it has to run again. Once the status LED has
+// finished there is nothing left in here that needs millisecond resolution: BLE
+// control writes arrive on callbacks, and a capture deadline 30 s away does not
+// care about 100 ms. Under the ESP-IDF build this interval is precisely what
+// tickless idle sleeps through, so a longer delay is a directly longer sleep;
+// at 10 ms the wake-up overhead would eat most of the saving.
+static unsigned long loopIdleDelayMs() {
+  return statusLedPhase == LED_DONE ? 100UL : 10UL;
+}
+
 void loop() {
   updateStatusLed();
+  // Diagnostic sampling. The camera being parked is exactly the idle state
+  // whose current sets the runtime ceiling.
+  batterySampleNow(cameraInStandby ? BATT_IDLE : BATT_CAMERA);
+  batteryDumpIfRequested();
 
   unsigned long now = millis();
   bool recording = connected && !paused;
@@ -539,7 +631,7 @@ void loop() {
   if (!recording) {
     cameraWarming = false;
     enterCameraStandby(0);
-    delay(10);
+    delay(loopIdleDelayMs());
     return;
   }
 
@@ -606,5 +698,5 @@ void loop() {
     sendFrame(jpegCopy, jpegLen);
     free(jpegCopy);
   }
-  delay(10);
+  delay(loopIdleDelayMs());
 }
