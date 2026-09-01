@@ -74,6 +74,9 @@ int lightSleepStatus = -1;
 #define BLE_CONN_SLAVE_LATENCY 9
 #define BLE_CONN_TIMEOUT_UNITS 600
 
+// Transmit power in dBm. NimBLE rounds to the nearest 3 dBm step.
+#define BLE_TX_POWER_DBM 3
+
 // After returning a captured frame, the driver fills its single buffer again.
 // Wait for that parked frame before putting the sensor in standby so the
 // camera driver is idle while the sensor's internal imaging is suspended.
@@ -353,7 +356,23 @@ bool initCamera() {
   config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000;
+  // 10 MHz rather than the bodycam's 20 MHz. Releasing PWDN does not charge any
+  // bulk capacitance — the 2V8 and 1V8 rails stay up through standby — so the
+  // cost of a wake is not an inrush but roughly 600 ms of the sensor streaming
+  // VGA at full rate into the DVP/DMA path: CAMERA_WARMUP_MS of AEC settling,
+  // then the capture itself. Both the sensor's dynamic current and the ESP32's
+  // capture peripheral scale with the pixel clock, so halving XCLK halves the
+  // draw across that whole window. Frame rate halves with it, which costs
+  // nothing when one frame is taken every 30 s.
+  //
+  // 80 MHz APB divides exactly by 10 MHz, so the LEDC clock stays on frequency
+  // at the 80 MHz CPU setting. The OV2640 accepts 6-27 MHz.
+  //
+  // The one thing to check in the captured frames: AEC convergence is counted in
+  // frames, not milliseconds, so a fixed 500 ms warm-up now covers about four
+  // frames instead of about seven. If exposure looks unsettled, raise
+  // CAMERA_WARMUP_MS rather than putting XCLK back.
+  config.xclk_freq_hz = 10000000;
   config.frame_size = FRAMESIZE_VGA; // 640x480
   config.pixel_format = PIXFORMAT_JPEG;
   // Keep one frame buffered between scheduled captures. GRAB_WHEN_EMPTY avoids
@@ -361,13 +380,21 @@ bool initCamera() {
   // capture interval.
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
-  config.jpeg_quality = 12;
+  // 16 rather than the bodycam's 12 (higher is more compressed on this driver).
+  // Frames on these units averaged 74 KB and reached 142 KB, and sendFrame()
+  // paces 180 bytes every 8 ms, so an average frame held the radio in a 3.4 s
+  // burst and the largest in a 6.5 s one. Resets cluster about 1.8 s into that
+  // burst, so the burst length is the width of the window in which the board is
+  // exposed, and roughly a third off the file size takes a third off the window
+  // and off the radio energy per frame. VGA at this setting stays comfortably
+  // legible for activity classification, which is all the VLM asks of it.
+  config.jpeg_quality = 16;
   config.fb_count = 1;
 
   if (!psramFound()) {
     config.fb_location = CAMERA_FB_IN_DRAM;
     config.fb_count = 1;
-    config.jpeg_quality = 15;
+    config.jpeg_quality = 18;  // DRAM fallback: compress harder still
   }
 
   esp_err_t err = esp_camera_init(&config);
@@ -564,15 +591,18 @@ void setup() {
   initStatusLed();
   delay(LOAD_STAGGER_MS);
 
+  // Before initCamera(), which halts the firmware on failure. A pack too weak to
+  // hold up the 2V8 rail fails camera init, and that is precisely the state whose
+  // battery reading and reset history are worth having, so the dump must not sit
+  // behind it. initStatusLed() has already brought up the I2C bus the fuel gauge
+  // shares with the LED driver, so nothing here depends on the camera.
+  batteryDump();
+
   if (!initCamera()) {
     Serial.println("Halting due to camera init failure");
     while (true) delay(1000);
   }
   Serial.println("Camera ready");
-
-  // If the previous run ended in a reset rather than a power-off, its battery
-  // samples survived in RTC memory; offer them now while a monitor may be open.
-  batteryDump();
 
   parkCameraNow(CAMERA_BUFFER_READY_TIMEOUT_MS);
   delay(LOAD_STAGGER_MS);
@@ -586,7 +616,17 @@ void setup() {
                 bleSleepResult == ESP_OK ? "enabled" : "UNAVAILABLE",
                 (unsigned)bleSleepResult);
   NimBLEDevice::setMTU(517); // The app also requests this MTU after connecting.
-  NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+  // NimBLE 2.x takes dBm directly, not an esp_power_level_t. The previous
+  // ESP_PWR_LVL_P9 argument therefore passed that enum's value, 11, which the
+  // library rounds up to 12 and applies as ESP_PWR_LVL_P12: these boards have
+  // been transmitting at +12 dBm, one step above the intended +9.
+  //
+  // +3 dBm is a deliberate cut to shave the radio's peak draw, which is the
+  // largest remaining lever on the current step that each BLE burst puts on a
+  // 200 mAh cell. It costs link margin, and the camera sits on the face while
+  // the phone sits in a pocket, so this needs a delivery-rate check on the bench
+  // before it goes anywhere near a participant.
+  NimBLEDevice::setPower(BLE_TX_POWER_DBM);
 
   server = NimBLEDevice::createServer();
   server->setCallbacks(new ServerCallbacks());

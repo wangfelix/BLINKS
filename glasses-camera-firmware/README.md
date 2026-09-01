@@ -9,10 +9,12 @@ The glasses use the same phone-facing contract as the existing camera:
 `BLINKS-CAM`, the same BLE service and characteristics, VGA JPEG capture,
 pause/resume commands, camera recovery, and sensor standby between samples.
 
-Three settings diverge deliberately, all for battery life on the glasses' much
+Six settings diverge deliberately, all for battery life on the glasses' much
 smaller pack: a **30 s capture interval** (bodycam: 15 s), an **80 MHz CPU
-clock** (bodycam: 240 MHz default), and **hardware PWDN standby** instead of the
-SCCB software standby the XIAO is forced to use. Everything else is the same
+clock** (bodycam: 240 MHz default), **hardware PWDN standby** instead of the
+SCCB software standby the XIAO is forced to use, a **10 MHz camera XCLK**
+(bodycam: 20 MHz), **`jpeg_quality` 16** (bodycam: 12), and **+3 dBm BLE
+transmit power** (bodycam: +12 dBm, see below). Everything else is the same
 sketch with a different pin header and LED driver.
 
 ## Camera GPIO map
@@ -54,11 +56,28 @@ SDA GPIO12 and SCL GPIO11. ESP32 Arduino 3.3.8 builds the camera SCCB driver on
 I2C controller 1, while `status_led.h` deliberately uses controller 0 for the
 system bus. See "Status LED" below for how it is driven.
 
-## Battery: capture interval and CPU clock
+## Battery: why the board resets, and what was changed
+
+**The resets are brownouts, confirmed 2026-08-31.** A returned unit printed
+`Boot chain: POWERON -> BROWNOUT x16`: the 3V3 rail sagged while power was still
+present, so the pack's protection MOSFET never opened. That reading is decisive
+because `batteryBootCounter` is zeroed on `ESP_RST_POWERON`, so a counter that
+climbs cannot have come from a power loss. The earlier reading — that the
+capture inrush trips the pack's over-current protection — is retired. The
+over-discharge protection *does* latch as an end state, around 2.5 V and
+clearing only when the battery cables are replugged, but that is the reboot loop
+draining the cell rather than the per-cycle mechanism.
+
+Server-side frame analysis (see `analysis/`) agrees and adds the shape: resets
+are near-absent for the first ~5 active hours and then rise five- to tenfold,
+which is a state-of-charge signature rather than a fixed current threshold, and
+the unambiguous resets are phase-locked to about 1.8 s after the capture instant
+— mid-BLE-burst, with the sensor already parked. So the load peak triggers the
+reset and the depleted cell removes the margin; neither alone explains it.
 
 The glasses reach about **four hours** on the usable half of their 2x200 mAh
-pack, against a bodycam that runs all day on 1000 mAh. Two settings were
-loosened to close the gap:
+pack, against a bodycam that runs all day on 1000 mAh. These settings were
+loosened to close the gap. **None of them has been measured yet.**
 
 * **`CAPTURE_INTERVAL_MS` is 30 s**, not 15 s. The server chunks frames into
   clock-aligned 5-minute windows regardless of rate, so nothing server-side
@@ -72,9 +91,26 @@ loosened to close the gap:
   the BLE burst is paced by its own `delay()` — while the idle baseline runs for
   ~29 s of every 30 s cycle and is what actually drains the pack. 80 MHz is the
   floor: on the ESP32-S3, CPU 240/160/80 all keep APB at 80 MHz, and below that
-  APB follows the CPU and would detune the LEDC-generated 20 MHz camera XCLK.
+  APB follows the CPU and would detune the LEDC-generated camera XCLK.
+* **`config.xclk_freq_hz` is 10 MHz**, not 20. Releasing PWDN charges no bulk
+  capacitance — the 2V8 and 1V8 rails stay up through standby — so a wake costs
+  not an inrush but roughly 600 ms of the sensor streaming VGA at full rate into
+  the DVP/DMA path. Both the sensor's dynamic current and the capture peripheral
+  scale with the pixel clock, so halving XCLK halves the draw across that whole
+  window. 80 MHz APB divides exactly by 10 MHz. **Watch the captured images:**
+  AEC settling is counted in frames, so a fixed `CAMERA_WARMUP_MS` now covers
+  about four frames instead of about seven. If exposure looks unsettled, raise
+  the warm-up rather than putting XCLK back.
+* **`config.jpeg_quality` is 16**, not 12 (higher is more compressed here).
+  Frames averaged 74 KB and reached 142 KB, and `sendFrame()` paces 180 bytes
+  every 8 ms, so an average frame held the radio in a 3.4 s burst and the
+  largest in a 6.5 s one. Resets cluster ~1.8 s into that burst, so its length
+  is the width of the window the board is exposed in.
+* **`BLE_TX_POWER_DBM` is 3**, against the bodycam's effective +12. This is the
+  largest single lever on the radio's peak draw and it costs link margin, so
+  check delivery rate before trusting it.
 
-Neither has been measured yet — see "Measuring battery draw" below for how to
+None has been measured yet — see "Measuring battery draw" below for how to
 get the number without lab equipment. The figure that decides whether this is
 enough is the **idle current** — the draw while connected but not capturing — because it
 sets a ceiling no capture interval can beat. At 40 mA the glasses cannot exceed
@@ -157,9 +193,21 @@ therefore never switches two big loads on together:
   by both recovery paths so the reinitialization inrush never stacks on top of
   an active radio link.
 
-Not yet done: BLE transmit power is still `ESP_PWR_LVL_P9` (+9 dBm) on both
-boards. That is the largest remaining lever on peak current, but it trades
-against link margin, so it wants measuring rather than assuming.
+**BLE transmit power was never +9 dBm.** NimBLE-Arduino 2.x declares
+`setPower(int8_t dbm)`, not the 1.x `esp_power_level_t` overload, so
+`setPower(ESP_PWR_LVL_P9)` passed that enumerator's *value*, 11. `setPower`
+rounds a remainder-2 figure up to the next multiple of three, making 12, and
+applies `ESP_PWR_LVL_P12`. Both boards were transmitting at **+12 dBm**. The
+glasses now define `BLE_TX_POWER_DBM 3` and pass a plain integer; the bodycam
+still carries the original line and is still at +12 dBm.
+
+Not yet done: after GATT setup the phone overrides the negotiated connection
+parameters to a **7.5 ms interval with slave latency 0**, against the 50 ms /
+latency 9 the firmware requests once in `onConnect` and never re-asserts. That
+is ~133 radio wake-ups per second instead of ~2 and prevents deep light sleep,
+and it may cost more than everything above. Re-asserting is not an obvious win:
+a slower interval also lengthens the BLE burst, which is the window the
+brownouts fall in. Measure before changing it.
 
 ## Bring-up prerequisites (verified 2026-08-11)
 
@@ -239,12 +287,35 @@ the load-peak problem above rather than a firmware fault.
 in **RTC memory**. It is diagnostic only and changes nothing about how the
 camera behaves.
 
+The dump runs **before `initCamera()`**, which halts the firmware on failure. A
+pack too weak to hold up the 2V8 rail fails camera init, and that is exactly the
+state whose battery reading is worth having, so it must not sit behind that call.
+`initStatusLed()` has already brought up the shared I2C bus.
+
 RTC memory survives any reset that does not remove power, which buys two things.
 A serial monitor that resets the board on open cannot destroy the measurement.
 And when the device reboots on its own, the samples from the ten minutes leading
 up to it are preserved and printed on the next boot under **"battery log BEFORE
 the last reset"** — so a brownout leaves behind the current and voltage trace
 that caused it. Each sample carries a boot counter because `millis()` restarts.
+
+Two other things print with it. **`Battery now:`** is a live gauge read, because
+on a fresh boot both rings are empty and the banner was otherwise silent about
+the one number wanted before starting a run. A positive current there means USB
+is attached and the voltage beside it is a charging voltage, not a resting one.
+And the **boot chain** lists the reset reason of every boot since the last
+power-on, kept in a 32-entry RTC ring, so a reboot loop can be left running
+unattended and read afterwards rather than watched live:
+
+```text
+Boot chain: 17 boots since the last power-on, oldest first
+  POWERON -> BROWNOUT -> BROWNOUT -> BROWNOUT -> ...
+```
+
+`BROWNOUT` means the rail sagged with power still present. `POWERON` means power
+was actually removed, so the pack's protection opened. `PANIC` or `TASK_WDT`
+means a firmware fault rather than a supply problem. This is the single line
+that separates the three, and it is why the mechanism is now settled.
 
 It exists because the measurement that matters — draw while connected but not
 capturing — can only be taken on battery, and plugging in USB for a serial
@@ -258,9 +329,19 @@ survive:
    summary. If opening the monitor resets the board, the log is printed
    automatically during boot instead; either way it is not lost.
 
-Keep the phone connected for the whole run. A camera that is still searching
-sits in a different, busier power state than a connected one, and the status LED
-goes dark after connecting, so confirm in the app rather than on the glasses.
+Keep the phone connected for the whole run, and check the `phase` column says
+`idle` rather than assuming. A camera that is still **searching** sits in a much
+busier state than a connected one: it advertises every few tens of milliseconds,
+the status LED is still flashing, and `loopIdleDelayMs()` returns 10 ms instead
+of 100 ms, so the chip barely light-sleeps. Advertising-idle measured about
+**-15 mA**, which is not the figure that sets runtime. The LED goes dark after
+connecting, so confirm in the app rather than on the glasses.
+
+Expect **`camera no samples`** in most dumps. The ring samples every 5 s and the
+sensor is awake roughly 600 ms per 30 s cycle, so a sample lands in that window
+about 2% of the time. The gauge only updates about once a second in any case, so
+it can never see the peak that actually causes the brownout — that needs a scope
+on a shunt.
 
 ```text
 ===== battery log, this run: 120 samples, newest last =====
@@ -272,6 +353,13 @@ boot  uptime_s  phase   mV    mA   %
   idle   n=104  mean=  -27  min=  -31  max=  -24
   camera n= 16  mean=  -94  min= -142  max=  -71
 ```
+
+Read the **millivolts, not the percentage**. The gauge's state-of-charge is
+uncalibrated on these packs, sits at 100 until nearly empty, and has to relearn
+after a deep discharge. For a single LiPo cell at rest, 4.20 V is full, ~3.82 V
+is about half, ~3.68 V is about 10%, and 3.00 V is empty — but the curve is flat
+between roughly 3.7 and 3.9 V, and under load the reading sits below resting by
+current times internal resistance. Start a run above **4.1 V resting**.
 
 Negative is discharge. The **idle mean** is the number that sets the runtime
 ceiling: at 40 mA the glasses cannot exceed ~5 h even taking no pictures at all,

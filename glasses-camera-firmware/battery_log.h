@@ -62,6 +62,16 @@ RTC_NOINIT_ATTR static BatteryLogBuffer batteryLive;
 RTC_NOINIT_ATTR static BatteryLogBuffer batteryPreCrash;
 RTC_NOINIT_ATTR static uint8_t          batteryBootCounter;
 
+// Why each boot in the current chain happened. The battery ring only ever holds
+// the current and previous run, but the question a reboot loop poses is what
+// KIND of reset it is repeating, and that answer is one byte per boot. Keeping
+// the last 32 means a loop can be left running unattended and read afterwards,
+// instead of having to be watched live on the serial monitor.
+#define BATTERY_BOOT_REASONS 32
+RTC_NOINIT_ATTR static uint8_t bootReasons[BATTERY_BOOT_REASONS];
+RTC_NOINIT_ATTR static uint8_t bootReasonCount;   // saturates
+RTC_NOINIT_ATTR static uint8_t bootReasonNext;    // ring index
+
 static unsigned long batteryLastSampleMs = 0;
 
 static bool fuelGaugeRead16(uint8_t reg, uint16_t &value) {
@@ -75,6 +85,21 @@ static bool fuelGaugeRead16(uint8_t reg, uint16_t &value) {
   const uint8_t hi = statusLedWire.read();
   value = (uint16_t)lo | ((uint16_t)hi << 8);
   return true;
+}
+
+static const char* resetReasonName(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON:   return "POWERON";
+    case ESP_RST_SW:        return "SW";
+    case ESP_RST_PANIC:     return "PANIC";
+    case ESP_RST_INT_WDT:   return "INT_WDT";
+    case ESP_RST_TASK_WDT:  return "TASK_WDT";
+    case ESP_RST_WDT:       return "WDT";
+    case ESP_RST_BROWNOUT:  return "BROWNOUT";
+    case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
+    case ESP_RST_EXT:       return "EXT";
+    default:                return "other";
+  }
 }
 
 // Prints why the last boot happened, and decides what to do with whatever the
@@ -97,6 +122,15 @@ void printResetReason() {
     default: break;
   }
   Serial.printf("Reset reason: %s\n", text);
+
+  const bool poweron = reason == ESP_RST_POWERON;
+  if (poweron || bootReasonCount > BATTERY_BOOT_REASONS) {
+    bootReasonCount = 0;
+    bootReasonNext = 0;
+  }
+  bootReasons[bootReasonNext] = (uint8_t)reason;
+  bootReasonNext = (bootReasonNext + 1) % BATTERY_BOOT_REASONS;
+  if (bootReasonCount < BATTERY_BOOT_REASONS) bootReasonCount++;
 
   const bool survived =
       reason != ESP_RST_POWERON && batteryLive.magic == BATTERY_LOG_MAGIC;
@@ -133,6 +167,37 @@ void batterySampleNow(BatteryPhase phase) {
       phase};
   batteryLive.next = (batteryLive.next + 1) % BATTERY_LOG_SAMPLES;
   if (batteryLive.count < BATTERY_LOG_SAMPLES) batteryLive.count++;
+}
+
+// Reads the gauge right now rather than replaying the ring. On a fresh boot both
+// rings are empty and printed nothing at all, which is exactly when a baseline
+// reading matters: after a flash, before a run.
+//
+// Sign convention is the gauge's: negative current is discharge, positive is
+// charge. So a positive figure here means USB is attached and the pack is
+// charging, and the voltage alongside it is a charging voltage, not a resting
+// one. Take a resting baseline on battery with USB detached.
+void batteryPrintNow() {
+  uint16_t mv = 0, rawCurrent = 0, soc = 0;
+  const bool ok = fuelGaugeRead16(FUEL_REG_VOLTAGE, mv) &&
+                  fuelGaugeRead16(FUEL_REG_CURRENT, rawCurrent) &&
+                  fuelGaugeRead16(FUEL_REG_SOC, soc);
+  if (!ok) {
+    Serial.println("Battery now: fuel gauge did not answer on the system I2C bus");
+    return;
+  }
+  const int16_t ma = (int16_t)rawCurrent;
+  Serial.printf("Battery now: %u mV, %d mA, gauge %u%%  (%s)\n", (unsigned)mv, ma,
+                (unsigned)soc,
+                ma > 5    ? "charging, so this is not a resting voltage"
+                : ma < -5 ? "discharging on battery"
+                          : "no appreciable current");
+  // The gauge's percentage is uncalibrated on these packs and sits at 100 until
+  // nearly empty, and a pack that was replugged after an over-discharge latch has
+  // to relearn before it means anything. Read the millivolts.
+  if (mv < 3300) {
+    Serial.println("  Below 3300 mV: little usable margin left, expect resets under load.");
+  }
 }
 
 static void batteryPrintBuffer(const BatteryLogBuffer &buf, const char *title) {
@@ -180,10 +245,28 @@ extern int lightSleepStatus;
 
 void batteryDump() {
   Serial.println();
+  batteryPrintNow();
   Serial.printf("Light sleep: %s\n",
                 lightSleepStatus == 0      ? "ENABLED (this is the IDF build)"
                 : lightSleepStatus < 0     ? "not compiled in (Arduino build)"
                                            : "configure REJECTED");
+  if (bootReasonCount > 0 && bootReasonCount <= BATTERY_BOOT_REASONS) {
+    Serial.printf("Boot chain: %u boots since the last power-on, oldest first\n",
+                  (unsigned)bootReasonCount);
+    Serial.print("  ");
+    const uint8_t start = (bootReasonCount == BATTERY_BOOT_REASONS)
+                              ? bootReasonNext : 0;
+    for (uint8_t i = 0; i < bootReasonCount; i++) {
+      Serial.printf("%s%s", i ? " -> " : "",
+                    resetReasonName((esp_reset_reason_t)
+                                    bootReasons[(start + i) % BATTERY_BOOT_REASONS]));
+    }
+    Serial.println();
+    Serial.println(
+        "  BROWNOUT = the rail sagged with power still present. POWERON = power "
+        "was actually removed, so the pack's protection opened. PANIC/WDT = a "
+        "firmware fault, not a supply problem.");
+  }
   batteryPrintBuffer(batteryPreCrash, "battery log BEFORE the last reset");
   batteryPrintBuffer(batteryLive, "battery log, this run");
   Serial.println(
