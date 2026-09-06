@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include "esp_camera.h"
 #include <NimBLEDevice.h>
+#include <atomic>
+#include "ble_recording_policy.h"
 
 // BLINKS camera firmware for the custom ESP32-S3 smart-glasses board.
 //
@@ -18,6 +20,7 @@
 #include "board_config.h"
 #include "status_led.h"
 #include "battery_log.h"   // diagnostic only; see the header
+#include "recording_power_log.h"
 
 // esp_pm_configure's verdict, kept so the battery dump can repeat it long after
 // the boot banner has scrolled away. -1 means this build has no power
@@ -66,13 +69,12 @@ int lightSleepStatus = -1;
 
 // ---- BLE connected-idle power --------------------------------------------
 // Units follow the BLE specification: interval = 1.25 ms, timeout = 10 ms.
-// A 30-50 ms base interval preserves burst throughput. Slave latency lets the
-// camera skip up to nine empty events (at most 500 ms idle) without dropping
-// the logical connection; queued notifications use the next available event.
-#define BLE_CONN_INTERVAL_MIN_UNITS 24
-#define BLE_CONN_INTERVAL_MAX_UNITS 40
-#define BLE_CONN_SLAVE_LATENCY 9
-#define BLE_CONN_TIMEOUT_UNITS 600
+// Match the repeated battery A/B test: 50 ms, latency zero. The phone can
+// override requests, so loop() checks the actual parameters after GATT setup.
+#define BLE_CONN_INTERVAL_MIN_UNITS blinks::intervalUnits
+#define BLE_CONN_INTERVAL_MAX_UNITS blinks::intervalUnits
+#define BLE_CONN_SLAVE_LATENCY blinks::latency
+#define BLE_CONN_TIMEOUT_UNITS blinks::timeoutUnits
 
 // Transmit power in dBm. NimBLE rounds to the nearest 3 dBm step.
 #define BLE_TX_POWER_DBM 3
@@ -163,12 +165,31 @@ void holdAwake(bool hold) {
 #endif
 }
 
+// A camera owns exactly one reference from initialization/wake until parking.
+// Reinitializing an already-awake camera must not leak another reference.
+static bool cameraAwakeHeld = false;
+static void holdCameraAwake(bool hold) {
+  if (cameraAwakeHeld == hold) return;
+  holdAwake(hold);
+  cameraAwakeHeld = hold;
+}
+
+struct AwakeDuringTransfer {
+  AwakeDuringTransfer() { holdAwake(true); }
+  ~AwakeDuringTransfer() { holdAwake(false); }
+};
+
 NimBLEServer*         server      = nullptr;
 NimBLECharacteristic* frameChar   = nullptr;
 NimBLECharacteristic* controlChar = nullptr;
-volatile bool         connected   = false;
-volatile bool         paused      = false;
+std::atomic<bool>      connected{false};
+std::atomic<bool>      paused{false};
 volatile uint16_t     currentMtu  = 23;   // updated on negotiation
+static std::atomic<uint16_t> activeConnHandle{BLE_HS_CONN_HANDLE_NONE};
+static std::atomic<uint32_t> connectionGeneration{0};
+static std::atomic<bool> frameSubscribed{false};
+static uint16_t observedInterval = 0, observedLatency = 0;
+static uint32_t lastTransferEndedMs = 0;
 unsigned long         lastCapture = 0;
 uint32_t              frameCounter = 0;
 sensor_t*             cameraSensor = nullptr;
@@ -268,12 +289,12 @@ bool setCameraStandby(bool standby) {
     digitalWrite(PWDN_GPIO_NUM, CAMERA_PWDN_ASSERTED);
     cameraInStandby = true;
     cameraWarming = false;
-    holdAwake(false);  // the sensor is off; light sleep is safe again
+    holdCameraAwake(false);  // the sensor is off; light sleep is safe again
     Serial.println("Camera standby");
     return true;
   }
 
-  holdAwake(true);  // no light sleep while the sensor streams into the driver
+  holdCameraAwake(true);  // no sleep while the sensor streams into the driver
 
   digitalWrite(PWDN_GPIO_NUM, CAMERA_PWDN_RELEASED);
   delay(CAMERA_PWDN_WAKE_SETTLE_MS);
@@ -281,7 +302,8 @@ bool setCameraStandby(bool standby) {
     // Leave cameraInStandby set so the caller reinitializes rather than
     // capturing from a sensor that never came back.
     Serial.println("Camera wake failed: no SCCB answer after PWDN release");
-    holdAwake(false);
+    digitalWrite(PWDN_GPIO_NUM, CAMERA_PWDN_ASSERTED);
+    holdCameraAwake(false);
     return false;
   }
 
@@ -334,6 +356,7 @@ void parkCameraNow(unsigned long bufferTimeoutMs) {
 }
 
 bool initCamera() {
+  holdCameraAwake(true);
   resetCameraPowerState();
 
   // Zero new/optional esp32-camera fields as well as the pins configured below.
@@ -412,6 +435,7 @@ bool initCamera() {
 // power-down across the gap so the reinitialization inrush never lands on top
 // of whatever the radio is doing. esp_camera_init() releases PWDN itself.
 bool restartCameraDriver() {
+  holdCameraAwake(true);
   esp_camera_deinit();
   if (PWDN_GPIO_NUM >= 0) {
     pinMode(PWDN_GPIO_NUM, OUTPUT);
@@ -453,18 +477,27 @@ void recoverCameraIfWedged() {
 
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* s, NimBLEConnInfo& connInfo) override {
+    activeConnHandle.store(connInfo.getConnHandle());
+    frameSubscribed.store(false);
+    connectionGeneration.fetch_add(1);
     connected = true;
     Serial.printf("Central connected: interval=%.2f ms, latency=%u, timeout=%u ms\n",
                   connInfo.getConnInterval() * 1.25f,
                   connInfo.getConnLatency(),
                   connInfo.getConnTimeout() * 10);
+#ifdef BLINKS_POWER_TEST
+    // Preserve the original bench initialization; its phases own parameters.
     s->updateConnParams(connInfo.getConnHandle(),
                         BLE_CONN_INTERVAL_MIN_UNITS,
                         BLE_CONN_INTERVAL_MAX_UNITS,
                         BLE_CONN_SLAVE_LATENCY,
                         BLE_CONN_TIMEOUT_UNITS);
+#endif
   }
   void onDisconnect(NimBLEServer* s, NimBLEConnInfo& connInfo, int reason) override {
+    connectionGeneration.fetch_add(1);
+    frameSubscribed.store(false);
+    activeConnHandle.store(BLE_HS_CONN_HANDLE_NONE);
     connected = false;
     currentMtu = 23;
     // A disconnected camera defaults to recording. If the app is paused, it
@@ -478,12 +511,48 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     Serial.printf("MTU negotiated: %u\n", mtu);
   }
   void onConnParamsUpdate(NimBLEConnInfo& connInfo) override {
-    Serial.printf("BLE low-power parameters: interval=%.2f ms, latency=%u, timeout=%u ms\n",
+    Serial.printf("BLE actual parameters: interval=%.2f ms, latency=%u, timeout=%u ms\n",
                   connInfo.getConnInterval() * 1.25f,
                   connInfo.getConnLatency(),
                   connInfo.getConnTimeout() * 10);
   }
 };
+
+class FrameCallbacks : public NimBLECharacteristicCallbacks {
+  void onSubscribe(NimBLECharacteristic*, NimBLEConnInfo& info, uint16_t value) override {
+    if (info.getConnHandle() == activeConnHandle.load())
+      frameSubscribed.store((value & 1) != 0);
+  }
+};
+
+static void maintainConnectionParameters() {
+#ifndef BLINKS_POWER_TEST
+  static blinks::ConnectionPolicy policy;
+  static uint32_t seenGeneration = UINT32_MAX, lastPollMs = 0;
+  const uint32_t now = millis();
+  const uint32_t generation = connectionGeneration.load();
+  if (generation != seenGeneration) {
+    seenGeneration = generation;
+    policy.reset(now);
+    observedInterval = observedLatency = 0;
+  }
+  if (!connected || !server || now - lastPollMs < 1000) return;
+  lastPollMs = now;
+  const auto info = server->getPeerInfoByHandle(activeConnHandle.load());
+  if (info.getConnInterval() < 6 ||
+      generation != connectionGeneration.load()) return;
+  observedInterval = info.getConnInterval();
+  observedLatency = info.getConnLatency();
+  if (cameraInStandby && !cameraWarming &&
+      policy.requestDue(now, observedInterval, observedLatency)) {
+    Serial.printf("BLE requesting 50 ms / latency 0 (actual %.2f ms / %u)\n",
+                  observedInterval * 1.25f, observedLatency);
+    server->updateConnParams(info.getConnHandle(), BLE_CONN_INTERVAL_MIN_UNITS,
+                            BLE_CONN_INTERVAL_MAX_UNITS, BLE_CONN_SLAVE_LATENCY,
+                            BLE_CONN_TIMEOUT_UNITS);
+  }
+#endif
+}
 
 // The app writes a single pause or resume opcode to CONTROL_CHAR_UUID.
 class ControlCallbacks : public NimBLECharacteristicCallbacks {
@@ -511,41 +580,33 @@ class ControlCallbacks : public NimBLECharacteristicCallbacks {
 // The tags let the app find the next frame boundary after a dropped
 // notification. Gaps in the frame counter identify complete frames that did
 // not reach the app.
-void sendFrame(const uint8_t* buf, size_t len) {
+static bool queueFramePacket(const uint8_t* data, size_t len, uint16_t handle,
+                             uint32_t generation, uint32_t frameStarted,
+                             uint32_t& retries) {
+  return blinks::queueWithRetry(frameStarted, retries,
+      [&] { return connected && !paused && frameSubscribed.load() &&
+                   connectionGeneration.load() == generation; },
+      [] { return uint32_t(millis()); },
+      // A peer-specific call returns the real enqueue status. notify() without
+      // a peer only schedules a characteristic update and hides queue failures.
+      [&] { return frameChar->notify(data, len, handle); },
+      [] { delay(10); });
+}
+
+bool sendFrame(const uint8_t* buf, size_t len, uint32_t& retries) {
   // The sensor is already parked by this point, so the lock taken here covers
   // the radio burst alone.
-  holdAwake(true);
-  uint8_t header[9];
-  header[0] = 0x01;
-  header[1] = (uint8_t)((len >> 24) & 0xFF);
-  header[2] = (uint8_t)((len >> 16) & 0xFF);
-  header[3] = (uint8_t)((len >> 8) & 0xFF);
-  header[4] = (uint8_t)(len & 0xFF);
-  header[5] = (uint8_t)((frameCounter >> 24) & 0xFF);
-  header[6] = (uint8_t)((frameCounter >> 16) & 0xFF);
-  header[7] = (uint8_t)((frameCounter >> 8) & 0xFF);
-  header[8] = (uint8_t)(frameCounter & 0xFF);
-  frameChar->setValue(header, 9);
-  frameChar->notify();
-  delay(8);
-
-  // A fixed 180-byte payload is reliable on the study phones. The notification
-  // is 181 bytes including its 0x02 tag.
-  const size_t maxPayload = 180;
-  static uint8_t out[200];
-  for (size_t off = 0; off < len; off += maxPayload) {
-    size_t n = (off + maxPayload <= len) ? maxPayload : (len - off);
-    out[0] = 0x02;
-    memcpy(out + 1, buf + off, n);
-    frameChar->setValue(out, n + 1);
-    frameChar->notify();
-    delay(8); // Pace notifications to reduce BLE queue pressure.
-    if (!connected) {
-      holdAwake(false);
-      return;
-    }
-  }
-  holdAwake(false);
+  AwakeDuringTransfer awake;
+  const uint32_t started = millis();
+  const uint32_t generation = connectionGeneration.load();
+  const uint16_t handle = activeConnHandle.load();
+  if (handle == BLE_HS_CONN_HANDLE_NONE) return false;
+  return blinks::sendTaggedFrame(buf, len, frameCounter, currentMtu,
+      [&](const uint8_t* packet, size_t size) {
+        if (!queueFramePacket(packet, size, handle, generation, started, retries)) return false;
+        delay(8); // Keep the study phones' existing notification pacing.
+        return true;
+      });
 }
 
 void setup() {
@@ -562,6 +623,7 @@ void setup() {
   // Set the clock before anything else initializes, so every peripheral and the
   // BLE controller come up at the frequency they will actually run at.
   printResetReason();
+  Serial.println("Firmware: blinks-recording-20260906-2; 30 s photos, 50 ms BLE");
   setCpuFrequencyMhz(CPU_CLOCK_MHZ);
   Serial.printf("CPU clock: %u MHz\n", (unsigned)getCpuFrequencyMhz());
 
@@ -582,7 +644,10 @@ void setup() {
   if (esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "blinks-capture",
                          &captureAwakeLock) != ESP_OK) {
     captureAwakeLock = nullptr;
-    Serial.println("Capture power lock unavailable; sleeping is disabled");
+    pmConfig.light_sleep_enable = false;
+    ESP_ERROR_CHECK(esp_pm_configure(&pmConfig));
+    lightSleepStatus = ESP_ERR_INVALID_STATE;
+    Serial.println("Capture power lock unavailable; automatic sleep disabled");
   }
 #endif
 
@@ -597,6 +662,7 @@ void setup() {
   // behind it. initStatusLed() has already brought up the I2C bus the fuel gauge
   // shares with the LED driver, so nothing here depends on the camera.
   batteryDump();
+  recordingPowerBegin();
 
   if (!initCamera()) {
     Serial.println("Halting due to camera init failure");
@@ -607,6 +673,9 @@ void setup() {
   parkCameraNow(CAMERA_BUFFER_READY_TIMEOUT_MS);
   delay(LOAD_STAGGER_MS);
 
+  // Direct, checked notifications otherwise print two INFO lines per JPEG
+  // piece. Keep connection/frame summaries, but avoid that UART/USB workload.
+  esp_log_level_set("NimBLE", ESP_LOG_WARN);
   if (!NimBLEDevice::init(DEVICE_NAME)) {
     Serial.println("Halting due to BLE initialization failure");
     while (true) delay(1000);
@@ -633,6 +702,7 @@ void setup() {
 
   NimBLEService* svc = server->createService(SERVICE_UUID);
   frameChar = svc->createCharacteristic(FRAME_CHAR_UUID, NIMBLE_PROPERTY::NOTIFY);
+  frameChar->setCallbacks(new FrameCallbacks());
   controlChar = svc->createCharacteristic(
       CONTROL_CHAR_UUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
   controlChar->setCallbacks(new ControlCallbacks());
@@ -658,13 +728,20 @@ static unsigned long loopIdleDelayMs() {
 
 void loop() {
   updateStatusLed();
+  maintainConnectionParameters();
+  recordingPowerTick(cameraInStandby && !cameraWarming &&
+                         uint32_t(millis() - lastTransferEndedMs) >= 5000,
+                     connected, observedInterval, observedLatency, frameCounter);
   // Diagnostic sampling. The camera being parked is exactly the idle state
   // whose current sets the runtime ceiling.
   batterySampleNow(cameraInStandby ? BATT_IDLE : BATT_CAMERA);
-  batteryDumpIfRequested();
+  if (Serial.available()) {
+    batteryDumpIfRequested();
+    recordingPowerDump();
+  }
 
   unsigned long now = millis();
-  bool recording = connected && !paused;
+  bool recording = connected && frameSubscribed.load() && !paused;
   unsigned long sinceLastCapture = now - lastCapture;
   const unsigned long warmupThreshold = CAPTURE_INTERVAL_MS - CAMERA_WARMUP_MS;
 
@@ -735,7 +812,15 @@ void loop() {
     frameCounter++;
     Serial.printf("Frame %lu: %u bytes, mtu=%u\n",
                   (unsigned long)frameCounter, (unsigned)jpegLen, currentMtu);
-    sendFrame(jpegCopy, jpegLen);
+    uint32_t retries = 0;
+    const uint32_t transferStarted = millis();
+    const bool queued = sendFrame(jpegCopy, jpegLen, retries);
+    lastTransferEndedMs = millis();
+    const uint32_t transferMs = lastTransferEndedMs - transferStarted;
+    recordingPowerFrame(queued, retries, transferMs);
+    Serial.printf("Frame %lu: %s in %lu ms, retries=%lu\n",
+                  (unsigned long)frameCounter, queued ? "queued" : "ABORTED",
+                  (unsigned long)transferMs, (unsigned long)retries);
     free(jpegCopy);
   }
   delay(loopIdleDelayMs());

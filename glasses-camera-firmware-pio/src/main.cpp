@@ -4,4 +4,6 @@
 //
 // The sketch defines every function before it is used, so it needs none of the
 // Arduino preprocessor's generated prototypes and is valid C++ as-is.
+#ifndef BLINKS_POWER_TEST
 #include "../../glasses-camera-firmware/glasses-camera-firmware.ino"
+#endif

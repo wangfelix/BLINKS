@@ -13,7 +13,8 @@
     "test-admin-data": "tsx scripts/test-admin-data.ts",
     "test-auth-onboarding": "tsx scripts/test-auth-onboarding.ts",
     "test-push": "tsx scripts/test-push.ts",
-    "backfill-demo-probabilities": "tsx scripts/backfill-demo-vlm-probabilities.ts"
+    "backfill-demo-probabilities": "tsx scripts/backfill-demo-vlm-probabilities.ts",
+    "analyze-agreement": "tsx scripts/analyze-label-agreement.ts"
   },
   "dependencies": {
     "argon2": "^0.44.0",

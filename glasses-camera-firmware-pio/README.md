@@ -1,8 +1,49 @@
 # Glasses firmware — custom ESP-IDF build (light sleep)
 
-A **parallel** build of `glasses-camera-firmware/`. Same source file, different
-toolchain. The Arduino target stays exactly as it is and remains the known-good
-fallback; nothing here can break it.
+A build of `glasses-camera-firmware/` with automatic light sleep. It shares the
+sketch with the Arduino target; sketch changes affect both. Use this PlatformIO
+target for the overnight recording test, because the Arduino IDE build does
+not compile the required power-management support.
+
+## Recording update, 6 September 2026
+
+The normal `blinks-glasses` target records VGA photos every 30 seconds and
+requests **50 ms BLE intervals, latency zero**, the settings that repeatedly
+allowed light sleep in the CABA idle experiment. It checks actual parameters
+once a second while running, waits five seconds after connection setup, and
+re-requests after phone overrides. Rejected requests back off to once a minute;
+recording continues even if the phone refuses the preferred parameters.
+
+Photo framing and the phone/server protocol are unchanged. Notifications target
+the subscribed connection explicitly, so enqueue failures can be retried rather
+than silently dropping JPEG pieces. A failed packet is retried for at most two
+seconds; a complete frame has a twenty-second send budget. Pause, unsubscribe,
+disconnect or a new connection aborts an in-progress frame. The next header
+starts a fresh frame using the existing protocol. Successful enqueueing alone
+does not prove receipt by the phone or server.
+
+The normal build also enables the main-crystal fallback when the external
+32 kHz clock fails to start. This is an ESP-IDF option, not a manual sleep call.
+The earlier A/B test used the external crystal successfully, so the fallback's
+current consumption still needs measurement. Camera power locks now cover
+initialization and reinitialization as well as wake/capture, with balanced
+release when parked.
+
+Power reports retain the last eight checkpointed boots in a dedicated NVS
+namespace (`blinks-rec-pwr`, `history-v1`), separate from the completed bench
+test. The first save is after a minute; later saves are five minutes apart and
+only occur with the camera parked and at least five seconds after a transfer.
+They include firmware identity, boot reason, frames attempted/queued/aborted,
+retry counts, actual BLE parameters, sleep-call counts and battery-only idle
+gauge samples. The final five minutes may be lost on abrupt power removal.
+Short boots that never reach a checkpoint are represented only in the existing
+RTC reset chain, which is lost on power removal. Flash errors are printed and
+do not halt recording. The gauge can round small currents to zero, so its idle
+average is not a calibrated full-cycle current measurement.
+
+See [overnight procedure](OVERNIGHT-TEST.md) for installation, validation and
+retrieval. Source version: `blinks-recording-20260906-2`; an ELF hash in each
+report distinguishes actual binaries built from that source version.
 
 ## Why this exists
 
@@ -74,18 +115,25 @@ is running exactly like the Arduino one.
 
 ## Build status
 
-**Compiles and links clean** (Arduino 3.3.8 / ESP-IDF 5.5.4, ~90 s incremental,
-723 KB image). Verified in the linked ELF rather than assumed: `BLINKS-CAM`,
-56 NimBLE symbols, `esp_camera_init`, and — the one that matters —
-`esp_pm_configure` / `esp_pm_lock_acquire`, which only exist if the
-`CONFIG_PM_ENABLE` blocks actually compiled. The RTC battery log lands in
-`.rtc_noinit` at `0x50000004`.
+**Recording build compiles and links clean** (Arduino 3.3.8 / ESP-IDF 5.5.4,
+727,472-byte application image). The ELF includes the production capture loop,
+connection maintenance, persistent report and actual sleep-call wrapper. Host
+tests with address/undefined-behavior sanitizers cover connection setup,
+overrides, backoff, reconnect and timer rollover; frame tests cover byte-exact
+JPEG reassembly at four MTUs, queue retries, aborts and transfer deadlines.
+
+CABA accepted 50 ms / latency 0 during the USB recording check, queued repeated
+frames without retries or aborts, and the user confirmed photos arriving on the
+phone. The power checkpoint saved successfully and the earlier build's checkpoint
+was still readable after restart/reflash. USB keeps the CPU awake during this
+check; actual battery recording sleep and overnight runtime remain to be measured.
 
 NimBLE-Arduino 2.5.1 needed no special handling under `arduino, espidf`.
 
-**Not yet verified on hardware:** whether BLE survives light sleep, whether
-frames still arrive every 30 s, and what the idle current actually becomes.
-The Arduino baseline to beat is 20.5 mA typical idle, 24.5 mA cycle mean.
+The 6 September connected-idle experiment verified that this board/phone can
+stay connected while entering light sleep at 50 ms. It did not capture photos.
+The recording update above requires a photo-delivery check and an overnight
+runtime test; build success alone does not establish either.
 
 ## Six things that had to be fixed, none of them in the firmware
 
@@ -122,9 +170,9 @@ grep the regenerated file to confirm each setting survived.
 ## Two toolchains, one source file
 
 `pio run -t upload` produces the light-sleep build; the Arduino IDE produces the
-old one. They look nearly identical on the serial monitor, and the only reliable
-way to tell them apart is the `Light sleep: enabled (0x0)` line in the boot
-banner. Check it before trusting any battery measurement.
+old one. The `POWER` report identifies the recording version and binary hash.
+The old `Light sleep: enabled (0x0)` line reports configuration success only;
+actual sleep-call counts and negotiated BLE parameters are the runtime evidence.
 
 Keep one serial monitor open at a time. The Arduino IDE's holds the port and
 makes `pio run -t upload` fail with `Resource busy`.
