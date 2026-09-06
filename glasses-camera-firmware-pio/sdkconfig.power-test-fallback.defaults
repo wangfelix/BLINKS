@@ -1,0 +1,4 @@
+# Diagnostic only. The normal build still uses sdkconfig.defaults unchanged.
+# This is an IDF-supported fallback for an absent/undetected external crystal;
+# it preserves the accurate main crystal as the Bluetooth sleep clock.
+CONFIG_BT_CTRL_MAIN_XTAL_PU_DURING_LIGHT_SLEEP=y
