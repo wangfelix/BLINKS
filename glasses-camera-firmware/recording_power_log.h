@@ -75,7 +75,7 @@ static void printRecordingRun(const RecordingPowerRun& r, const char* label) {
 }
 
 static void recordingPowerDump() {
-  Serial.printf("POWER firmware=blinks-recording-20260906-2 storage=%s\n",
+  Serial.printf("POWER firmware=blinks-recording-20260906-3 storage=%s\n",
                 esp_err_to_name(recordingStorageStatus));
   const unsigned start = recordingHistory.count == 8 ? recordingHistory.next : 0;
   for (unsigned i = 0; i < recordingHistory.count; ++i)

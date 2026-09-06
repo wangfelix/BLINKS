@@ -77,7 +77,7 @@ int lightSleepStatus = -1;
 #define BLE_CONN_TIMEOUT_UNITS blinks::timeoutUnits
 
 // Transmit power in dBm. NimBLE rounds to the nearest 3 dBm step.
-#define BLE_TX_POWER_DBM 3
+#define BLE_TX_POWER_DBM 6
 
 // After returning a captured frame, the driver fills its single buffer again.
 // Wait for that parked frame before putting the sensor in standby so the
@@ -403,21 +403,16 @@ bool initCamera() {
   // capture interval.
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
-  // 16 rather than the bodycam's 12 (higher is more compressed on this driver).
-  // Frames on these units averaged 74 KB and reached 142 KB, and sendFrame()
-  // paces 180 bytes every 8 ms, so an average frame held the radio in a 3.4 s
-  // burst and the largest in a 6.5 s one. Resets cluster about 1.8 s into that
-  // burst, so the burst length is the width of the window in which the board is
-  // exposed, and roughly a third off the file size takes a third off the window
-  // and off the radio energy per frame. VGA at this setting stays comfortably
-  // legible for activity classification, which is all the VLM asks of it.
-  config.jpeg_quality = 16;
+  // Restore the original image quality after visible degradation at 16.
+  // Lower values mean less compression; larger JPEGs take longer to transfer.
+  // This does not establish the cause of the reported vertical banding.
+  config.jpeg_quality = 12;
   config.fb_count = 1;
 
   if (!psramFound()) {
     config.fb_location = CAMERA_FB_IN_DRAM;
     config.fb_count = 1;
-    config.jpeg_quality = 18;  // DRAM fallback: compress harder still
+    config.jpeg_quality = 15;  // Original, more compressed DRAM fallback.
   }
 
   esp_err_t err = esp_camera_init(&config);
@@ -475,6 +470,23 @@ void recoverCameraIfWedged() {
   captureFailures = 0;
 }
 
+static void printBleTxPower() {
+  // Read each role directly; NimBLE's aggregate getter can hide an invalid
+  // default-role result behind its legacy connection-handle-3 workaround.
+  Serial.printf("BLE TX requested=%d dBm; levels default=%d adv=%d scan=%d",
+                BLE_TX_POWER_DBM,
+                (int)esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_DEFAULT),
+                (int)esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_ADV),
+                (int)esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_SCAN));
+  if (connected.load()) {
+    const uint16_t handle = activeConnHandle.load();
+    Serial.printf(" conn[%u]=%d", handle,
+                  (int)esp_ble_tx_power_get_enhanced(
+                      ESP_BLE_ENHANCED_PWR_TYPE_CONN, handle));
+  }
+  Serial.println(" (level 9=+3, 10=+6, 11=+9; 255=unavailable)");
+}
+
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* s, NimBLEConnInfo& connInfo) override {
     activeConnHandle.store(connInfo.getConnHandle());
@@ -485,6 +497,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
                   connInfo.getConnInterval() * 1.25f,
                   connInfo.getConnLatency(),
                   connInfo.getConnTimeout() * 10);
+    printBleTxPower();
 #ifdef BLINKS_POWER_TEST
     // Preserve the original bench initialization; its phases own parameters.
     s->updateConnParams(connInfo.getConnHandle(),
@@ -623,7 +636,7 @@ void setup() {
   // Set the clock before anything else initializes, so every peripheral and the
   // BLE controller come up at the frequency they will actually run at.
   printResetReason();
-  Serial.println("Firmware: blinks-recording-20260906-2; 30 s photos, 50 ms BLE");
+  Serial.println("Firmware: blinks-recording-20260906-3; 30 s photos, 50 ms BLE");
   setCpuFrequencyMhz(CPU_CLOCK_MHZ);
   Serial.printf("CPU clock: %u MHz\n", (unsigned)getCpuFrequencyMhz());
 
@@ -690,12 +703,13 @@ void setup() {
   // library rounds up to 12 and applies as ESP_PWR_LVL_P12: these boards have
   // been transmitting at +12 dBm, one step above the intended +9.
   //
-  // +3 dBm is a deliberate cut to shave the radio's peak draw, which is the
-  // largest remaining lever on the current step that each BLE burst puts on a
-  // 200 mAh cell. It costs link margin, and the camera sits on the face while
-  // the phone sits in a pocket, so this needs a delivery-rate check on the bench
-  // before it goes anywhere near a participant.
-  NimBLEDevice::setPower(BLE_TX_POWER_DBM);
+  // +6 dBm restores some link margin over +3 while remaining below +9/+12.
+  // The tested 50 ms connection interval and automatic light sleep stay enabled.
+  const bool txPowerSet = NimBLEDevice::setPower(BLE_TX_POWER_DBM);
+  Serial.printf("BLE TX power: requested=%d dBm status=%s\n",
+                BLE_TX_POWER_DBM,
+                txPowerSet ? "OK" : "FAILED");
+  printBleTxPower();
 
   server = NimBLEDevice::createServer();
   server->setCallbacks(new ServerCallbacks());
@@ -738,6 +752,7 @@ void loop() {
   if (Serial.available()) {
     batteryDumpIfRequested();
     recordingPowerDump();
+    printBleTxPower();
   }
 
   unsigned long now = millis();

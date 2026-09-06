@@ -42,8 +42,14 @@ do not halt recording. The gauge can round small currents to zero, so its idle
 average is not a calibrated full-cycle current measurement.
 
 See [overnight procedure](OVERNIGHT-TEST.md) for installation, validation and
-retrieval. Source version: `blinks-recording-20260906-2`; an ELF hash in each
+retrieval. Source version: `blinks-recording-20260906-3`; an ELF hash in each
 report distinguishes actual binaries built from that source version.
+
+Version 3 restores JPEG quality **12** (DRAM fallback **15**) and uses **+6 dBm**
+BLE transmit power, as requested after visible image degradation at quality 16.
+The camera clock remains 10 MHz. The cause of the reported vertical banding is
+not established; compare new photos before treating it as resolved. The 30 s
+capture interval, 50 ms BLE policy and automatic light sleep are unchanged.
 
 ## Why this exists
 

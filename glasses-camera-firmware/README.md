@@ -9,13 +9,14 @@ The glasses use the same phone-facing contract as the existing camera:
 `BLINKS-CAM`, the same BLE service and characteristics, VGA JPEG capture,
 pause/resume commands, camera recovery, and sensor standby between samples.
 
-Six settings diverge deliberately, all for battery life on the glasses' much
-smaller pack: a **30 s capture interval** (bodycam: 15 s), an **80 MHz CPU
+The glasses use a **30 s capture interval** (bodycam: 15 s), an **80 MHz CPU
 clock** (bodycam: 240 MHz default), **hardware PWDN standby** instead of the
 SCCB software standby the XIAO is forced to use, a **10 MHz camera XCLK**
-(bodycam: 20 MHz), **`jpeg_quality` 16** (bodycam: 12), and **+3 dBm BLE
-transmit power** (bodycam: +12 dBm, see below). Everything else is the same
-sketch with a different pin header and LED driver.
+(bodycam: 20 MHz), **`jpeg_quality` 12** (also bodycam: 12), and **+6 dBm BLE
+transmit power** (bodycam: +12 dBm, see below). The recording update requests
+50 ms BLE intervals with latency zero and rechecks the phone's actual settings.
+Use the sibling `glasses-camera-firmware-pio/` build for automatic light sleep;
+its `src/main.cpp` includes this sketch.
 
 ## Camera GPIO map
 
@@ -101,14 +102,14 @@ loosened to close the gap. **None of them has been measured yet.**
   AEC settling is counted in frames, so a fixed `CAMERA_WARMUP_MS` now covers
   about four frames instead of about seven. If exposure looks unsettled, raise
   the warm-up rather than putting XCLK back.
-* **`config.jpeg_quality` is 16**, not 12 (higher is more compressed here).
-  Frames averaged 74 KB and reached 142 KB, and `sendFrame()` paces 180 bytes
-  every 8 ms, so an average frame held the radio in a 3.4 s burst and the
-  largest in a 6.5 s one. Resets cluster ~1.8 s into that burst, so its length
-  is the width of the window the board is exposed in.
-* **`BLE_TX_POWER_DBM` is 3**, against the bodycam's effective +12. This is the
-  largest single lever on the radio's peak draw and it costs link margin, so
-  check delivery rate before trusting it.
+* **`config.jpeg_quality` is 12** again as of recording version 3 on
+  6 September, after visible image degradation was reported at 16. Lower values
+  mean less compression; the original DRAM fallback of 15 is also restored.
+  Larger JPEGs take longer to transmit. The cause of the reported vertical
+  banding is not established, and the camera clock remains 10 MHz.
+* **`BLE_TX_POWER_DBM` is 6**, increased from +3 at Felix's request. This is an
+  available step between +3 and +9 dBm. Delivery and battery runtime at this
+  setting still need measurement.
 
 None has been measured yet — see "Measuring battery draw" below for how to
 get the number without lab equipment. The figure that decides whether this is
@@ -198,16 +199,14 @@ therefore never switches two big loads on together:
 `setPower(ESP_PWR_LVL_P9)` passed that enumerator's *value*, 11. `setPower`
 rounds a remainder-2 figure up to the next multiple of three, making 12, and
 applies `ESP_PWR_LVL_P12`. Both boards were transmitting at **+12 dBm**. The
-glasses now define `BLE_TX_POWER_DBM 3` and pass a plain integer; the bodycam
+glasses now define `BLE_TX_POWER_DBM 6` and pass a plain integer; the bodycam
 still carries the original line and is still at +12 dBm.
 
-Not yet done: after GATT setup the phone overrides the negotiated connection
-parameters to a **7.5 ms interval with slave latency 0**, against the 50 ms /
-latency 9 the firmware requests once in `onConnect` and never re-asserts. That
-is ~133 radio wake-ups per second instead of ~2 and prevents deep light sleep,
-and it may cost more than everything above. Re-asserting is not an obvious win:
-a slower interval also lengthens the BLE burst, which is the window the
-brownouts fall in. Measure before changing it.
+The 6 September recording update addresses the phone's override to a **7.5 ms
+interval with latency 0**: it checks actual parameters and re-requests **50 ms,
+latency 0**, with backoff after rejection. Repeated battery idle A/B tests on
+CABA confirmed sleep at 50 ms and no sleep at 7.5 ms. Full recording runtime
+still needs an overnight measurement; see the PlatformIO README and test guide.
 
 ## Bring-up prerequisites (verified 2026-08-11)
 
