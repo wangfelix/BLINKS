@@ -10,12 +10,13 @@
 // The problem this solves is that the interesting measurement — how much the
 // glasses draw while connected but not capturing — can only be taken on
 // battery, and attaching USB for a serial monitor supplies power and starts
-// charging, which destroys the very number you wanted. Plugging USB in does not
-// reset the ESP32, though. So samples are kept in a RAM ring buffer while the
-// device runs on battery, and dumped on demand once a monitor is attached:
+// charging, which changes the very number you wanted. Opening a serial monitor
+// can reset this ESP32. Samples are therefore kept in RTC memory, which normally
+// survives that reset but not a power cycle. The recording build additionally
+// checkpoints its separate power summaries to flash.
 //
 //   1. run on battery, no USB, for ten minutes or more
-//   2. plug in USB and open the serial monitor (the device keeps running)
+//   2. plug in USB and open the serial monitor (this may reset the device)
 //   3. press any key -> the pre-USB samples are printed
 //
 // Reuses statusLedWire from status_led.h: the fuel gauge sits on the same
@@ -247,7 +248,7 @@ void batteryDump() {
   Serial.println();
   batteryPrintNow();
   Serial.printf("Light sleep: %s\n",
-                lightSleepStatus == 0      ? "ENABLED (this is the IDF build)"
+                lightSleepStatus == 0      ? "configured (actual sleep requires runtime evidence)"
                 : lightSleepStatus < 0     ? "not compiled in (Arduino build)"
                                            : "configure REJECTED");
   if (bootReasonCount > 0 && bootReasonCount <= BATTERY_BOOT_REASONS) {
@@ -264,15 +265,15 @@ void batteryDump() {
     Serial.println();
     Serial.println(
         "  BROWNOUT = the rail sagged with power still present. POWERON = power "
-        "was actually removed, so the pack's protection opened. PANIC/WDT = a "
-        "firmware fault, not a supply problem.");
+        "was reapplied (switch, cable or pack protection). PANIC/WDT requires "
+        "inspection of the crash log.");
   }
   batteryPrintBuffer(batteryPreCrash, "battery log BEFORE the last reset");
   batteryPrintBuffer(batteryLive, "battery log, this run");
   Serial.println(
-      "Note: taken on battery, the 'idle' mean is the number that sets the "
-      "runtime ceiling. Samples recorded while USB was attached show charge "
-      "current, not system draw.");
+      "Note: these sparse samples do not measure full-cycle average current. "
+      "USB readings include charging; small currents may be rounded to zero. "
+      "Use the POWER report for battery-only idle summaries.");
   Serial.println("========================================");
 }
 

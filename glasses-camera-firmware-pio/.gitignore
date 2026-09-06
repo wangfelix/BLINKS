@@ -9,3 +9,7 @@ dependencies.lock
 # silently overrides the defaults, since IDF only applies them when this file
 # is absent.
 sdkconfig.blinks-glasses
+sdkconfig.blinks-power-test
+sdkconfig.blinks-power-test.old
+sdkconfig.blinks-power-test-fallback
+sdkconfig.blinks-power-test-fallback.old

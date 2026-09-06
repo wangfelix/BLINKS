@@ -1,3 +1,6 @@
 cmake_minimum_required(VERSION 3.16.0)
+if(BLINKS_CLOCK_FALLBACK)
+    set(SDKCONFIG_DEFAULTS "${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults;${CMAKE_CURRENT_LIST_DIR}/sdkconfig.power-test-fallback.defaults")
+endif()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(glasses-camera-firmware-pio)
