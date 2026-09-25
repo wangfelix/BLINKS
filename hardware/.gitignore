@@ -1,0 +1,7 @@
+# Keep assembly photographs despite the root ignore rule for study JPEGs.
+!bodycam/images/*.jpg
+!glasses/images/*.jpg
+
+# Local build and editor output from the optional LED bring-up example.
+.pio/
+.vscode/

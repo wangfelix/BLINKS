@@ -1,8 +1,10 @@
 """Offline contract tests for the constrained VLM output shape."""
 
+import json
 import sys
 import types
 import unittest
+from unittest.mock import Mock, patch
 
 # The contract can be tested without installing the network client.
 dotenv_stub = types.ModuleType("dotenv")
@@ -26,6 +28,40 @@ def probability_distribution(
 
 
 class VlmContractTest(unittest.TestCase):
+    def _response(self, finish_reason: str = "stop"):
+        payload = {
+            "activity_probabilities": probability_distribution(
+                vlm_worker.ACTIVITY_VOCABULARY, "computer_or_monitor_use"
+            ),
+            "category_probabilities": probability_distribution(
+                vlm_worker.VLM_CATEGORIES, "work"
+            ),
+        }
+        return types.SimpleNamespace(choices=[types.SimpleNamespace(
+            finish_reason=finish_reason,
+            message=types.SimpleNamespace(content=json.dumps(payload)),
+        )])
+
+    def test_inference_uses_explicit_reasoning_and_normalizes_response(self):
+        client = Mock()
+        client.chat.completions.create.return_value = self._response()
+        with patch.object(vlm_worker, "VLM_REASONING_EFFORT", "high"), patch.object(
+            vlm_worker, "VLM_MAX_COMPLETION_TOKENS", 8192
+        ):
+            result = vlm_worker.infer(client, [b"synthetic-image"], "test context")
+        request = client.chat.completions.create.call_args.kwargs
+        self.assertEqual(request["reasoning_effort"], "high")
+        self.assertEqual(request["max_completion_tokens"], 8192)
+        self.assertIs(request["store"], False)
+        self.assertEqual(result["activity"], "computer_or_monitor_use")
+        self.assertEqual(result["category"], "work")
+
+    def test_truncated_response_is_rejected_even_with_valid_json(self):
+        client = Mock()
+        client.chat.completions.create.return_value = self._response("length")
+        with self.assertRaisesRegex(ValueError, "Incomplete output: length"):
+            vlm_worker.infer(client, [b"synthetic-image"], "test context")
+
     def test_prompt_uses_incremental_probability_elicitation(self) -> None:
         prompt = vlm_worker._build_user_prompt(
             "researcher", "writing and data analysis", 20

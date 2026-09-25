@@ -1,0 +1,198 @@
+{
+  "source_repository": "https://github.com/MKnierim/Blinks",
+  "source_revision": "0d8fa58be4bac74d579ba05c3ff33a7a50eab16e",
+  "source_date": "2026-08-07",
+  "import_date": "2026-09-24",
+  "files": [
+    {
+      "source": "docs/glasses/glasses_electronics.jpg",
+      "destination": "hardware/glasses/images/glasses_electronics.jpg",
+      "sha256": "886395677937421d4d7d0b81aea81415fe1c10e165928755d1f5d60d1717a3dd",
+      "bytes": 3784902
+    },
+    {
+      "source": "docs/glasses/step1-switchInsert.jpg",
+      "destination": "hardware/glasses/images/step1-switchInsert.jpg",
+      "sha256": "e62499376571aa5095e0b29b046a9e4dd25fa8ae6733da7d0b6a14f039075c0a",
+      "bytes": 3601852
+    },
+    {
+      "source": "docs/glasses/step2-insertsLeft.jpg",
+      "destination": "hardware/glasses/images/step2-insertsLeft.jpg",
+      "sha256": "7037841673162b283c63661abf09bc346618f3ff5387ed1ed7faf3d2c87a4251",
+      "bytes": 4248425
+    },
+    {
+      "source": "docs/glasses/step3-attachFront.jpg",
+      "destination": "hardware/glasses/images/step3-attachFront.jpg",
+      "sha256": "8bf7165f69365c5a33415dc133cd3f42b0d37680a712aae9c7f17f1e38f9aae7",
+      "bytes": 3437979
+    },
+    {
+      "source": "docs/glasses/step4-leftCover.jpg",
+      "destination": "hardware/glasses/images/step4-leftCover.jpg",
+      "sha256": "43aac9bf664bb5bdce2b52ffbaadb27ed8355fc4101afffe1d29950a5c3c2505",
+      "bytes": 3684431
+    },
+    {
+      "source": "docs/glasses/step5-frontCover.jpg",
+      "destination": "hardware/glasses/images/step5-frontCover.jpg",
+      "sha256": "6f9d63c84ea5eee3c3ed1c46f695fc0b6c9086429a6c602e6cdf834e31acb386",
+      "bytes": 3375029
+    },
+    {
+      "source": "docs/glasses/step5-rightCoverScrews.jpg",
+      "destination": "hardware/glasses/images/step5-rightCoverScrews.jpg",
+      "sha256": "16da65d8d53e98d168500df4e02a4e8a452146843d7fc7fe76863daa57d2f5f5",
+      "bytes": 4119358
+    },
+    {
+      "source": "docs/glasses/step6-attachRight.jpg",
+      "destination": "hardware/glasses/images/step6-attachRight.jpg",
+      "sha256": "3d21d14170447a9618312fabdc6c170497b0a9a9632e4701416fb9d3c92f1594",
+      "bytes": 4153023
+    },
+    {
+      "source": "docs/glasses/step7-finished.jpg",
+      "destination": "hardware/glasses/images/step7-finished.jpg",
+      "sha256": "51d99c865189bf8926f538f30ecf10b1d5c2a8af75a20f2c6cc95a562b794548",
+      "bytes": 3185948
+    },
+    {
+      "source": "docs/necklace/necklace_electronics.jpg",
+      "destination": "hardware/bodycam/images/necklace_electronics.jpg",
+      "sha256": "cfab9e6eeeef51d20be7950a7ee980a43ccd1b438c5cd4ffa38a74c81336ffdc",
+      "bytes": 4253190
+    },
+    {
+      "source": "docs/necklace/step1-angler.jpg",
+      "destination": "hardware/bodycam/images/step1-angler.jpg",
+      "sha256": "6ed196a2d586c876ef1ccb22bced68f51c32ca8ffe6263359a08769461eda3f4",
+      "bytes": 4119558
+    },
+    {
+      "source": "docs/necklace/step2-insertShield.jpg",
+      "destination": "hardware/bodycam/images/step2-insertShield.jpg",
+      "sha256": "0315463465794b33132193e5d741e1ad430f7e18d101544975690efbcf49829a",
+      "bytes": 4129936
+    },
+    {
+      "source": "docs/necklace/step3-insertSwitch.jpg",
+      "destination": "hardware/bodycam/images/step3-insertSwitch.jpg",
+      "sha256": "0ffe7b40fed306c0632cc6685a89834d5973f2b902005c28c12dd7727a1d69b4",
+      "bytes": 4030975
+    },
+    {
+      "source": "docs/necklace/step4-insertBattery.jpg",
+      "destination": "hardware/bodycam/images/step4-insertBattery.jpg",
+      "sha256": "f31701c1a6048ea566b600d0381dd742e89bc5f481f77756be8aa62fb681ea07",
+      "bytes": 4060946
+    },
+    {
+      "source": "docs/necklace/step5-join.jpg",
+      "destination": "hardware/bodycam/images/step5-join.jpg",
+      "sha256": "a93209dd31a3b7e58e71371c26c886c1e852454a7677f0b599f0381b6bfd1629",
+      "bytes": 4255548
+    },
+    {
+      "source": "docs/necklace/step6-attachNecklace.jpg",
+      "destination": "hardware/bodycam/images/step6-attachNecklace.jpg",
+      "sha256": "e13dff7c380c1297922d9ae50e54d35363e88db0deb9ac5c70f47123466cba62",
+      "bytes": 4114383
+    },
+    {
+      "source": "docs/systemDiagram.png",
+      "destination": "hardware/glasses/images/system-diagram.png",
+      "sha256": "b3906cd70c59b0153c1330007fe67a1b995bd208ab67a30f2fbcce039fe2d51d",
+      "bytes": 698289
+    },
+    {
+      "source": "models/glasses/Front-Outer.stl",
+      "destination": "hardware/glasses/models/Front-Outer.stl",
+      "sha256": "f46cf6452396ee9f3f3dc72b70caa20eaf6f2a09983de9c97a93ae3d3d543456",
+      "bytes": 8973639
+    },
+    {
+      "source": "models/glasses/Frount-Inner.stl",
+      "destination": "hardware/glasses/models/Front-Inner.stl",
+      "sha256": "5ce4bb3accd3320007f710a54d13cf654bcb67681703294064643bfdc0d675ba",
+      "bytes": 3176662
+    },
+    {
+      "source": "models/glasses/Switch.stl",
+      "destination": "hardware/glasses/models/Switch.stl",
+      "sha256": "47a46bf33918bdb8aee6d57cacb48c5806bcd228b38d0f4d22bbc7ab6ca68eed",
+      "bytes": 686805
+    },
+    {
+      "source": "models/glasses/Temple-Left-Inner.stl",
+      "destination": "hardware/glasses/models/Temple-Left-Inner.stl",
+      "sha256": "60e54b226fb89c8bc8b255c6f284691db1e0b083827b9bf5ea7788e9d388bdae",
+      "bytes": 1625627
+    },
+    {
+      "source": "models/glasses/Temple-Left-Outer.stl",
+      "destination": "hardware/glasses/models/Temple-Left-Outer.stl",
+      "sha256": "514cb7cdd376752333e5e2c391c0d6e0c9d38886272b8a09766d9f864b27a827",
+      "bytes": 3973467
+    },
+    {
+      "source": "models/glasses/Temple-Right-Inner.stl",
+      "destination": "hardware/glasses/models/Temple-Right-Inner.stl",
+      "sha256": "7580c4458a018a3d88b0e3c84a7fa1ca47660d1287e59ea5c27d077ad94579a1",
+      "bytes": 1459635
+    },
+    {
+      "source": "models/glasses/Temple-Right-Outer.stl",
+      "destination": "hardware/glasses/models/Temple-Right-Outer.stl",
+      "sha256": "5a1672b6d71765f0894aa2a403dcc19c166932243e9fa6ae7ec3e5c48edef42d",
+      "bytes": 4268461
+    },
+    {
+      "source": "models/necklace/Bottom.stl",
+      "destination": "hardware/bodycam/models/Bottom.stl",
+      "sha256": "c02a5ac38b909ee32bd12cbcd6b3867adf33e18926b527a781e52dc45f7948e9",
+      "bytes": 258111
+    },
+    {
+      "source": "models/necklace/CamAngler.stl",
+      "destination": "hardware/bodycam/models/CamAngler.stl",
+      "sha256": "4fb12907640b181d9f0ce58b047e0bf70df9b0f27098fac357fd4e6b18729cec",
+      "bytes": 189771
+    },
+    {
+      "source": "models/necklace/Top.stl",
+      "destination": "hardware/bodycam/models/Top.stl",
+      "sha256": "80b616ce8a0a895127e44a833eddcb4c7340cdde97a4a05de511bb0a944d606e",
+      "bytes": 391420
+    },
+    {
+      "source": "platformio.ini",
+      "destination": "hardware/glasses/led-test/platformio.ini",
+      "sha256": "90aac6bd5ade0e3a0cd441f9dd9af7258743ab446d4f9d3675f925a8bbf9d747",
+      "bytes": 897
+    },
+    {
+      "source": "src/main.cpp",
+      "destination": "hardware/glasses/led-test/src/main.cpp",
+      "sha256": "5f99adcf62d182b9da804ebe95681778e94796a66b887512f89ea45130dd2a9a",
+      "bytes": 6528
+    }
+  ],
+  "documentation_source": {
+    "path": "README.md",
+    "sha256": "49ba83f056c822088c971cf2f2f8c5234ae8d5ea80a3b773fa1a067b20615395",
+    "adapted_into": [
+      "hardware/README.md",
+      "hardware/bodycam/README.md",
+      "hardware/glasses/README.md"
+    ]
+  },
+  "omitted_scaffolding": [
+    ".gitignore",
+    ".vscode/extensions.json",
+    "include/README",
+    "lib/README",
+    "test/README"
+  ]
+}

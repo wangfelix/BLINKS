@@ -46,11 +46,20 @@ still being face-blurred (pipeline parallelism).
 
 ## Model: KIT SCC AI toolbox
 
-OpenAI-compatible endpoint (`https://ki-toolbox.scc.kit.edu/api/v1`), the same
-service and key the sibling KARMA project uses. Default model
-**`kit.qwen3.5-397b-A17b`** (Qwen3.5 is multimodal and accepts the worker's full
-20-image request). The endpoint is **KIT-hosted**, so even the anonymized
-frames stay inside KIT infrastructure rather than going to a public cloud.
+OpenAI-compatible endpoint (`https://ki-toolbox.scc.kit.edu/api/v1`). Default
+model **`azure.gpt-5.6-terra`**, served through **Azure in the EU** via KIT.
+On 2026-09-07 Terra replaced the unavailable Qwen endpoint following the
+335-window bodycam comparison in `analysis/model-comparison-2026-09-06/`.
+Requests use high reasoning, temperature 0, an 8,192-token completion limit
+(including reasoning), and `store=false`, as in that evaluation. The existing
+120-second worker timeout, eight-call concurrency and persistent retry policy
+remain in place. Truncated responses are rejected and enter that retry policy.
+
+Production uses Michael's separately funded KIT account. The API key remains
+in the gitignored `.env`; no key is stored in source. Prior Qwen classifications
+and completed participant reconstructions are not reprocessed by changing the
+model. Historical Qwen hosting/capacity statements below describe the earlier
+deployment and do not mean Terra inference stays on KIT infrastructure.
 
 ## Setup
 
@@ -90,11 +99,13 @@ persisted future retry time.
 |---|---|---|
 | `KIT_API_KEY` | *(required)* | KIT SCC AI toolbox API key |
 | `KIT_BASE_URL` | `https://ki-toolbox.scc.kit.edu/api/v1` | OpenAI-compatible base URL |
-| `VLM_MODEL` | `kit.qwen3.5-397b-A17b` | model name |
+| `VLM_MODEL` | `azure.gpt-5.6-terra` | model name |
 | `RECORDINGS_DIR` | `../recordings` | recordings tree (matches the server's env) |
 | `RECORDINGS_DB` | `<RECORDINGS_DIR>/recordings.db` | the SQLite index |
 | `VLM_TIMEOUT` | `120` | per-request timeout (s; multi-image requests are bigger) |
 | `VLM_TEMPERATURE` | `0.0` | sampling temperature; deterministic by default for the probability-elicitation contract |
+| `VLM_REASONING_EFFORT` | `high` | model-specific reasoning effort, matching the Terra benchmark |
+| `VLM_MAX_COMPLETION_TOKENS` | `8192` | completion cap including reasoning; incomplete responses are rejected |
 | `VLM_MAX_ATTEMPTS` | `5` | total automatic endpoint attempts in one retry cycle |
 | `VLM_RETRY_DELAYS_S` | `30,120,300,600` | persisted delay after attempts 1–4 before the next attempt |
 | `VLM_CHUNK_MAX_FRAMES` | `20` | frames sent per chunk, evenly sampled across the window (a full window at the 15 s study interval) |

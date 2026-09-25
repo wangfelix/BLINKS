@@ -45,21 +45,22 @@ Same design rule as the face-blur worker: a separate long-lived process, never
 inline with WS ingestion, so VLM latency / API errors can never cost a frame
 and old days can be re-processed later with a better model or prompt.
 
-Model: the KIT SCC AI toolbox, an OpenAI-compatible endpoint (same client as
-the sibling KARMA project). Default model `kit.qwen3.5-397b-A17b` (Qwen3.5,
-vision-capable over the API and verified with 20 VGA images per request). The
-endpoint is KIT-hosted, so even the anonymized frames stay inside KIT
-infrastructure rather than a public cloud.
+Model: the KIT SCC AI toolbox, an OpenAI-compatible endpoint. Default model
+`azure.gpt-5.6-terra`, served through Azure in the EU. The high-reasoning,
+8,192-token request configuration was evaluated on the frozen bodycam sample
+before replacing the unavailable Qwen endpoint on 2026-09-07.
 
 Config (environment variables; a local .env next to this file is auto-loaded):
     KIT_API_KEY           required: KIT SCC AI toolbox API key
     KIT_BASE_URL          OpenAI-compatible base URL
                             (default: https://ki-toolbox.scc.kit.edu/api/v1)
-    VLM_MODEL             model name           (default: kit.qwen3.5-397b-A17b)
+    VLM_MODEL             model name           (default: azure.gpt-5.6-terra)
     RECORDINGS_DIR        recordings tree      (default: ../recordings)
     RECORDINGS_DB         path to recordings.db (default: <RECORDINGS_DIR>/recordings.db)
     VLM_TIMEOUT           per-request timeout seconds (default: 120)
     VLM_TEMPERATURE       sampling temperature        (default: 0.0)
+    VLM_REASONING_EFFORT  model reasoning effort      (default: high)
+    VLM_MAX_COMPLETION_TOKENS completion including reasoning (default: 8192)
     VLM_MAX_ATTEMPTS      total automatic attempts per retry cycle (default: 5)
     VLM_RETRY_DELAYS_S    comma-separated delays after attempts 1..N-1
                             (default: 30,120,300,600)
@@ -127,10 +128,14 @@ RECORDINGS_DB = Path(
 
 KIT_API_KEY = os.environ.get("KIT_API_KEY")
 KIT_BASE_URL = os.environ.get("KIT_BASE_URL", "https://ki-toolbox.scc.kit.edu/api/v1")
-VLM_MODEL = os.environ.get("VLM_MODEL", "kit.qwen3.5-397b-A17b")
+VLM_MODEL = os.environ.get("VLM_MODEL", "azure.gpt-5.6-terra")
 
 VLM_TIMEOUT = float(os.environ.get("VLM_TIMEOUT", "120"))
 VLM_TEMPERATURE = float(os.environ.get("VLM_TEMPERATURE", "0.0"))
+VLM_REASONING_EFFORT = os.environ.get("VLM_REASONING_EFFORT", "high")
+VLM_MAX_COMPLETION_TOKENS = max(
+    1, int(os.environ.get("VLM_MAX_COMPLETION_TOKENS", "8192"))
+)
 VLM_MAX_ATTEMPTS = max(
     1,
     int(os.environ.get("VLM_MAX_ATTEMPTS", os.environ.get("VLM_MAX_RETRIES", "5"))),
@@ -447,12 +452,17 @@ def infer(client: OpenAI, images: list[bytes], user_prompt: str) -> dict:
     response = client.chat.completions.create(
         model=VLM_MODEL,
         temperature=VLM_TEMPERATURE,
+        reasoning_effort=VLM_REASONING_EFFORT,
+        max_completion_tokens=VLM_MAX_COMPLETION_TOKENS,
+        store=False,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": content},
         ],
         response_format=VLM_RESPONSE_FORMAT,
     )
+    if response.choices[0].finish_reason != "stop":
+        raise ValueError(f"Incomplete output: {response.choices[0].finish_reason}")
     text = response.choices[0].message.content or ""
     return _normalize(_extract_json_object(text))
 
@@ -895,6 +905,10 @@ def run(once: bool, max_chunks: int | None) -> None:
     _log(f"db={RECORDINGS_DB}")
     _log(f"recordings={RECORDINGS_DIR}")
     _log(f"model={VLM_MODEL} via {KIT_BASE_URL}")
+    _log(
+        f"temperature={VLM_TEMPERATURE:g}, reasoning={VLM_REASONING_EFFORT}, "
+        f"max_completion_tokens={VLM_MAX_COMPLETION_TOKENS}, store=False"
+    )
     _log(
         f"concurrency={VLM_CONCURRENCY} (in-flight endpoint calls), "
         f"refill<={BATCH_SIZE}, frames/chunk<={VLM_CHUNK_MAX_FRAMES}, "

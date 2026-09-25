@@ -93,7 +93,7 @@ The BLE phone-relay architecture stays regardless. It still removes WiFi provisi
 
 - `server/` — ingestion + auth + participant API (TypeScript/Express/ws; was the root `src/`). Recordings live in `server/recordings/`, the auth DB in `server/data/`.
 - `server/face-blur/` — face-anonymization worker (Python; CenterFace via `deface`). Polls the DB and pixelates faces in each JPEG **in place** before the frame is ever served. Separate process, never inline with ingestion.
-- `server/vlm/` — VLM scene-understanding worker (Python; KIT SCC AI toolbox, OpenAI-compatible, Qwen3.5 `kit.qwen3.5-397b-A17b`). Labels completed 5-minute chunks with multi-image requests. Separate process; runs in parallel with face-blur but waits until attached frames leave pending/processing face status.
+- `server/vlm/` — VLM scene-understanding worker (Python; KIT SCC AI toolbox, OpenAI-compatible, Terra `azure.gpt-5.6-terra` with high reasoning). Labels completed 5-minute chunks with multi-image requests. Separate process; runs in parallel with face-blur but waits until attached frames leave pending/processing face status.
 - `camera-firmware/` — production ESP32-S3 BLE peripheral firmware (promoted from `feasibility/esp32-ble-camera`; sketch file is `camera-firmware.ino` because Arduino requires sketch = folder name).
 - `blinks-edge-app/` — production Expo (Android) participant app.
 - `feasibility/` — the validated spike (`blinks-ble-app` phone side; its firmware half moved to `camera-firmware/`). Keep for reference; superseded.
@@ -185,8 +185,8 @@ The context layer is **chunk-based**: ingestion groups frames into clock-aligned
 
 - **Chunk lifecycle (server-owned, `server/src/db.ts`):** ingestion attaches each frame to a window and upserts a `filling` chunk. A later-window frame closes earlier chunks to `ready`. The last window closes through `POST /api/recording/ended`, with the `CHUNK_IDLE_CLOSE_MS` sweep as fallback. Soft-deleting a frame decrements its chunk and deletes an empty chunk so labels cannot outlive imagery. Covered by `server/scripts/test-chunks.ts`.
 
-- **Model:** the **KIT SCC AI toolbox**, an **OpenAI-compatible** endpoint (`https://ki-toolbox.scc.kit.edu/api/v1`) — the same service + API key the sibling **KARMA** project uses (`openai` client, `client.chat.completions.create`). Default model **`kit.qwen3.5-397b-A17b`** (Qwen3.5 is multimodal and accepts the worker's full 20-image request). The endpoint is **KIT-hosted**, so even anonymized frames stay inside KIT infrastructure (not a public cloud) — this is what resolved the cloud-VLM data-protection question.
-- **Auth:** `KIT_API_KEY` + `KIT_BASE_URL` via env (loaded from a **gitignored `server/vlm/.env`** for local dev, or `EnvironmentFile=` under systemd). The key is reused from KARMA; never commit it.
+- **Model (changed 2026-09-07):** the **KIT SCC AI toolbox** OpenAI-compatible endpoint (`https://ki-toolbox.scc.kit.edu/api/v1`) now defaults to **`azure.gpt-5.6-terra`**, served through **Azure in the EU**. Terra replaced the unavailable Qwen endpoint after the 335-window bodycam comparison. Requests use temperature 0, `reasoning_effort=high`, `max_completion_tokens=8192` including reasoning, and `store=false`; truncated responses are rejected. The prompt, schema, probability validator, 120-second production timeout, eight-call concurrency and retry policy remain unchanged. Historical Qwen records remain intact. The earlier statement that inference stayed entirely inside KIT applied to Qwen, not Terra.
+- **Auth:** `KIT_API_KEY` + `KIT_BASE_URL` via env (loaded from a **gitignored `server/vlm/.env`** for local dev, or `EnvironmentFile=` under systemd). Production now uses Michael's separately funded KIT API key; never commit it.
 - **The ordering gate is a column, not a lock.** Workers run independently in parallel; the VLM worker only claims `chunks.status='ready'` when no attached frame is still `face_status` `pending`/`processing`, so it never sees an un-anonymized face. A chunk whose frames all failed blur is marked failed without an API call.
 - **Lifecycle + retry audit (added 2026-08-04):** `chunks.status` is `ready → processing → done`; retryable failures return to `ready` with persisted 30 s, 2 min, 5 min, and 10 min delays, reaching terminal `failed` only after `VLM_MAX_ATTEMPTS=5`. `chunks` retains lifetime/current-cycle counters, next-attempt time, and last error type. Every call is retained in `vlm_attempts` with model, timing/duration, images sent, configured timeout, outcome, error class, and HTTP status; no raw response/error body is stored. Startup closes open attempt rows as `interrupted` and reclaims their chunks under the single-worker assumption.
 - **Structured output:** the request supplies a strict JSON schema containing only complete numeric distributions over the exact activity and category key sets. Local validation rejects missing/extra keys, invalid values, and distributions that do not approximately sum to one; the worker normalizes accepted rounding and derives both labels by argmax.
@@ -287,7 +287,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now blinks-vlm
 - Auth (argon2id users, opaque tokens), participant-scoped read/edit API, phone-as-client ingestion with phone-declared sessions and phone-stamped capture times.
 - SQLite frame index (see below), pause/resume across all three layers, GDPR per-frame delete.
 - **Automatic face anonymization** (`server/face-blur/`, 2026-06-24): CenterFace detect + pixelate in place before serving/VLM, with a read-API serving gate. See the Face anonymization section above.
-- **VLM scene-understanding worker** (`server/vlm/`, 2026-06-25; chunk rework 2026-07-19): KIT SCC AI toolbox (Qwen3.5 `kit.qwen3.5-397b-A17b`, OpenAI-compatible) writes activity and category probability distributions plus their argmax labels per completed 5-minute chunk after face processing. See the VLM worker section above.
+- **VLM scene-understanding worker** (`server/vlm/`, 2026-06-25; chunk rework 2026-07-19): KIT SCC AI toolbox (Terra `azure.gpt-5.6-terra` since 2026-09-07, OpenAI-compatible) writes activity and category probability distributions plus their argmax labels per completed 5-minute chunk after face processing. See the VLM worker section above.
 - **Production deployment** (KIT VM, 2026-08-04): HTTPS via Let's Encrypt, four systemd services behind Apache, tracked config and a one-command deploy script in `deploy/`. See the Deployment status section above.
 
 ### Next
@@ -424,7 +424,7 @@ cd vlm && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   #
 cp .env.example .env                          # then put the real KIT_API_KEY in .env (gitignored)
 .venv/bin/python vlm_worker.py                # daemon: poll + describe forever
 .venv/bin/python vlm_worker.py --once         # process the current backlog, then exit
-# model defaults to kit.qwen3.5-397b-A17b via the KIT SCC AI toolbox — see vlm/README.md
+# model defaults to azure.gpt-5.6-terra via the KIT SCC AI toolbox — see vlm/README.md
 ```
 
 App (from `blinks-edge-app/`):
