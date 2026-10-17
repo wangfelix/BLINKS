@@ -12,3 +12,7 @@ node_modules/
 
 # IDE caches
 .cache/
+
+# Real study configuration (PIN, survey and payout links). Only
+# config/study.example.yaml is tracked.
+config/study.yaml
