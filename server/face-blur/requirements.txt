@@ -15,3 +15,7 @@
 
 deface==1.5.0
 numpy>=1.24
+
+# Shared study-config loader (server/blinks_study_config.py).
+PyYAML>=6.0
+jsonschema>=4.20
