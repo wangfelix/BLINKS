@@ -367,9 +367,16 @@ app.get("/api/app-config", auth_1.requireAuth, (_req, res) => {
     res.set("Cache-Control", "no-store");
     res.json((0, client_1.appConfigResponse)());
 });
-// Unauthenticated redirect (opened in a new tab, no bearer possible).
-app.get("/api/payout", (_req, res) => {
+// Payout redirect (contract 4.2). Opened as a same-origin browser link, so no
+// bearer header: the blinks_token cookie is accepted as on /frames/*, and the
+// participant must have completed onboarding (as the master Next.js gate did).
+// GET-only and side-effect free, so the cookie fallback is CSRF-safe. Without
+// a valid participant session: 401/403 JSON, never the payout link.
+const noStore = (_req, res, next) => {
     res.set("Cache-Control", "no-store");
+    next();
+};
+app.get("/api/payout", noStore, auth_1.requireAuthWithCookieFallback, auth_1.requireCompletedOnboarding, (_req, res) => {
     const payoutUrl = study_config_1.studyConfig.surveys.payoutUrl;
     if (typeof payoutUrl !== "string" || !/^https:\/\/\S+$/.test(payoutUrl)) {
         res.status(503).type("text/plain").send("Payout link is not configured.");

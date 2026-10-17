@@ -268,11 +268,13 @@ const request = async (
   route: string,
   token?: string,
   body?: unknown,
+  extraHeaders: Record<string, string> = {},
 ): Promise<{ status: number; json: any; headers: Headers; text: string }> => {
   const response = await fetch(`${BASE}${route}`, {
     method,
     redirect: "manual",
     headers: {
+      ...extraHeaders,
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
@@ -334,11 +336,36 @@ test("http: GET /api/app-config (participant only, PIN never logged)", async () 
   assert.ok(!serverLog.includes("123456"), "PIN must not be logged");
 });
 
-test("http: GET /api/payout redirects without auth", async () => {
-  const response = await request("GET", "/api/payout");
-  assert.strictEqual(response.status, 302);
-  assert.strictEqual(response.headers.get("location"), "https://payout.example.org/test");
-  assert.strictEqual(response.headers.get("cache-control"), "no-store");
+test("http: GET /api/payout needs a participant session with completed onboarding", async () => {
+  const cookie = (token: string) => ({ Cookie: `other=1; blinks_token=${encodeURIComponent(token)}` });
+  const anonymous = await request("GET", "/api/payout");
+  assert.deepStrictEqual([anonymous.status, anonymous.json], [401, { error: "unauthorized" }]);
+  assert.strictEqual(anonymous.headers.get("location"), null, "no payout link without login");
+  assert.strictEqual(anonymous.headers.get("cache-control"), "no-store");
+  assert.strictEqual((await request("GET", "/api/payout", undefined, undefined, cookie("bogus"))).status, 401);
+  assert.strictEqual((await request("GET", "/api/payout", adminToken)).status, 401, "admin is not a participant");
+  assert.strictEqual(
+    (await request("GET", "/api/payout", undefined, undefined, { Cookie: `blinks_admin_token=${adminToken}` })).status,
+    401,
+  );
+  const notOnboarded = await request("GET", "/api/payout", undefined, undefined, cookie(participantToken));
+  assert.deepStrictEqual([notOnboarded.status, notOnboarded.json?.code], [403, "onboarding_required"]);
+  assert.strictEqual(notOnboarded.headers.get("location"), null);
+
+  // complete onboarding (lab password -> own password, then confirm)
+  const changed = await request("POST", "/api/onboarding/password", participantToken, { newPassword: "private-password-42" });
+  assert.strictEqual(changed.status, 200, changed.text);
+  const completed = await request("POST", "/api/onboarding/complete", participantToken);
+  assert.strictEqual(completed.status, 200, completed.text);
+
+  for (const response of [
+    await request("GET", "/api/payout", undefined, undefined, cookie(participantToken)),
+    await request("GET", "/api/payout", participantToken),
+  ]) {
+    assert.strictEqual(response.status, 302);
+    assert.strictEqual(response.headers.get("location"), "https://payout.example.org/test");
+    assert.strictEqual(response.headers.get("cache-control"), "no-store");
+  }
 });
 
 test("http: POST /api/recording/device-info (201, 200 replay, 409, 400, 401)", async () => {
