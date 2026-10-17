@@ -2,20 +2,21 @@
 // Local-time helpers for the DRM subproject.
 //
 // A "study day" is a local calendar date string YYYY-MM-DD in the study
-// timezone (env DRM_TZ, default Europe/Berlin), derived from
+// timezone (study.timezone in the study config), derived from
 // frames.capture_epoch_ms. Everything here goes through Intl.DateTimeFormat
 // so DST is handled by the platform; no date libraries.
 // ===========================================================================
 
-const DRM_TZ = process.env.DRM_TZ ?? "Europe/Berlin";
+import { studyConfig } from "./study-config";
+
+const DRM_TZ = studyConfig.study.timezone;
 
 // A waking day does not end at midnight. Every study day therefore extends
 // past its calendar date by this much, so a participant reconstructing from
 // memory can report the activities that ran into the small hours (going to
 // bed at 00:30 is an ordinary end to a field day, not a second day). This is
 // the diary-study convention of a 04:00 day boundary.
-export const DAY_OVERRUN_MS =
-  Number(process.env.DRM_DAY_OVERRUN_HOURS ?? 4) * 3_600_000;
+export const DAY_OVERRUN_MS = studyConfig.schedule.dayOverrunHours * 3_600_000;
 
 // en-CA formats as YYYY-MM-DD, exactly the day-key shape the contract fixes.
 const dayKeyFormatter = new Intl.DateTimeFormat("en-CA", {

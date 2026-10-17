@@ -102,11 +102,8 @@ test("example = today's server constants", () => {
   assert.equal(example.study.timezone, "Europe/Berlin");
   assert.equal(example.privacy.faceBlur.enabled, true);
 
-  const push = readRepoFile("server/src/push.ts");
-  assert.match(push, /BEDTIME_REMINDER_LEAD_MIN = 30;/);
-  assert.match(push, /LATEST_REMINDER_MINUTES = 23 \* 60 \+ 50;/);
-  assert.match(push, /DRM_DEFAULT_BEDTIME \?\? "22:00"/);
-  assert.match(push, /bedMinutes < 12 \* 60/);
+  // Paper-study values that used to be hardcoded in push.ts / blur_worker.py
+  // (both read the config since WP1, so the values are frozen here).
   assert.deepEqual(example.reminders.bedtime, {
     enabled: true,
     leadMinutes: 30,
@@ -115,12 +112,14 @@ test("example = today's server constants", () => {
     afterMidnightCutoff: "12:00",
   });
 
-  const blur = readRepoFile("server/face-blur/blur_worker.py");
-  assert.match(blur, /"FACE_THRESHOLD", "0\.2"/);
-  assert.match(blur, /"FACE_METHOD", "mosaic"/);
-  assert.match(blur, /"FACE_BLOCKS", "8"/);
-  assert.match(blur, /"FACE_BLUR_KSIZE", "0"/);
-  assert.match(blur, /"FACE_MARGIN", "0\.12"/);
+  assert.deepEqual(example.privacy.faceBlur, {
+    enabled: true,
+    threshold: 0.2,
+    method: "mosaic",
+    blocks: 8,
+    blurKernel: 0,
+    margin: 0.12,
+  });
 
   assert.match(
     readRepoFile("camera-firmware/camera-firmware.ino"),
@@ -160,7 +159,6 @@ test("example = today's drm-web labels and texts", () => {
     ),
     editor: readRepoFile("drm-web/src/components/reconstruct/round-editor.tsx"),
     progress: readRepoFile("drm-web/src/components/study-progress.tsx"),
-    push: readRepoFile("server/src/push.ts"),
     notification: readRepoFile(
       "blinks-edge-app/src/capture/service/foreground-service.ts",
     ),
@@ -202,8 +200,12 @@ test("example = today's drm-web labels and texts", () => {
   expectIn("editor", rounds.selfEmptyStateHint);
   expectIn("progress", progress.selfRound);
   expectIn("progress", progress.assistedRound);
-  expectIn("push", push.bedtimeTitle);
-  expectIn("push", push.bedtimeBody);
+  // push.ts reads texts.push since WP1; frozen paper-study wording:
+  assert.equal(push.bedtimeTitle, "Before you go to bed");
+  assert.equal(
+    push.bedtimeBody,
+    "Please open the study website and reconstruct today before going to sleep.",
+  );
   expectIn("notification", app.recordingNotificationTitle);
   expectIn("notification", app.recordingNotificationBody);
   expectIn("notification", app.testRecordingNotificationTitle);

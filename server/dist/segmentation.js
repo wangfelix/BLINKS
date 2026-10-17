@@ -11,7 +11,9 @@
 //   2. Successive available, successfully labelled chunks merge only when
 //      both their normalized activity enum and category match.
 //   3. Capture gaps receive no special treatment. Equal labelled chunks before
-//      and after a period with no chunks merge into one activity.
+//      and after a period with no chunks merge into one activity
+//      (segmentation.mergeAcrossCaptureGaps=true, the paper default; false
+//      makes every gap a boundary).
 //   4. Failed/unlabelled chunks each remain a separate null/null activity for
 //      participant correction. They are never assigned a neighbor's label.
 //
@@ -35,7 +37,10 @@ const storedLabel = (label) => {
     const cleaned = label.trim().replace(/\s+/g, " ");
     return cleaned.length > 0 ? cleaned : null;
 };
-function segmentDay(chunks) {
+const DEFAULT_SEGMENTATION_OPTIONS = {
+    mergeAcrossCaptureGaps: true,
+};
+function segmentDay(chunks, options = DEFAULT_SEGMENTATION_OPTIONS) {
     const activities = [];
     for (const chunk of chunks) {
         const label = storedLabel(chunk.vlmLabel);
@@ -60,7 +65,8 @@ function segmentDay(chunks) {
         if (isLabelled &&
             previous !== undefined &&
             previous.categoryLabel === category &&
-            normalizeLabel(previous.rawLabel) === normalized) {
+            normalizeLabel(previous.rawLabel) === normalized &&
+            (options.mergeAcrossCaptureGaps || previous.endMs === chunk.chunkStartMs)) {
             // Deliberately bridges periods with no chunks: capture gaps do not create
             // a boundary when the surrounding classifications match.
             previous.endMs = chunk.chunkEndMs;
