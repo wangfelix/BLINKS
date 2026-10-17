@@ -422,7 +422,7 @@ const main = async () => {
     appConfigStore.setCameraFormFactor(formFactor);
   });
 
-  await test("POST /api/recording/device-info: 201, duplicate 200, 409 dropped, offline kept", async () => {
+  await test("POST /api/recording/device-info: 201, duplicate 200, 409 dropped, over-cap 200 dropped, offline kept", async () => {
     const state = await fetchRecordingState();
     const session = state.sessionId ?? Math.floor(Date.now() / 1000);
     const memory = new Map<string, string>();
@@ -454,6 +454,19 @@ const main = async () => {
 
     await queue.enqueue({ ...base, requestedIntervalMs: 99_999 }); // 409 -> dropped
     assert.equal(await queue.pendingCount(), 0);
+
+    // Above the server's per-participant cap: 200 {stored: false} = final.
+    const capped = createDeviceInfoQueue({
+      storage: {
+        get: async (k) => memory.get(k) ?? null,
+        set: async (k, v) => void memory.set(k, v),
+        delete: async (k) => void memory.delete(k),
+      },
+      submit: async () => ({ ok: true, duplicate: false, stored: false }),
+      getUsername: () => username,
+    });
+    await capped.enqueue({ ...base, eventId: `${base.eventId}-capped` });
+    assert.equal(await capped.pendingCount(), 0, "over the cap: dropped");
 
     globalThis.fetch = (async () => {
       throw new TypeError("network down");

@@ -56,8 +56,10 @@ export interface DeviceInfoReportRequest {
   info: Record<string, unknown> | null;
 }
 
+// 201 stored, 200 duplicate or (stored: false) above the server's
+// per-participant cap: all final, the queue drops the report.
 export const submitDeviceInfoReport = (report: DeviceInfoReportRequest) =>
-  apiClient.post<{ ok: true; duplicate: boolean }>(
+  apiClient.post<{ ok: true; duplicate: boolean; stored?: boolean }>(
     "/api/recording/device-info",
     report,
   );

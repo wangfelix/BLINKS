@@ -21,7 +21,8 @@ const QUEUE_KEY_PREFIX = "blinks.device-info-reports";
 // SecureStore values above ~2 KB can fail; one report is ~300 bytes.
 export const MAX_PENDING_DEVICE_INFO_REPORTS = 4;
 
-// 200/201 = stored, 400/409 = will never succeed: all of them leave the queue.
+// 201 = stored, 200 = duplicate or over the server cap (stored: false),
+// 400/409 = will never succeed: all of them leave the queue.
 // Only network errors (status 0) and 5xx are retried; anything else (e.g. 401
 // before the sign-out completes) stays queued for the next attempt as well.
 const isFinalResponse = (error: unknown): boolean =>
