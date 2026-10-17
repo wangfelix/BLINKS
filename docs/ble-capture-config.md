@@ -112,3 +112,24 @@ Die App sendet nach jedem Connect (nach Schritt 4) und loggt zusätzlich lokal.
 4. Disconnect/Reconnect: Firmware fällt auf den Default, App setzt neu.
 5. Alte App + neue Firmware (Default) und neue App + alte Firmware (kein `…0004`, kein `0x03`, keine Störung).
 6. Glasses: kurzer Akku-Test 30 s vs. 15 s.
+
+## 6. Bekannte Einschränkung: keine BLE-Authentifizierung (Review PR #1, m8)
+
+Die Control-Characteristic (`…0003`) ist wie bisher ohne Pairing/Bonding und ohne
+Verschlüsselung beschreibbar. Das galt schon für Pause/Resume (`0x01`/`0x02`), mit
+`0x03` kann jetzt aber auch jedes Gerät in Funkreichweite das Intervall ändern:
+5 s leert den Akku schneller, 600 s heißt weniger Fotos und damit Datenverlust.
+
+Bewusst nicht behoben (Follow-up, kein Teil von WP1):
+
+- Die Firmware klemmt auf 5000–600000 ms und fällt bei jedem Disconnect auf den
+  Default zurück. Die App setzt das Studienintervall bei jedem Connect neu.
+- Die App liest `…0004` nach dem Schreiben und meldet das wirksame Intervall per
+  `POST /api/recording/device-info`. Eine fremde Änderung während einer bestehenden
+  Verbindung ist darin nicht sichtbar (die Firmware loggt sie nur auf Serial).
+- Mögliche Härtung später: Bonding mit verschlüsselter Characteristic
+  (`WRITE_ENC`/`WRITE_AUTHEN` in NimBLE), oder mindestens eine Notify auf `…0004`,
+  wenn das Intervall vom Wert der App abweicht.
+
+Im Hardware-Test (Abschnitt 5) mitprüfen: Ein zweites Telefon schreibt `0x03`
+während einer laufenden Session; das Serial-Log zeigt die Änderung.
