@@ -1,6 +1,6 @@
 # BLE: Capture-Intervall setzen (`0x03`) + Device-Info (`…0004`) — WP0-Entwurf
 
-Status: **Entwurf zur Review durch Martin** (BLINKS-tasks#3/#4), Pre-Review
+Status: **Freigegeben** (Martin, 17.10.), vorher Entwurf (BLINKS-tasks#3/#4), Pre-Review
 (https://github.com/wangfelix/BLINKS-tasks/issues/3#issuecomment-6237693031) eingearbeitet.
 Gilt für beide Firmwares (`camera-firmware/` = Necklace, `glasses-camera-firmware/`
 = Glasses, der PIO-Build inkludiert die Glasses-`.ino`) und die App
@@ -85,9 +85,9 @@ Reihenfolge nach jedem (Re-)Connect:
 Fehler in 2–4 brechen die Aufnahme **nie** ab. Ändert sich die Bauform in Study
 Settings während einer Verbindung, schreibt die App `0x03` sofort neu und liest `…0004`.
 
-## 4. Device-Info an den Server melden? (offen für Felix)
+## 4. Device-Info an den Server melden (F3, entschieden: ja)
 
-**Vorschlag: ja**, minimal und append-only.
+Entschieden von Felix am 17.10.: ja, minimal und append-only. Request-Format: `docs/study-config-contract.md`, Abschnitt 4.8.
 
 Begründung:
 - Das effektive Intervall bestimmt, wie viele Frames ein 5-Minuten-Fenster maximal
@@ -98,16 +98,11 @@ Begründung:
 - Mit konfigurierbarem Intervall ist das neu eine echte Variable. Ein Klemmen oder
   alte Firmware würde sonst unbemerkt bleiben.
 
-Form (Vorschlag): `POST /api/recording/device-info` (Participant-Bearer) mit
-`{ session, device, clientEpochMs, info: <JSON aus …0004> }` nach Schritt 4 bei
-jedem Connect. Speicherung in einer neuen Tabelle
-`device_info_reports(participant, session, device, client_epoch_ms, server_received_epoch_ms, firmware_version, form_factor, interval_ms, default_ms)`.
+Endpunkt `POST /api/recording/device-info`, Tabelle `device_info_reports`.
 Best-effort: Queue wie bei Recording-Events, Fehler blockieren nie. Kein Teil der
 Recording-Events, damit deren Idempotenz-Regeln unverändert bleiben.
 
-Folgen: neue Tabelle mit Gerätedaten in der Prod-DB, kleiner zusätzlicher Endpunkt.
-Deshalb **offen für Felix (F3)**. Bis zur Entscheidung loggt die App nur. Der
-Endpunkt kann nach der Freigabe nachgezogen werden, ohne den übrigen Vertrag zu ändern.
+Die App sendet nach jedem Connect (nach Schritt 4) und loggt zusätzlich lokal.
 
 ## 5. Hardware-Test (Felix, im Firmware-PR)
 
