@@ -48,14 +48,14 @@ still being face-blurred (pipeline parallelism).
 
 OpenAI-compatible endpoint (`https://ki-toolbox.scc.kit.edu/api/v1`). Default
 model **`azure.gpt-5.6-terra`**, served through **Azure in the EU** via KIT.
-On 2026-09-07 Terra replaced the unavailable Qwen endpoint following the
-335-window bodycam comparison in `analysis/model-comparison-2026-09-06/`.
-Requests use high reasoning, temperature 0, an 8,192-token completion limit
-(including reasoning), and `store=false`, as in that evaluation. The existing
+On 2026-09-07 Terra replaced the unavailable Qwen endpoint following a
+335-window bodycam comparison. Requests use high reasoning, temperature 0, an
+8,192-token completion limit (including reasoning), and `store=false`, as in
+that evaluation. The existing
 120-second worker timeout, eight-call concurrency and persistent retry policy
 remain in place. Truncated responses are rejected and enter that retry policy.
 
-Production uses Michael's separately funded KIT account. The API key remains
+Production uses a separate KIT account. The API key remains
 in the gitignored `.env`; no key is stored in source. Prior Qwen classifications
 and completed participant reconstructions are not reprocessed by changing the
 model. Historical Qwen hosting/capacity statements below describe the earlier
