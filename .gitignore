@@ -16,3 +16,6 @@ node_modules/
 # Real study configuration (PIN, survey and payout links). Only
 # config/study.example.yaml is tracked.
 config/study.yaml
+
+# Python bytecode (study-config loader imported by the workers)
+__pycache__/

@@ -7,7 +7,12 @@ After=network-online.target blinks.service
 WorkingDirectory=/root/BLINKS/server/face-blur
 ExecStart=/root/BLINKS/server/face-blur/.venv/bin/python blur_worker.py
 Environment=RECORDINGS_DIR=/root/BLINKS/server/recordings
-Restart=always
+# Study config /root/BLINKS/config/study.yaml is required in production.
+Environment=BLINKS_ENV=production
+# on-failure, not always: with privacy.faceBlur.enabled=false the worker
+# finishes the pending backlog and exits 0 on purpose. An invalid config
+# exits 2 and is retried (and logged) every RestartSec.
+Restart=on-failure
 RestartSec=5
 UMask=0077
 
