@@ -32,7 +32,7 @@ import {
   sessionDayKey,
 } from "../src/time";
 
-process.env.TZ = process.env.TZ ?? "UTC"; // the study TZ comes from DRM_TZ
+process.env.TZ = process.env.TZ ?? "UTC"; // the study TZ comes from the study config
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "blinks-study-day-test-"));
 initDb(path.join(dir, "recordings.db"));

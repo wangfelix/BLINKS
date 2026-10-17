@@ -66,6 +66,7 @@ export function participantFromAuthHeader(
 // participant to the request.
 export interface AuthenticatedRequest extends Request {
   participant?: string;
+  authRole?: "participant" | "admin";
 }
 
 export function requireAuth(
@@ -99,6 +100,24 @@ export function requireAdmin(
     return;
   }
   req.participant = username;
+  next();
+}
+
+// Participant OR admin bearer (GET /api/study-config). Sets req.authRole so
+// the route can withhold participant-only fields from admins.
+export function requireParticipantOrAdmin(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): void {
+  const username = usernameFromAuthHeader(req.headers.authorization);
+  const role = username === null ? undefined : getUser(username)?.role;
+  if (username === null || (role !== "participant" && role !== "admin")) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+  req.participant = username;
+  req.authRole = role;
   next();
 }
 

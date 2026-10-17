@@ -4,21 +4,24 @@ import path = require("path");
 import Database = require("better-sqlite3");
 import WebSocket = require("ws");
 import { ACTIVITY_LABELS } from "../src/activity-vocabulary";
+import { studyConfig } from "../src/study-config";
 
 // End-to-end smoke test against a locally running server. Expects:
 //   RECORDINGS_DIR/DATA_DIR pointing at a throwaway directory
 //   two users created via create-user:
 //     npx tsx scripts/create-user.ts smoketester password123
 //     npx tsx scripts/create-user.ts smokesecond password123
-//   the server running with DRM_AVAILABLE_FROM_HOUR=0 and DISABLE_PUSH=1
+//   the server running with DISABLE_PUSH=1 and BLINKS_STUDY_CONFIG pointing
+//   at a copy of config/study.example.yaml whose schedule.reconstructionOpensAt
+//   is "00:00" (see COMMANDS.md)
 // The test reads RECORDINGS_DIR to reach recordings.db, so it can simulate the
 // face-blur worker (face_status='done') and the chunk VLM worker
 // (chunks.status='done' + labels/categories) without running Python.
 // Run via: npx tsx scripts/smoke-test.ts (against a running server)
 //
-// Not covered here: the evening-gate hour branch (the server must run with
-// DRM_AVAILABLE_FROM_HOUR=0 so the study day is open at all) — isDayAvailable
-// is the same three-line comparison as before the rounds rewrite.
+// Not covered here: the evening-gate time branch (the server must run with
+// reconstructionOpensAt "00:00" so the study day is open at all) —
+// isDayAvailable is a single minutes comparison.
 
 const BASE_URL = process.env.SMOKE_BASE_URL ?? "http://127.0.0.1:3100";
 const WS_URL = BASE_URL.replace(/^http/, "ws");
@@ -60,7 +63,7 @@ const categoryConfidenceScores = (
 
 // --- Study-day helpers (mirror server/src/time.ts; Europe/Berlin default) ----
 
-const DRM_TZ = process.env.DRM_TZ ?? "Europe/Berlin";
+const DRM_TZ = studyConfig.study.timezone; // same config as the server
 const dayKeyFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: DRM_TZ,
   year: "numeric",
@@ -891,7 +894,9 @@ const main = async (): Promise<void> => {
     "the day's extent contains its own frames",
   );
   assert.strictEqual(state.frameCount, 11, "4 base + 7 fixture frames today");
-  assert.strictEqual(state.available, true, "DRM_AVAILABLE_FROM_HOUR=0");
+  assert.strictEqual(state.available, true, 'reconstructionOpensAt "00:00"');
+  assert.strictEqual(state.availableFrom, "00:00");
+  assert.ok(!("availableFromHour" in state), "availableFromHour was replaced");
   assert.deepStrictEqual(
     state.rounds.map((r: any) => [r.round, r.status, r.locked]),
     [
@@ -979,7 +984,7 @@ const main = async (): Promise<void> => {
       source: "user",
       vlmRawLabel: "smuggled", // must be dropped server-side
       vlmCategory: "work",
-      workloadRating: 7, // top of the 7-point scale, must round-trip
+      ratings: { mental_demand: 7 }, // top of the 7-point scale, must round-trip
     },
     {
       startMs: t0,
@@ -987,7 +992,7 @@ const main = async (): Promise<void> => {
       rawLabel: "eating_drinking",
       categoryLabel: "break",
       source: "user",
-      recoveryRating: 2,
+      ratings: { mental_recovery: 2 },
     },
   ];
   const round1FirstSave = await api("/api/reconstruction/round/1", {
@@ -1089,9 +1094,9 @@ const main = async (): Promise<void> => {
     expectStatus: 400,
   });
 
-  // ...plus the category's experience rating: a work activity without its
-  // workloadRating (or a break without recoveryRating) cannot be submitted,
-  // and out-of-range ratings are rejected outright.
+  // ...plus the category's required experience items: a work activity
+  // without ratings.mental_demand cannot be submitted, and out-of-range
+  // ratings are rejected outright (contract 4.6 error texts).
   await api("/api/reconstruction/round/1/submit", {
     method: "POST",
     token,
@@ -1119,11 +1124,59 @@ const main = async (): Promise<void> => {
           rawLabel: "computer_or_monitor_use",
           categoryLabel: "work",
           source: "user",
-          workloadRating: 8, // 7-point Likert: 1-7 only
+          ratings: { mental_demand: 8 }, // 7-point Likert: 1-7 only
         },
       ],
     },
     expectStatus: 400,
+  });
+  const ratingErrorCases: [Record<string, unknown>, string][] = [
+    [{ ratings: [] }, "activity 0: ratings must be an object"],
+    [{ ratings: { focus: 3 } }, 'activity 0: unknown rating item "focus"'],
+    [{ ratings: { mental_demand: 0 } }, "activity 0: ratings.mental_demand must be an integer 1-7 or null"],
+    [{ ratings: { mental_demand: 2.5 } }, "activity 0: ratings.mental_demand must be an integer 1-7 or null"],
+    [{ workloadRating: 4 }, "activity 0: workloadRating is no longer supported, use ratings"],
+    [{ recoveryRating: null }, "activity 0: recoveryRating is no longer supported, use ratings"],
+  ];
+  for (const [extra, expectedError] of ratingErrorCases) {
+    const response = await fetch(`${BASE_URL}/api/reconstruction/round/1`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        activities: [
+          {
+            startMs: baseT,
+            endMs: baseT + 90_000,
+            rawLabel: "computer_or_monitor_use",
+            categoryLabel: "work",
+            source: "user",
+            ...extra,
+          },
+        ],
+      }),
+    });
+    assert.strictEqual(response.status, 400);
+    assert.deepStrictEqual(await response.json(), { error: expectedError });
+  }
+  const missingRequired = await fetch(`${BASE_URL}/api/reconstruction/round/1/submit`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      activities: [
+        {
+          startMs: baseT,
+          endMs: baseT + 90_000,
+          rawLabel: "computer_or_monitor_use",
+          categoryLabel: "work",
+          source: "user",
+          ratings: { mental_recovery: 3 }, // stored, but not the work item
+        },
+      ],
+    }),
+  });
+  assert.strictEqual(missingRequired.status, 400);
+  assert.deepStrictEqual(await missingRequired.json(), {
+    error: "activity 0: ratings.mental_demand is required to submit a work activity",
   });
 
   const round1Submit = await api("/api/reconstruction/round/1/submit", {
@@ -1318,8 +1371,8 @@ const main = async (): Promise<void> => {
   const submittedRound1 = await api("/api/reconstruction/round/1", { token });
   assert.deepStrictEqual(
     submittedRound1.activities.map((a: any) => [
-      a.workloadRating,
-      a.recoveryRating,
+      a.ratings.mental_demand,
+      a.ratings.mental_recovery,
     ]),
     [
       [7, null],
@@ -1722,7 +1775,7 @@ const main = async (): Promise<void> => {
       categoryLabel: "work",
       source: "vlm",
       proposalActivityId: generated.activities[1].proposalActivityId,
-      workloadRating: 5,
+      ratings: { mental_demand: 5 },
     },
     {
       startMs: t0 + 152_000,
@@ -1731,7 +1784,7 @@ const main = async (): Promise<void> => {
       categoryLabel: "break",
       source: "user", // participant inserted this one from memory
       proposalActivityId: null,
-      recoveryRating: 4,
+      ratings: { mental_recovery: 4 },
     },
     {
       startMs: t0 + 300_000,
@@ -1740,7 +1793,7 @@ const main = async (): Promise<void> => {
       categoryLabel: "work",
       source: "vlm",
       proposalActivityId: generated.activities[2].proposalActivityId,
-      workloadRating: 2,
+      ratings: { mental_demand: 2 },
     },
     {
       startMs: t0 + 600_000,

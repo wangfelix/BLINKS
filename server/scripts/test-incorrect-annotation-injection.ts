@@ -1,6 +1,7 @@
 import assert = require("assert");
 
 import {
+  CONFIGURED_OVERRELIANCE,
   INCORRECT_ANNOTATION_MIN_MEAN_CONFIDENCE,
   INCORRECT_ANNOTATION_RATE,
   injectIncorrectAnnotations,
@@ -86,6 +87,40 @@ assert.equal(
     .isIncorrectAnnotationInjected,
   false,
   "blank activities are excluded",
+);
+
+// Study config switches (overreliance.*).
+const twenty = Array.from({ length: 20 }, (_, index) => activity(index, 0.95));
+assert.ok(
+  injectIncorrectAnnotations(twenty, () => 0, { ...CONFIGURED_OVERRELIANCE, enabled: false }).every(
+    (entry) =>
+      !entry.isIncorrectAnnotationInjected &&
+      entry.presentedRawLabel === entry.rawLabel &&
+      entry.presentedCategoryLabel === entry.categoryLabel,
+  ),
+  "enabled=false never injects",
+);
+assert.equal(
+  injectIncorrectAnnotations(
+    [activity(0, 0.5), activity(1, 0.79)],
+    () => 0,
+    { ...CONFIGURED_OVERRELIANCE, fallbackToTopWhenNoneAboveThreshold: false },
+  ).filter((entry) => entry.isIncorrectAnnotationInjected).length,
+  0,
+  "fallback off: nothing injected when none reaches minConfidence",
+);
+assert.equal(
+  injectIncorrectAnnotations(twenty, () => 0, { ...CONFIGURED_OVERRELIANCE, rate: 0.25 }).filter(
+    (entry) => entry.isIncorrectAnnotationInjected,
+  ).length,
+  5,
+  "rate is configurable (ceil(20 * 0.25))",
+);
+const twoKeys = { ...CONFIGURED_OVERRELIANCE, activityKeys: ["computer_or_monitor_use", "eating_drinking"], categoryKeys: ["work", "break"] };
+const swapped = injectIncorrectAnnotations([activity(0, 0.95)], () => 0, twoKeys)[0];
+assert.ok(
+  twoKeys.activityKeys.includes(swapped.presentedRawLabel!) && twoKeys.categoryKeys.includes(swapped.presentedCategoryLabel!),
+  "replacement labels come from the configured vocabulary",
 );
 
 console.log("INCORRECT ANNOTATION INJECTION TESTS PASSED");

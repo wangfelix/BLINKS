@@ -16,7 +16,10 @@
     "backfill-demo-probabilities": "tsx scripts/backfill-demo-vlm-probabilities.ts",
     "analyze-agreement": "tsx scripts/analyze-label-agreement.ts",
     "generate-study-config-schema": "tsx scripts/generate-study-config-schema.ts",
-    "test-study-config-schema": "tsx scripts/test-study-config-schema.ts"
+    "test-study-config-schema": "tsx scripts/test-study-config-schema.ts",
+    "test-study-config-runtime": "tsx scripts/test-study-config-runtime.ts",
+    "test-ratings-migration": "tsx scripts/test-ratings-migration.ts",
+    "check-ratings-migration-copy": "tsx scripts/check-ratings-migration-copy.ts"
   },
   "dependencies": {
     "argon2": "^0.44.0",

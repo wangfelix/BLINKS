@@ -3,7 +3,8 @@
 //
 // Resolution:
 //   1. env BLINKS_STUDY_CONFIG (absolute, or relative to the working dir).
-//      A missing file is always fatal.
+//      A missing file is always fatal; the example file is refused in
+//      production even when named explicitly.
 //   2. <repo>/config/study.yaml (gitignored, the real study).
 //   3. <repo>/config/study.example.yaml, ONLY outside production and with a
 //      loud warning (F1, decided 17.10.: production never falls back).
@@ -66,7 +67,17 @@ export const resolveStudyConfigPath = (
         { path: "", message: "file not found (BLINKS_STUDY_CONFIG)" },
       ]);
     }
-    return { path: resolved, usingExample: false };
+    const usingExample = resolved === EXAMPLE_STUDY_CONFIG_PATH;
+    if (usingExample && isProduction(env)) {
+      throw new StudyConfigError(resolved, [
+        {
+          path: "",
+          message:
+            "the example config (placeholder surveys and PIN) is not allowed in production",
+        },
+      ]);
+    }
+    return { path: resolved, usingExample };
   }
   if (fs.existsSync(DEFAULT_STUDY_CONFIG_PATH)) {
     return { path: DEFAULT_STUDY_CONFIG_PATH, usingExample: false };
@@ -124,8 +135,8 @@ export const getStudyConfig = (): StudyConfig => {
     cached = { config, ...resolved };
     if (resolved.usingExample) {
       console.warn(
-        "WARNING: config/study.yaml not found, using config/study.example.yaml " +
-          "(placeholder survey links and PIN). Never run a study like this.",
+        "WARNING: using config/study.example.yaml (placeholder survey links " +
+          "and PIN). Never run a study like this.",
       );
     }
     return config;

@@ -428,7 +428,7 @@ const runNaturalKeyMigrationTest = (): void => {
         raw_label: "Participant final edit",
         category_label: "work",
         source: "vlm",
-        workload_rating: 5,
+        ratings: { mental_demand: 5 },
       },
     ],
   });
@@ -444,7 +444,7 @@ const runNaturalKeyMigrationTest = (): void => {
         raw_label: "Self memory",
         category_label: "work",
         source: "user",
-        workload_rating: 4,
+        ratings: { mental_demand: 4, mental_recovery: null },
       },
     ],
   });
@@ -463,6 +463,13 @@ const runNaturalKeyMigrationTest = (): void => {
       [2, "assisted", [[assistedList!.id, "Participant final edit"]]],
     ],
     "all three lists query through their parent IDs",
+  );
+  assert.deepStrictEqual(
+    listStudyActivityLists(participant, day).map((list) =>
+      list.activities.map((activity) => JSON.parse(activity.ratings_json)),
+    ),
+    [[{ mental_demand: 4 }], [{}], [{ mental_demand: 5 }]],
+    "ratings live in activity_ratings; null answers are not stored",
   );
 
   // A second initialization is a no-op migration and preserves stable IDs.

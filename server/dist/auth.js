@@ -9,6 +9,7 @@ exports.authenticateToken = authenticateToken;
 exports.participantFromAuthHeader = participantFromAuthHeader;
 exports.requireAuth = requireAuth;
 exports.requireAdmin = requireAdmin;
+exports.requireParticipantOrAdmin = requireParticipantOrAdmin;
 exports.requireCompletedOnboarding = requireCompletedOnboarding;
 exports.requireActiveStudy = requireActiveStudy;
 exports.requireAuthWithCookieFallback = requireAuthWithCookieFallback;
@@ -75,6 +76,19 @@ function requireAdmin(req, res, next) {
         return;
     }
     req.participant = username;
+    next();
+}
+// Participant OR admin bearer (GET /api/study-config). Sets req.authRole so
+// the route can withhold participant-only fields from admins.
+function requireParticipantOrAdmin(req, res, next) {
+    const username = usernameFromAuthHeader(req.headers.authorization);
+    const role = username === null ? undefined : (0, auth_db_1.getUser)(username)?.role;
+    if (username === null || (role !== "participant" && role !== "admin")) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+    }
+    req.participant = username;
+    req.authRole = role;
     next();
 }
 // Secure authorization gate for the DRM web workflow. The Next.js proxy also

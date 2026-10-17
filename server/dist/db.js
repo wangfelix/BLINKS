@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAdminTableColumns = exports.isAdminTableName = exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = exports.CAMERA_FORM_FACTORS = exports.RecordingEventConflictError = exports.RECORDING_EVENT_TYPES = exports.ADMIN_TABLE_NAMES = void 0;
+exports.getAdminTableColumns = exports.isAdminTableName = exports.parseRatingsJson = exports.getLastRatingsMigrationReport = exports.ratingsMigrationTestHooks = exports.LEGACY_RATING_COLUMN_KEYS = exports.FACE_BLUR_ENABLED = exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = exports.CAMERA_FORM_FACTORS = exports.RecordingEventConflictError = exports.RECORDING_EVENT_TYPES = exports.ADMIN_TABLE_NAMES = void 0;
 exports.chunkStartOf = chunkStartOf;
 exports.initDb = initDb;
 exports.pinRoundResponseList = pinRoundResponseList;
@@ -44,6 +44,7 @@ exports.listStudyActivityLists = listStudyActivityLists;
 exports.createVlmProposal = createVlmProposal;
 exports.replaceActivities = replaceActivities;
 exports.exportFramesCsv = exportFramesCsv;
+exports.recordDeviceInfoReport = recordDeviceInfoReport;
 exports.getAdminTableCounts = getAdminTableCounts;
 exports.listAdminTableRows = listAdminTableRows;
 exports.exportAdminTableCsv = exportAdminTableCsv;
@@ -53,6 +54,7 @@ exports.listAdminPhotoSessions = listAdminPhotoSessions;
 exports.listAdminPhotos = listAdminPhotos;
 exports.getAdminFrameAvailabilityByPath = getAdminFrameAvailabilityByPath;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
+const study_config_1 = require("./study-config");
 const time_1 = require("./time");
 exports.ADMIN_TABLE_NAMES = [
     "participants",
@@ -60,6 +62,8 @@ exports.ADMIN_TABLE_NAMES = [
     "chunks",
     "activity_lists",
     "activities",
+    "activity_ratings",
+    "device_info_reports",
 ];
 // --- Recording lifecycle events ---------------------------------------------
 exports.RECORDING_EVENT_TYPES = [
@@ -72,18 +76,27 @@ class RecordingEventConflictError extends Error {
 }
 exports.RecordingEventConflictError = RecordingEventConflictError;
 // --- DRM row shapes ---------------------------------------------------------
-exports.CAMERA_FORM_FACTORS = ["necklace", "glasses"];
+// devices.formFactors[].key in the study config. Validated by the server on
+// write; the DB no longer pins the list with a CHECK constraint.
+exports.CAMERA_FORM_FACTORS = study_config_1.FORM_FACTOR_KEYS;
 exports.ACTIVITY_LIST_KINDS = [
     "self",
     "vlm_proposal",
     "assisted",
 ];
-// --- 5-minute chunks ---------------------------------------------------------
+// --- Chunks (windowing.windowMinutes, paper: 5 min) ---------------------------
 // The chunk is the VLM inference unit: frames are grouped into clock-aligned
-// 5-minute windows at ingestion, and the VLM worker labels whole chunks (not
-// individual frames). Epoch-aligned windows ARE local-clock-aligned windows:
-// every real-world UTC offset is a whole multiple of 5 minutes.
-exports.CHUNK_WINDOW_MS = 5 * 60 * 1000;
+// windows at ingestion, and the VLM worker labels whole chunks (not
+// individual frames). Epoch-aligned windows are local-clock-aligned when the
+// window divides the UTC offset (every real offset is a multiple of 15 min,
+// so windows of 1, 3, 5 and 15 min always are; the config only requires the
+// window to divide 24 h).
+exports.CHUNK_WINDOW_MS = study_config_1.WINDOW_MS;
+// privacy.faceBlur.enabled=false (contract section 6): new frames are stored
+// as already anonymized (face_method='disabled', face_count=NULL) so the
+// three face_status='done' gates stay unchanged. Existing pending frames are
+// NOT touched.
+exports.FACE_BLUR_ENABLED = study_config_1.studyConfig.privacy.faceBlur.enabled;
 /** Clock-aligned window start containing the given capture time. */
 function chunkStartOf(captureEpochMs) {
     return captureEpochMs - (captureEpochMs % exports.CHUNK_WINDOW_MS);
@@ -143,6 +156,7 @@ let insertVlmProposalListStmt;
 let listVlmSpanActivitiesStmt;
 let deleteActivitiesStmt;
 let insertActivityStmt;
+let insertActivityRatingStmt;
 let createVlmProposalTx;
 let replaceActivitiesTx;
 // Adds a column only if it is missing, so an existing recordings.db is
@@ -168,6 +182,156 @@ function migrateDropColumn(table, column) {
         db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
     }
 }
+// --- Generic experience ratings (BLINKS-tasks#4, contract section 7) --------
+// One row per answered item; unanswered = no row. item_key is validated by the
+// server against experienceItems[] in the study config, not by the DB (the
+// config is deliberately not stored in the DB).
+const ACTIVITY_RATINGS_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS activity_ratings (
+    activity_id INTEGER NOT NULL
+      REFERENCES activities(id) ON DELETE CASCADE,
+    item_key    TEXT    NOT NULL,
+    value       INTEGER NOT NULL,
+    PRIMARY KEY (activity_id, item_key)
+  )
+`;
+/**
+ * Fixed mapping for the LEGACY columns. It describes what the old columns
+ * meant in the paper study and is independent of the current config.
+ */
+exports.LEGACY_RATING_COLUMN_KEYS = {
+    workload_rating: "mental_demand",
+    recovery_rating: "mental_recovery",
+};
+/** Test hook: throw inside the migration transaction (rollback test). */
+exports.ratingsMigrationTestHooks = { failBeforeCommit: false };
+let lastRatingsMigrationReport = null;
+const getLastRatingsMigrationReport = () => lastRatingsMigrationReport;
+exports.getLastRatingsMigrationReport = getLastRatingsMigrationReport;
+/**
+ * Moves activities.workload_rating/recovery_rating into activity_ratings and
+ * rebuilds activities without them, in ONE transaction. Idempotent: a no-op
+ * once the legacy columns are gone. Must run with foreign_keys=OFF (initDb),
+ * so dropping the old table cannot cascade into activity_ratings.
+ */
+function migrateRatingsToItemTable(finalActivitiesSchema) {
+    if (!tableExists("activities"))
+        return;
+    const legacyColumns = Object.keys(exports.LEGACY_RATING_COLUMN_KEYS).filter((column) => tableHasColumn("activities", column));
+    if (legacyColumns.length === 0) {
+        db.exec(ACTIVITY_RATINGS_SCHEMA);
+        lastRatingsMigrationReport = { migrated: false, activities: 0, ratingsByKey: {} };
+        return;
+    }
+    const count = (sql) => db.prepare(sql).get().count;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+        db.exec(ACTIVITY_RATINGS_SCHEMA);
+        const activitiesBefore = count(`SELECT COUNT(*) AS count FROM activities`);
+        const ratingsByKey = {};
+        for (const column of legacyColumns) {
+            const key = exports.LEGACY_RATING_COLUMN_KEYS[column];
+            const expected = count(`SELECT COUNT(*) AS count FROM activities WHERE ${column} IS NOT NULL`);
+            const before = count(`SELECT COUNT(*) AS count FROM activity_ratings WHERE item_key = '${key}'`);
+            db.prepare(`INSERT INTO activity_ratings (activity_id, item_key, value)
+         SELECT id, ?, ${column} FROM activities WHERE ${column} IS NOT NULL`).run(key);
+            const inserted = count(`SELECT COUNT(*) AS count FROM activity_ratings WHERE item_key = '${key}'`) -
+                before;
+            if (inserted !== expected) {
+                throw new Error(`ratings migration copied ${inserted}/${expected} ${column} values`);
+            }
+            const mismatched = count(`
+        SELECT COUNT(*) AS count FROM activities a
+        JOIN activity_ratings r ON r.activity_id = a.id AND r.item_key = '${key}'
+        WHERE r.value IS NOT a.${column}
+      `);
+            if (mismatched !== 0) {
+                throw new Error(`ratings migration changed ${mismatched} ${column} values`);
+            }
+            ratingsByKey[key] = inserted;
+        }
+        // SQLite 12-step rebuild: create new, copy, drop old, rename new. Renaming
+        // the OLD table instead would repoint activity_ratings' foreign key.
+        const finalColumns = db.prepare(`PRAGMA table_info(activities)`).all()
+            .map((column) => column.name)
+            .filter((name) => !(name in exports.LEGACY_RATING_COLUMN_KEYS));
+        db.exec(finalActivitiesSchema.replace("CREATE TABLE activities (", "CREATE TABLE activities_ratings_rebuild ("));
+        const columnList = finalColumns.join(", ");
+        db.exec(`
+      INSERT INTO activities_ratings_rebuild (${columnList})
+      SELECT ${columnList} FROM activities ORDER BY id
+    `);
+        const activitiesAfter = count(`SELECT COUNT(*) AS count FROM activities_ratings_rebuild`);
+        if (activitiesAfter !== activitiesBefore) {
+            throw new Error(`ratings migration preserved ${activitiesAfter}/${activitiesBefore} activities`);
+        }
+        db.exec(`DROP TABLE activities`);
+        db.exec(`ALTER TABLE activities_ratings_rebuild RENAME TO activities`);
+        const violations = db.pragma("foreign_key_check");
+        if (violations.length > 0) {
+            throw new Error(`ratings migration left ${violations.length} foreign-key violation(s)`);
+        }
+        if (exports.ratingsMigrationTestHooks.failBeforeCommit) {
+            throw new Error("ratings migration test failure");
+        }
+        db.exec("COMMIT");
+        lastRatingsMigrationReport = {
+            migrated: true,
+            activities: activitiesAfter,
+            ratingsByKey,
+        };
+        console.log(`Ratings migration: ${activitiesAfter} activities, ` +
+            Object.entries(ratingsByKey)
+                .map(([key, n]) => `${n} ${key}`)
+                .join(", "));
+    }
+    catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+    }
+}
+/**
+ * Form factors are configurable (devices.formFactors), so the old
+ * CHECK (camera_form_factor IN ('necklace','glasses')) is removed by a
+ * transactional table rebuild. Values are kept unchanged.
+ */
+function migrateDropFormFactorCheck() {
+    const row = db
+        .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'participants'`)
+        .get();
+    if (!row || !/camera_form_factor\s+IN\s*\(/i.test(row.sql))
+        return;
+    const columns = db.prepare(`PRAGMA table_info(participants)`).all().map((column) => column.name);
+    const newSql = row.sql
+        .replace(/CREATE TABLE\s+(?:IF NOT EXISTS\s+)?"?participants"?/i, "CREATE TABLE participants_form_factor_rebuild")
+        .replace(/camera_form_factor\s+TEXT\s+CHECK\s*\(\s*camera_form_factor\s+IN\s*\([^)]*\)\s*\)/i, "camera_form_factor TEXT");
+    const before = db.prepare(`SELECT COUNT(*) AS n FROM participants`).get().n;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+        db.exec(newSql);
+        const list = columns.join(", ");
+        db.exec(`INSERT INTO participants_form_factor_rebuild (${list}) SELECT ${list} FROM participants`);
+        const after = db.prepare(`SELECT COUNT(*) AS n FROM participants_form_factor_rebuild`).get().n;
+        if (after !== before) {
+            throw new Error(`form-factor migration preserved ${after}/${before} participants`);
+        }
+        db.exec(`DROP TABLE participants`);
+        db.exec(`ALTER TABLE participants_form_factor_rebuild RENAME TO participants`);
+        db.exec("COMMIT");
+    }
+    catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+    }
+}
+/** activities.ratings_json (json_group_object) -> {item_key: value}. */
+const parseRatingsJson = (ratingsJson) => {
+    if (!ratingsJson)
+        return {};
+    const parsed = JSON.parse(ratingsJson);
+    return parsed ?? {};
+};
+exports.parseRatingsJson = parseRatingsJson;
 function initDb(dbPath) {
     db = new better_sqlite3_1.default(dbPath);
     // Schema upgrades may rebuild the DRM parent/child tables. Foreign-key
@@ -346,6 +510,26 @@ function initDb(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_recording_events_session
       ON recording_events (participant, session, sequence_number);
   `);
+    // Camera device info reported by the app after each BLE connect
+    // (contract 4.8, F3). Append-only; PK makes app retries idempotent.
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS device_info_reports (
+      participant              TEXT    NOT NULL,
+      event_id                 TEXT    NOT NULL,
+      session                  INTEGER NOT NULL,
+      device                   TEXT    NOT NULL,
+      client_epoch_ms          INTEGER NOT NULL,
+      server_received_epoch_ms INTEGER NOT NULL,
+      requested_interval_ms    INTEGER,
+      settings_form_factor     TEXT,
+      firmware_version         TEXT,
+      form_factor              TEXT,
+      interval_ms              INTEGER,
+      default_ms               INTEGER,
+      info_json                TEXT,
+      PRIMARY KEY (participant, event_id)
+    );
+  `);
     // DRM schema discovery. Workflow state used to live in a separate
     // reconstructions table; the final model moves it onto the response-list
     // parent so an opened-but-empty round still has one durable identity.
@@ -359,7 +543,7 @@ function initDb(dbPath) {
       work_description  TEXT,
       wake_time         TEXT,
       bed_time          TEXT,
-      camera_form_factor TEXT CHECK (camera_form_factor IN ('necklace', 'glasses')),
+      camera_form_factor TEXT,
       arm               TEXT NOT NULL DEFAULT 'main',
       push_token        TEXT,
       last_reminder_day TEXT,
@@ -367,7 +551,8 @@ function initDb(dbPath) {
       updated_at        INTEGER
     );
   `);
-    migrateAddTableColumn("participants", "camera_form_factor", "camera_form_factor TEXT CHECK (camera_form_factor IN ('necklace', 'glasses'))");
+    migrateAddTableColumn("participants", "camera_form_factor", "camera_form_factor TEXT");
+    migrateDropFormFactorCheck();
     const reconstructionsExist = tableExists("reconstructions");
     if (reconstructionsExist &&
         !tableHasColumn("reconstructions", "round")) {
@@ -434,8 +619,6 @@ function initDb(dbPath) {
       presented_category_label TEXT,
       is_incorrect_annotation_injected INTEGER NOT NULL DEFAULT 0
         CHECK (is_incorrect_annotation_injected IN (0, 1)),
-      workload_rating INTEGER,
-      recovery_rating INTEGER,
       created_at       INTEGER NOT NULL,
       updated_at       INTEGER,
       FOREIGN KEY (activity_list_id)
@@ -444,6 +627,10 @@ function initDb(dbPath) {
         REFERENCES activities(id) ON DELETE SET NULL
     )
   `;
+    // Legacy rebuilds below still target the pre-2026-10 shape with the two
+    // fixed rating columns; migrateRatingsToItemTable() then moves them into
+    // activity_ratings. Fresh databases get the final shape directly.
+    const legacyActivitiesSchemaWithRatings = activitiesSchema.replace("      created_at       INTEGER NOT NULL,", "      workload_rating INTEGER,\n      recovery_rating INTEGER,\n      created_at       INTEGER NOT NULL,");
     const activityListsExist = tableExists("activity_lists");
     const activitiesExist = tableExists("activities");
     const parentIdColumn = activityListsExist
@@ -489,7 +676,7 @@ function initDb(dbPath) {
         ].every((column) => tableHasColumn("activity_lists", column)) &&
         !tableHasColumn("activity_lists", "mode");
     if (!activityListsExist && !activitiesExist && !reconstructionsExist) {
-        db.exec(`${activityListsSchema}; ${activitiesSchema};`);
+        db.exec(`${activityListsSchema}; ${activitiesSchema}; ${ACTIVITY_RATINGS_SCHEMA};`);
     }
     else if (reconstructionsExist ||
         !parentHasId ||
@@ -581,7 +768,11 @@ function initDb(dbPath) {
             if (reconstructionsExist) {
                 db.exec(`ALTER TABLE reconstructions RENAME TO reconstructions_legacy`);
             }
-            db.exec(`${activityListsSchema}; ${activitiesSchema};`);
+            if (tableExists("activity_ratings")) {
+                // Renaming activities would silently repoint activity_ratings' FK.
+                throw new Error("cannot rebuild a legacy activity schema that already has activity_ratings");
+            }
+            db.exec(`${activityListsSchema}; ${legacyActivitiesSchemaWithRatings};`);
             if (activityListsExist) {
                 const idColumn = parentHasId ? "id, " : "";
                 const idValue = parentHasId ? "id, " : "";
@@ -814,6 +1005,7 @@ function initDb(dbPath) {
             throw error;
         }
     }
+    migrateRatingsToItemTable(activitiesSchema);
     db.exec(`
     CREATE INDEX IF NOT EXISTS idx_activities_parent
       ON activities (activity_list_id, position);
@@ -837,11 +1029,16 @@ function initDb(dbPath) {
     INSERT INTO frames (
       participant, device, session, frame_index,
       capture_epoch_ms, received_epoch_ms, file_path,
-      device_frame, byte_length, jpeg_ok, chunk_start_ms
+      device_frame, byte_length, jpeg_ok, chunk_start_ms,
+      face_status, face_method, face_count, face_completed_at
     ) VALUES (
       @participant, @device, @session, @frame_index,
       @capture_epoch_ms, @received_epoch_ms, @file_path,
-      @device_frame, @byte_length, @jpeg_ok, @chunk_start_ms
+      @device_frame, @byte_length, @jpeg_ok, @chunk_start_ms,
+      ${exports.FACE_BLUR_ENABLED ? "'pending'" : "'done'"},
+      ${exports.FACE_BLUR_ENABLED ? "NULL" : "'disabled'"},
+      NULL,
+      ${exports.FACE_BLUR_ENABLED ? "NULL" : "@received_epoch_ms"}
     )
   `);
     upsertChunkStmt = db.prepare(`
@@ -1157,7 +1354,8 @@ function initDb(dbPath) {
            a.vlm_mean_category_confidences_json,
            a.presented_raw_label, a.presented_category_label,
            a.is_incorrect_annotation_injected,
-           a.workload_rating, a.recovery_rating
+           (SELECT json_group_object(r.item_key, r.value)
+              FROM activity_ratings r WHERE r.activity_id = a.id) AS ratings_json
     FROM activities a
     JOIN activity_lists l ON l.id = a.activity_list_id
     WHERE l.participant = ? AND l.round = ? AND l.kind != 'vlm_proposal'
@@ -1174,7 +1372,8 @@ function initDb(dbPath) {
            a.vlm_mean_category_confidences_json,
            a.presented_raw_label, a.presented_category_label,
            a.is_incorrect_annotation_injected,
-           a.workload_rating, a.recovery_rating
+           (SELECT json_group_object(r.item_key, r.value)
+              FROM activity_ratings r WHERE r.activity_id = a.id) AS ratings_json
     FROM activities a
     JOIN activity_lists l ON l.id = a.activity_list_id
     WHERE l.participant = ? AND l.round = ? AND l.kind = ?
@@ -1246,7 +1445,6 @@ function initDb(dbPath) {
       vlm_mean_category_confidence, vlm_mean_category_confidences_json,
       presented_raw_label, presented_category_label,
       is_incorrect_annotation_injected,
-      workload_rating, recovery_rating,
       created_at, updated_at
     ) VALUES (
       @activity_list_id, @proposal_activity_id, @position, @start_ms, @end_ms,
@@ -1255,9 +1453,12 @@ function initDb(dbPath) {
       @vlm_mean_category_confidence, @vlm_mean_category_confidences_json,
       @presented_raw_label, @presented_category_label,
       @is_incorrect_annotation_injected,
-      @workload_rating, @recovery_rating,
       @created_at, @updated_at
     )
+  `);
+    insertActivityRatingStmt = db.prepare(`
+    INSERT INTO activity_ratings (activity_id, item_key, value)
+    VALUES (?, ?, ?)
   `);
     // The original generated proposal is a write-once list. The metadata row's
     // primary key makes repeated generation a no-op, and this transaction is
@@ -1289,8 +1490,6 @@ function initDb(dbPath) {
                 presented_raw_label: activity.presented_raw_label ?? activity.raw_label,
                 presented_category_label: activity.presented_category_label ?? activity.category_label,
                 is_incorrect_annotation_injected: activity.is_incorrect_annotation_injected === true ? 1 : 0,
-                workload_rating: null,
-                recovery_rating: null,
                 created_at: now,
                 updated_at: now,
             });
@@ -1322,7 +1521,7 @@ function initDb(dbPath) {
                 (activity.source === "vlm"
                     ? vlmBySpan.get(`${activity.start_ms}|${activity.end_ms}`)
                     : undefined);
-            insertActivityStmt.run({
+            const insertedActivity = insertActivityStmt.run({
                 activity_list_id: editableList.id,
                 proposal_activity_id: matched?.id ?? null,
                 position,
@@ -1340,11 +1539,14 @@ function initDb(dbPath) {
                 presented_raw_label: matched?.presented_raw_label ?? null,
                 presented_category_label: matched?.presented_category_label ?? null,
                 is_incorrect_annotation_injected: matched?.is_incorrect_annotation_injected ?? 0,
-                workload_rating: activity.workload_rating ?? null,
-                recovery_rating: activity.recovery_rating ?? null,
                 created_at: now,
                 updated_at: now,
             });
+            for (const [itemKey, value] of Object.entries(activity.ratings ?? {})) {
+                if (value === null || value === undefined)
+                    continue;
+                insertActivityRatingStmt.run(Number(insertedActivity.lastInsertRowid), itemKey, value);
+            }
         });
         if (recordDraftSave) {
             markDraftSavedStmt.run(now, now, now, participant, round);
@@ -1674,7 +1876,40 @@ function exportFramesCsv(q) {
     ].join(";"));
     return [header, ...lines].join("\n") + "\n";
 }
-// --- Research admin read model ---------------------------------------------
+const DEVICE_INFO_COMPARED_COLUMNS = [
+    "session",
+    "device",
+    "client_epoch_ms",
+    "requested_interval_ms",
+    "settings_form_factor",
+    "info_json",
+];
+/**
+ * Inserts a report. "duplicate" = same eventId with identical content
+ * (retry); "conflict" = same eventId with different content.
+ */
+function recordDeviceInfoReport(participant, report, now = Date.now()) {
+    return db.transaction(() => {
+        const existing = db
+            .prepare(`SELECT ${DEVICE_INFO_COMPARED_COLUMNS.join(", ")}
+         FROM device_info_reports WHERE participant = ? AND event_id = ?`)
+            .get(participant, report.event_id);
+        if (existing !== undefined) {
+            const same = DEVICE_INFO_COMPARED_COLUMNS.every((column) => existing[column] === report[column]);
+            return same ? "duplicate" : "conflict";
+        }
+        db.prepare(`INSERT INTO device_info_reports (
+         participant, event_id, session, device, client_epoch_ms,
+         server_received_epoch_ms, requested_interval_ms, settings_form_factor,
+         firmware_version, form_factor, interval_ms, default_ms, info_json
+       ) VALUES (
+         @participant, @event_id, @session, @device, @client_epoch_ms,
+         @server_received_epoch_ms, @requested_interval_ms, @settings_form_factor,
+         @firmware_version, @form_factor, @interval_ms, @default_ms, @info_json
+       )`).run({ ...report, participant, server_received_epoch_ms: now });
+        return "created";
+    })();
+}
 const isAdminTableName = (value) => exports.ADMIN_TABLE_NAMES.includes(value);
 exports.isAdminTableName = isAdminTableName;
 const ADMIN_TABLE_COLUMN_OVERRIDES = {
