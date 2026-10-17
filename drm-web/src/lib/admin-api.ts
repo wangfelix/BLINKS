@@ -8,6 +8,7 @@ export const ADMIN_TABLES = [
   "activity_lists",
   "activities",
   "activity_ratings",
+  "device_info_reports",
 ] as const;
 export type AdminTableName = (typeof ADMIN_TABLES)[number];
 export type AdminCellValue = string | number | null;
