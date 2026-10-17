@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAdminTableColumns = exports.isAdminTableName = exports.parseRatingsJson = exports.getLastRatingsMigrationReport = exports.ratingsMigrationTestHooks = exports.LEGACY_RATING_COLUMN_KEYS = exports.FACE_BLUR_ENABLED = exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = exports.CAMERA_FORM_FACTORS = exports.RecordingEventConflictError = exports.RECORDING_EVENT_TYPES = exports.ADMIN_TABLE_NAMES = void 0;
+exports.getAdminTableColumns = exports.isAdminTableName = exports.MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT = exports.parseRatingsJson = exports.getLastRatingsMigrationReport = exports.ratingsMigrationTestHooks = exports.LEGACY_RATING_COLUMN_KEYS = exports.FACE_BLUR_ENABLED = exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = exports.CAMERA_FORM_FACTORS = exports.RecordingEventConflictError = exports.RECORDING_EVENT_TYPES = exports.ADMIN_TABLE_NAMES = void 0;
 exports.chunkStartOf = chunkStartOf;
 exports.initDb = initDb;
 exports.pinRoundResponseList = pinRoundResponseList;
@@ -1903,7 +1903,13 @@ const DEVICE_INFO_COMPARED_COLUMNS = [
  * Inserts a report. "duplicate" = same eventId with identical content
  * (retry); "conflict" = same eventId with different content.
  */
-function recordDeviceInfoReport(participant, report, now = Date.now()) {
+/**
+ * Upper bound per participant (append-only table, review n5). The app sends
+ * one report per BLE connect; a study day with frequent reconnects stays far
+ * below this. Further reports are acknowledged but not stored ("capped").
+ */
+exports.MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT = 5000;
+function recordDeviceInfoReport(participant, report, now = Date.now(), maxReports = exports.MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT) {
     return db.transaction(() => {
         const existing = db
             .prepare(`SELECT ${DEVICE_INFO_COMPARED_COLUMNS.join(", ")}
@@ -1913,6 +1919,11 @@ function recordDeviceInfoReport(participant, report, now = Date.now()) {
             const same = DEVICE_INFO_COMPARED_COLUMNS.every((column) => existing[column] === report[column]);
             return same ? "duplicate" : "conflict";
         }
+        const stored = db
+            .prepare(`SELECT COUNT(*) AS n FROM device_info_reports WHERE participant = ?`)
+            .get(participant).n;
+        if (stored >= maxReports)
+            return "capped";
         db.prepare(`INSERT INTO device_info_reports (
          participant, event_id, session, device, client_epoch_ms,
          server_received_epoch_ms, requested_interval_ms, settings_form_factor,

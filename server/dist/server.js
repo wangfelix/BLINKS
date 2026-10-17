@@ -1430,6 +1430,9 @@ function parseDeviceInfoReport(body) {
         },
     };
 }
+/** Device-provided strings in logs: no control characters, max 32 chars. */
+const logSafe = (value) => value === null ? "-" : JSON.stringify(value.replace(/[\u0000-\u001f\u007f-\u009f]/g, "?").slice(0, 32));
+const deviceInfoCapLogged = new Set();
 app.post("/api/recording/device-info", auth_1.requireAuth, (req, res) => {
     const { report, error } = parseDeviceInfoReport(req.body);
     if (!report) {
@@ -1442,10 +1445,26 @@ app.post("/api/recording/device-info", auth_1.requireAuth, (req, res) => {
         res.status(409).json({ error: "eventId already used with a different payload" });
         return;
     }
+    if (outcome === "capped") {
+        if (!deviceInfoCapLogged.has(participant)) {
+            deviceInfoCapLogged.add(participant);
+            console.warn(`Device info: ${participant} reached ${db_1.MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT} ` +
+                "stored reports; further reports are acknowledged but not stored");
+        }
+        res.status(200).json({ ok: true, duplicate: false, stored: false });
+        return;
+    }
     if (outcome === "created") {
-        console.log(`Device info: ${participant}/${report.session} fw=${report.firmware_version ?? "-"} ` +
-            `formFactor=${report.form_factor ?? "-"} interval=${report.interval_ms ?? "-"}ms ` +
-            `requested=${report.requested_interval_ms ?? "-"}ms`);
+        // fw/formFactor come from the BLE device: strip control characters and
+        // cap the length before logging (log injection, review n1). The DB keeps
+        // the values verbatim.
+        const unknownFormFactors = [report.settings_form_factor, report.form_factor].filter((value) => value !== null && !study_config_1.FORM_FACTOR_KEYS.includes(value));
+        console.log(`Device info: ${participant}/${report.session} fw=${logSafe(report.firmware_version)} ` +
+            `formFactor=${logSafe(report.form_factor)} interval=${report.interval_ms ?? "-"}ms ` +
+            `requested=${report.requested_interval_ms ?? "-"}ms` +
+            (unknownFormFactors.length > 0
+                ? ` WARNING: form factor ${unknownFormFactors.map(logSafe).join("/")} not in devices.formFactors`
+                : ""));
     }
     res
         .status(outcome === "created" ? 201 : 200)

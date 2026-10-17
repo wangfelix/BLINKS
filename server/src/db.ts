@@ -2798,12 +2798,20 @@ const DEVICE_INFO_COMPARED_COLUMNS = [
  * Inserts a report. "duplicate" = same eventId with identical content
  * (retry); "conflict" = same eventId with different content.
  */
+/**
+ * Upper bound per participant (append-only table, review n5). The app sends
+ * one report per BLE connect; a study day with frequent reconnects stays far
+ * below this. Further reports are acknowledged but not stored ("capped").
+ */
+export const MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT = 5000;
+
 export function recordDeviceInfoReport(
   participant: string,
   report: DeviceInfoReportInput,
   now: number = Date.now(),
-): "created" | "duplicate" | "conflict" {
-  return db.transaction((): "created" | "duplicate" | "conflict" => {
+  maxReports: number = MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT,
+): "created" | "duplicate" | "conflict" | "capped" {
+  return db.transaction((): "created" | "duplicate" | "conflict" | "capped" => {
     const existing = db
       .prepare(
         `SELECT ${DEVICE_INFO_COMPARED_COLUMNS.join(", ")}
@@ -2816,6 +2824,12 @@ export function recordDeviceInfoReport(
       );
       return same ? "duplicate" : "conflict";
     }
+    const stored = (
+      db
+        .prepare(`SELECT COUNT(*) AS n FROM device_info_reports WHERE participant = ?`)
+        .get(participant) as { n: number }
+    ).n;
+    if (stored >= maxReports) return "capped";
     db.prepare(
       `INSERT INTO device_info_reports (
          participant, event_id, session, device, client_epoch_ms,
