@@ -244,7 +244,8 @@ texts:
     assistedIntroDescription: "In the next step, you will see an automatically generated suggestion of a reconstruction of your day. Please adjust the suggested list of entries until it matches your day. You can delete entries, adjust their times, activity types and descriptions. You can also add activities for which no images have been recorded, e.g. when you paused the recording during the day."
     assistedReminderTitle: "Reconstruct your whole day, not just the photos"
     assistedReminderBody: "Your task is to submit as accurate a reconstruction of your day as you can using this assistance. If you remember an activity that is missing from this list, use “Insert activity” to add it, e.g. if the camera was paused or no photos were captured at that time. You do not need to add activities you do not remember."
-    # Must be null when overreliance.enabled is false (validation error).
+    # Must be null when overreliance.enabled is false or overreliance.rate is 0
+    # (rate 0 = never inject; validation error otherwise).
     assistedReminderIncorrectLabelsNotice: "Also note: Some activity labels and activity types are deliberately incorrect. Review and correct anything that does not match your day."
     selfEditorHint: "Reconstruct your day from memory, one activity at a time."
     assistedEditorHint: "Review the proposed activities, correct the labels, time spans and add missing activities until they match your day."
