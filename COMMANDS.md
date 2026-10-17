@@ -297,6 +297,7 @@ npm run build               # standalone production bundle; see drm-web/README.m
 # pure-logic tests (run against config/study.example.yaml + an alternative study)
 for t in scripts/test-*.ts; do npx tsx "$t" || break; done
 npx tsx scripts/test-study-config.ts   # config-driven labels, items, window, merge
+npx tsx scripts/test-alternative-configs.ts   # study.test.yaml, other timezone/15-min window, admin payload
 ```
 
 To show the floating dev navigator, start both the server and web app with
@@ -370,7 +371,9 @@ EXPO_PUBLIC_SERVER_URL=https://<name>.ngrok-free.dev        # ngrok-tunneled ser
 
 ```bash
 npx tsx scripts/test-study-config.ts      # pure helpers (0x03 bytes, 0004 parsing, end session)
-# against a running server (in-memory SecureStore/file/BLE stubs):
+# against a running server (in-memory SecureStore/file/BLE stubs): config cache,
+# PIN rule, BLE connect order incl. pause-first, handshake timeout/disconnect abort,
+# queued form-factor rewrite, device-info POST:
 BLINKS_TEST_SERVER=http://localhost:3000 BLINKS_TEST_USER=demo BLINKS_TEST_PASSWORD=demo12345 \
   npx tsx --tsconfig scripts/tsconfig.node.json scripts/test-app-integration.ts
 ```
