@@ -123,7 +123,7 @@ Kurzanleitung für das Studienteam. Die Details stehen oben und im Vertrag
 
 ```bash
 cp config/study.example.yaml config/study.yaml   # study.yaml ist gitignored
-chmod 640 config/study.yaml
+chmod 600 config/study.yaml
 $EDITOR config/study.yaml
 ```
 
@@ -135,18 +135,19 @@ Nie `study.example.yaml` oder `study.test.yaml` für eine echte Studie verwenden
 |---|---|
 | `study.timezone` | Zeitanzeige im Web, Abend-Gate, Ende-Session-Zeit in der App |
 | `ui.locale`, `ui.thumbnailsPerActivity` | Datums-/Zeitformat im Web, Anzahl Vorschaubilder pro Aktivität in Runde 2 |
-| `windowing.windowMinutes` | Raster in „Adjust times“ und Texte („five-minute“/„ten-minute“), Admin-Label der Chunks |
+| `windowing.windowMinutes` | Raster in „Adjust times“ und Texte („five-minute“/„ten-minute“), Admin-Label der Chunks. Muss 60 und jeden UTC-Offset der Zeitzone teilen (Berlin: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60), sonst startet der Server nicht |
 | `activities[].displayLabel` | Auswahlliste „Activity“ in beiden Runden |
 | `categories[]` (`displayLabel`, `icon`, `description`) | Auswahl „Activity type“ und die Legende „Categories“. Erlaubte Icons: `briefcase, pause, ellipsis, coffee, users, house, book-open, heart, circle` |
 | `experienceItems[]` | Eine Bewertungsskala pro Item und Kategorie (`appliesTo`), Skalenlänge `min..max`, Anker, Pflicht beim Absenden (`requiredOnSubmit`), Kurzlabel in der Zusammenfassung („Mental demand 4/7“) |
-| `texts.rounds`, `texts.progress` | Intro-, Reminder- und Hinweistexte der Runden, Schritt-Labels oben. `assistedReminderIncorrectLabelsNotice: null` blendet den Hinweis auf falsche Labels aus |
+| `texts.rounds`, `texts.progress` | Intro-, Reminder- und Hinweistexte der Runden, Schritt-Labels oben. `assistedReminderIncorrectLabelsNotice: null` blendet den Hinweis auf falsche Labels aus. Ohne Injektion (`overreliance.enabled: false` oder `rate: 0`) muss er `null` sein, sonst startet der Server nicht |
+| `overreliance.*` | Absichtlich falsche Labels in Runde 2 (Admin-Spalte `is_incorrect_annotation_injected`). `rate: 0` heißt nie injizieren, auch kein Fallback-Label. Mit Injektion sind mindestens 2 Kategorien nötig |
 | `surveys.onboarding/final` | Links zu den Fragebögen inkl. Teilnehmer-Parameter (`participantParameter`) |
-| `surveys.payoutUrl` | Ziel von `/api/payout` (Link „Payout“ auf der Survey-Seite) |
+| `surveys.payoutUrl` | Ziel von `/api/payout` (Link „Payout“ auf der Survey-Seite). Leitet nur eingeloggt mit abgeschlossenem Onboarding weiter, sonst 401/403 |
 | `devices.formFactors` | Auswahl „Camera type“ in den Study Settings der App |
 | `capture.intervalMsByFormFactor` | Aufnahmeintervall, das die App bei jeder Kamera-Verbindung per BLE `0x03` setzt (5000–600000 ms) |
 | `schedule.endSessionAvailableAt` | Ab wann „End session“ in der App aktiv ist (Studien-Zeitzone) |
 | `texts.app` | Benachrichtigungs- und Onboarding-Texte der App, „Available from {{time}}“ |
-| `app.studySettingsPin` | PIN der Study Settings (4–8 Ziffern). **Für jede Studie neu vergeben**, der alte PIN steht in der öffentlichen Git-Historie |
+| `app.studySettingsPin` | PIN der Study Settings (4–8 Ziffern). **Für jede Studie neu vergeben**, der alte PIN steht in der öffentlichen Git-Historie. Produktion lehnt den Platzhalter-PIN und den alten PIN ab |
 
 Wichtig: Die `key`-Werte (Aktivitäten, Kategorien, Items, Bauformen) landen in
 der Datenbank. Während einer laufenden Studie nicht umbenennen oder löschen,
