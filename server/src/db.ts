@@ -59,7 +59,7 @@ export interface AdminPhotoRow {
 //
 // One row per ingested frame, written synchronously as the JPEG is received.
 // The JPEG bytes stay on the filesystem under recordings/...; this table is the
-// index over them, superseding the old per-session CSV. Five-minute VLM output
+// index over them, superseding the old per-session CSV. Per-window (windowing.windowMinutes) VLM output
 // lives on chunks, while participant reconstructions live in activity lists.
 // See CLAUDE.md, "Storage and VLM metadata", for the rationale and full schema.
 //
@@ -70,7 +70,7 @@ export interface AdminPhotoRow {
 // ===========================================================================
 
 // Inserted at ingestion time. VLM output is attached later to the frame's
-// five-minute chunk, so it is deliberately absent from this shape.
+// window chunk, so it is deliberately absent from this shape.
 export interface FrameInsert {
   participant: string;
   device: string; // MAC, colons stripped
@@ -250,7 +250,7 @@ export interface DayAggregate {
 }
 
 // Frame rows of one local day, for the reconstruction API + segmentation.
-// vlm_label / vlm_category are inherited from the frame's 5-minute CHUNK
+// vlm_label / vlm_category are inherited from the frame's window CHUNK (windowing.windowMinutes)
 // (non-null only once the chunk's VLM pass is done); chunk_status is the
 // chunk lifecycle (null only for legacy rows ingested before chunks existed).
 export interface DayFrameRow {
@@ -300,7 +300,7 @@ export function chunkStartOf(captureEpochMs: number): number {
 }
 
 // One day's chunk as segmentation/bootstrap input. Initial reconstructed
-// activities use these clock-aligned 5-minute bounds, not individual frames.
+// activities use these clock-aligned window bounds, not individual frames.
 export interface DayChunkRow {
   chunk_start_ms: number;
   chunk_end_ms: number;
@@ -492,8 +492,18 @@ export interface RatingsMigrationReport {
   ratingsByKey: Record<string, number>;
 }
 
-/** Test hook: throw inside the migration transaction (rollback test). */
-export const ratingsMigrationTestHooks = { failBeforeCommit: false };
+/**
+ * Test hooks: throw inside a migration transaction (rollback tests).
+ * The two WP1 migrations run in separate transactions (the large DRM
+ * migration sits between them in initDb). Each is idempotent and rolls back
+ * on its own; a failure in the ratings migration leaves the already
+ * committed form-factor rebuild in place, which changes no values and is
+ * compatible with the old code (it only drops the CHECK).
+ */
+export const ratingsMigrationTestHooks = {
+  failBeforeCommit: false,
+  failFormFactorBeforeCommit: false,
+};
 
 let lastRatingsMigrationReport: RatingsMigrationReport | null = null;
 export const getLastRatingsMigrationReport = (): RatingsMigrationReport | null =>
@@ -641,6 +651,9 @@ function migrateDropFormFactorCheck(): void {
     }
     db.exec(`DROP TABLE participants`);
     db.exec(`ALTER TABLE participants_form_factor_rebuild RENAME TO participants`);
+    if (ratingsMigrationTestHooks.failFormFactorBeforeCommit) {
+      throw new Error("form-factor migration test failure");
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -723,7 +736,7 @@ export function initDb(dbPath: string): void {
       WHERE deleted_at IS NOT NULL;
   `);
 
-  // Every frame knows its clock-aligned 5-minute window. NULL marks a row
+  // Every frame knows its clock-aligned window (windowing.windowMinutes). NULL marks a row
   // ingested before chunking existed; it remains available as frame metadata
   // but has no current VLM result.
   migrateAddFrameColumn("chunk_start_ms", "chunk_start_ms INTEGER");
@@ -1811,7 +1824,7 @@ export function initDb(dbPath: string): void {
   `);
 
   // Compact per-session/per-chunk index of a participant's frames. One row
-  // per (session, 5-minute window) — a few hundred rows for a study day — so
+  // per (session, window) — a few hundred rows for a study day — so
   // the session-anchored day scope can be resolved in memory without a
   // timezone-aware SQL query (SQLite has no timezone support). Soft-deleted
   // rows are included: a deleted frame still bounds the day it was captured
@@ -2382,7 +2395,7 @@ export function closeFillingChunksForSession(
 }
 
 // Every chunk of one study day, ordered by window start. A chunk belongs to
-// the day whose sessions filled it: windows are clock-aligned and 5 minutes
+// the day whose sessions filled it: windows are clock-aligned and windowing.windowMinutes
 // long, so two sessions on different days can never share one.
 export function listChunksOnDay(
   participant: string,
@@ -2464,7 +2477,7 @@ export function listPushParticipants(): ParticipantRow[] {
 // --- DRM: day aggregation ----------------------------------------------------
 
 // The resolved extent of one session-anchored study day: which recording
-// sessions belong to it, which 5-minute windows they filled, and the epoch
+// sessions belong to it, which windows they filled, and the epoch
 // range those frames span. Everything day-scoped is filtered through this,
 // so a session that ran past local midnight stays on one day instead of
 // splitting into a full field day plus a sliver on the next calendar date.
@@ -2785,12 +2798,20 @@ const DEVICE_INFO_COMPARED_COLUMNS = [
  * Inserts a report. "duplicate" = same eventId with identical content
  * (retry); "conflict" = same eventId with different content.
  */
+/**
+ * Upper bound per participant (append-only table, review n5). The app sends
+ * one report per BLE connect; a study day with frequent reconnects stays far
+ * below this. Further reports are acknowledged but not stored ("capped").
+ */
+export const MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT = 5000;
+
 export function recordDeviceInfoReport(
   participant: string,
   report: DeviceInfoReportInput,
   now: number = Date.now(),
-): "created" | "duplicate" | "conflict" {
-  return db.transaction((): "created" | "duplicate" | "conflict" => {
+  maxReports: number = MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT,
+): "created" | "duplicate" | "conflict" | "capped" {
+  return db.transaction((): "created" | "duplicate" | "conflict" | "capped" => {
     const existing = db
       .prepare(
         `SELECT ${DEVICE_INFO_COMPARED_COLUMNS.join(", ")}
@@ -2803,6 +2824,12 @@ export function recordDeviceInfoReport(
       );
       return same ? "duplicate" : "conflict";
     }
+    const stored = (
+      db
+        .prepare(`SELECT COUNT(*) AS n FROM device_info_reports WHERE participant = ?`)
+        .get(participant) as { n: number }
+    ).n;
+    if (stored >= maxReports) return "capped";
     db.prepare(
       `INSERT INTO device_info_reports (
          participant, event_id, session, device, client_epoch_ms,

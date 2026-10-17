@@ -3,11 +3,14 @@
 // outside the OS temp dir so it can never touch a live database.
 //
 //   mkdir -p /tmp/mig-test && cp <prod-copy>.db /tmp/mig-test/work.db
-//   npx tsx scripts/check-ratings-migration-copy.ts /tmp/mig-test/work.db [--rollback]
+//   npx tsx scripts/check-ratings-migration-copy.ts /tmp/mig-test/work.db [--rollback | --rollback-form-factor]
 //   rm -rf /tmp/mig-test
 //
-// --rollback: forces a failure inside the migration transaction and checks
-// that the copy is unchanged afterwards.
+// --rollback: forces a failure inside the ratings migration transaction and
+// checks that activities are unchanged and participants keep every row (the
+// form-factor rebuild before it commits on its own).
+// --rollback-form-factor: forces a failure inside the form-factor rebuild and
+// checks that participants (schema + rows) and activities are unchanged.
 
 import assert = require("assert");
 import fs = require("fs");
@@ -23,6 +26,7 @@ import {
 
 const dbPath = path.resolve(process.argv[2] ?? "");
 const rollback = process.argv.includes("--rollback");
+const rollbackFormFactor = process.argv.includes("--rollback-form-factor");
 if (!process.argv[2] || !fs.existsSync(dbPath)) {
   console.error("usage: check-ratings-migration-copy.ts <copy.db> [--rollback]");
   process.exit(1);
@@ -54,6 +58,9 @@ const activityRowsBefore = before
   .prepare(`SELECT * FROM activities ORDER BY id`)
   .all() as Record<string, unknown>[];
 const participantsBefore = before.prepare(`SELECT * FROM participants ORDER BY username`).all();
+const participantsSql = (db: Database.Database) =>
+  (db.prepare(`SELECT sql FROM sqlite_master WHERE name = 'participants'`).get() as { sql: string }).sql;
+const participantsSqlBefore = participantsSql(before);
 before.close();
 
 const nonNull = (key: "w" | "r") => legacy.filter((row) => row[key] !== null).length;
@@ -71,6 +78,23 @@ console.log("BEFORE", JSON.stringify({
   recovery_value_distribution: dist("r"),
 }));
 
+if (rollbackFormFactor) {
+  ratingsMigrationTestHooks.failFormFactorBeforeCommit = true;
+  assert.throws(() => initDb(dbPath), /form-factor migration test failure/);
+  ratingsMigrationTestHooks.failFormFactorBeforeCommit = false;
+  const db = open();
+  assert.strictEqual(participantsSql(db), participantsSqlBefore, "participants schema unchanged");
+  assert.deepStrictEqual(db.prepare(`SELECT * FROM participants ORDER BY username`).all(), participantsBefore);
+  assert.ok(hasColumn(db, "activities", "workload_rating"), "ratings migration not reached");
+  assert.deepStrictEqual(db.prepare(`SELECT * FROM activities ORDER BY id`).all(), activityRowsBefore);
+  console.log("ROLLBACK FORM-FACTOR OK", JSON.stringify({
+    participants: count(db, "SELECT COUNT(*) AS n FROM participants"),
+    activities: count(db, "SELECT COUNT(*) AS n FROM activities"),
+  }));
+  db.close();
+  process.exit(0);
+}
+
 if (rollback) {
   ratingsMigrationTestHooks.failBeforeCommit = true;
   assert.throws(() => initDb(dbPath), /ratings migration test failure/);
@@ -79,7 +103,12 @@ if (rollback) {
   assert.ok(hasColumn(db, "activities", "workload_rating"), "legacy columns restored");
   assert.ok(!(db.prepare(`PRAGMA table_info(activity_ratings)`).all().length), "no activity_ratings");
   assert.deepStrictEqual(db.prepare(`SELECT * FROM activities ORDER BY id`).all(), activityRowsBefore);
-  console.log("ROLLBACK OK", JSON.stringify({ activities: count(db, "SELECT COUNT(*) AS n FROM activities") }));
+  assert.deepStrictEqual(db.prepare(`SELECT * FROM participants ORDER BY username`).all(), participantsBefore);
+  console.log("ROLLBACK OK", JSON.stringify({
+    activities: count(db, "SELECT COUNT(*) AS n FROM activities"),
+    participants_rows_unchanged: true,
+    participants_check_removed: !/camera_form_factor\s+IN\s*\(/i.test(participantsSql(db)),
+  }));
   db.close();
   process.exit(0);
 }

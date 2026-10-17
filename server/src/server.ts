@@ -82,6 +82,7 @@ import {
   setCameraFormFactor,
   setPushToken,
   parseRatingsJson,
+  MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT,
   recordDeviceInfoReport,
   softDeleteFrameRow,
   upsertParticipantProfile,
@@ -94,6 +95,7 @@ import { currentLocalMinutes, timeOfDayToMinutes, todayKey } from "./time";
 import {
   CATEGORY_KEY_SET,
   EXPERIENCE_ITEMS,
+  FORM_FACTOR_KEYS,
   IDLE_CLOSE_MS,
   minutesOfTimeOfDay,
   studyConfig,
@@ -1455,7 +1457,7 @@ app.get(
       const dayChunks = listChunksOnDay(participant, day);
       const recordingEnded =
         DRM_DEV_MODE || recordingEndedForFrames(participant, dayFrames);
-      // Pending = frames whose 5-minute chunk is not terminal yet (filling /
+      // Pending = frames whose window chunk is not terminal yet (filling /
       // ready / processing). Legacy frames without a chunk are frozen, and
       // face_status='failed' frames can never feed a chunk's VLM input — do
       // not let either hold the round in "still processing" forever.
@@ -2005,6 +2007,12 @@ function parseDeviceInfoReport(body: unknown): DeviceInfoParse {
   };
 }
 
+/** Device-provided strings in logs: no control characters, max 32 chars. */
+const logSafe = (value: string | null): string =>
+  value === null ? "-" : JSON.stringify(value.replace(/[\u0000-\u001f\u007f-\u009f]/g, "?").slice(0, 32));
+
+const deviceInfoCapLogged = new Set<string>();
+
 app.post(
   "/api/recording/device-info",
   requireAuth,
@@ -2020,11 +2028,31 @@ app.post(
       res.status(409).json({ error: "eventId already used with a different payload" });
       return;
     }
+    if (outcome === "capped") {
+      if (!deviceInfoCapLogged.has(participant)) {
+        deviceInfoCapLogged.add(participant);
+        console.warn(
+          `Device info: ${participant} reached ${MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT} ` +
+            "stored reports; further reports are acknowledged but not stored",
+        );
+      }
+      res.status(200).json({ ok: true, duplicate: false, stored: false });
+      return;
+    }
     if (outcome === "created") {
+      // fw/formFactor come from the BLE device: strip control characters and
+      // cap the length before logging (log injection, review n1). The DB keeps
+      // the values verbatim.
+      const unknownFormFactors = [report.settings_form_factor, report.form_factor].filter(
+        (value): value is string => value !== null && !FORM_FACTOR_KEYS.includes(value),
+      );
       console.log(
-        `Device info: ${participant}/${report.session} fw=${report.firmware_version ?? "-"} ` +
-          `formFactor=${report.form_factor ?? "-"} interval=${report.interval_ms ?? "-"}ms ` +
-          `requested=${report.requested_interval_ms ?? "-"}ms`,
+        `Device info: ${participant}/${report.session} fw=${logSafe(report.firmware_version)} ` +
+          `formFactor=${logSafe(report.form_factor)} interval=${report.interval_ms ?? "-"}ms ` +
+          `requested=${report.requested_interval_ms ?? "-"}ms` +
+          (unknownFormFactors.length > 0
+            ? ` WARNING: form factor ${unknownFormFactors.map(logSafe).join("/")} not in devices.formFactors`
+            : ""),
       );
     }
     res

@@ -217,6 +217,31 @@ test("face blur off: frames are stored as done/disabled (contract 6)", () => {
   });
 });
 
+test("device-info: per-participant cap acknowledges but does not store (n5)", () => {
+  const script = `
+    const { initDb, recordDeviceInfoReport } = require(${JSON.stringify(path.join(SERVER_DIR, "dist", "db.js"))});
+    initDb(process.argv[1]);
+    const report = (id) => ({ event_id: id, session: 1, device: "D", client_epoch_ms: 1,
+      requested_interval_ms: null, settings_form_factor: null, firmware_version: null,
+      form_factor: null, interval_ms: null, default_ms: null, info_json: null });
+    console.log(JSON.stringify([
+      recordDeviceInfoReport("p", report("a"), 1, 2),
+      recordDeviceInfoReport("p", report("b"), 1, 2),
+      recordDeviceInfoReport("p", report("c"), 1, 2),
+      recordDeviceInfoReport("p", report("a"), 1, 2),
+      recordDeviceInfoReport("q", report("a"), 1, 2),
+    ]));
+  `;
+  const result = childProcess.spawnSync(process.execPath, ["-e", script, path.join(tmp, "cap.db")], {
+    env: { PATH: process.env.PATH, BLINKS_STUDY_CONFIG: TEST_CONFIG },
+    encoding: "utf8",
+  });
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.deepStrictEqual(JSON.parse(result.stdout.trim().split("\n").pop()!), [
+    "created", "created", "capped", "duplicate", "created",
+  ]);
+});
+
 test("face blur back on: requeue-unblurred-frames resets 'disabled' frames (m4)", () => {
   const recordings = path.join(tmp, "requeue");
   fs.mkdirSync(recordings, { recursive: true });
@@ -503,6 +528,7 @@ test("http: POST /api/recording/device-info (201, 200 replay, 409, 400, 401)", a
   const rows = db.prepare("SELECT * FROM device_info_reports ORDER BY event_id").all();
   db.close();
   assert.strictEqual(rows.length, 2);
+  // (dev-log is added below)
   assert.strictEqual(rows[0].firmware_version, "1.2.0");
   assert.strictEqual(rows[0].form_factor, "glasses");
   assert.strictEqual(rows[0].settings_form_factor, "clip");
@@ -511,9 +537,23 @@ test("http: POST /api/recording/device-info (201, 200 replay, 409, 400, 401)", a
   assert.deepStrictEqual(JSON.parse(rows[0].info_json), body.info, "info stored verbatim incl. extra fields");
   assert.strictEqual(rows[1].info_json, null);
 
+  // n1/n5: device strings are logged sanitized; unknown form factors warned, not rejected
+  const injected = await request("POST", "/api/recording/device-info", participantToken, {
+    ...body,
+    eventId: "dev-log",
+    settingsFormFactor: "pendant",
+    info: { ...body.info, fw: "1.0\nFAKE LOG LINE" + "x".repeat(100) },
+  });
+  assert.strictEqual(injected.status, 201);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.ok(!serverLog.includes("\nFAKE LOG LINE"), "no raw newline from the device in the log");
+  assert.match(serverLog, /fw="1\.0\?FAKE LOG LINEx{15}"/);
+  assert.ok(!serverLog.includes("x".repeat(16)), "capped at 32 characters");
+  assert.match(serverLog, /WARNING: form factor "pendant" not in devices\.formFactors/);
+
   const tables = await request("GET", "/api/admin/tables/device_info_reports?limit=10&offset=0", adminToken);
   assert.strictEqual(tables.status, 200);
-  assert.strictEqual(tables.json.total, 2);
+  assert.strictEqual(tables.json.total, 3);
 });
 
 test("http: form factor validated against devices.formFactors", async () => {

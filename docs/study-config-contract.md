@@ -338,6 +338,10 @@ die Recording-Events (pro Participant, SecureStore) und wiederholt sie
 idempotent. Fehler blockieren die Aufnahme nie.
 
 - Auth: Participant-Bearer (`requireAuth`), Admin-Token → `401`.
+- `settingsFormFactor` und `info.formFactor` werden **nicht** gegen `devices.formFactors`
+  abgelehnt (eine Abweichung ist genau die Diagnose, die gespeichert werden soll). Der
+  Server loggt dann eine Warnung. Werte vom Gerät stehen im Log ohne Steuerzeichen und
+  auf 32 Zeichen gekürzt, in der DB unverändert (Review n1/n5).
 - Nur für die **Haupt-Session** senden, nicht für Test-Aufnahmen (die erzeugen
   bewusst keine DB-Zeilen). Der Server prüft nicht, ob die Session schon ein
   `start`-Event hat (Queue-Reihenfolge ist best-effort).
@@ -371,6 +375,7 @@ Antworten:
 |---|---|---|
 | `201` | `{ "ok": true, "duplicate": false }` | neu gespeichert |
 | `200` | `{ "ok": true, "duplicate": true }` | gleiche `eventId` mit identischem Inhalt erneut gesendet (Retry) |
+| `200` | `{ "ok": true, "duplicate": false, "stored": false }` | Obergrenze von 5000 gespeicherten Meldungen pro Participant erreicht (Review n5). Bestätigt, aber nicht gespeichert; der Server loggt das einmal. App: wie `201` behandeln (zusätzliches Feld, kein neuer Status) |
 | `400` | `{ "error": "<feld>: <grund>" }` | Validierung, z. B. `session must be a positive integer`, `info.intervalMs must be an integer`, `info must be an object or null` |
 | `401` | `{ "error": "unauthorized" }` | Token fehlt/ungültig/Admin |
 | `409` | `{ "error": "eventId already used with a different payload" }` | `eventId` wiederverwendet mit anderem Inhalt. App: verwerfen, nicht erneut senden |

@@ -1,7 +1,7 @@
 // ===========================================================================
 // Initial VLM-assisted day segmentation (DRM subproject) — CHUNK-BASED
 //
-// Pure function: turns one day's ordered, clock-aligned 5-minute chunks into
+// Pure function: turns one day's ordered, clock-aligned window chunks (windowing.windowMinutes, paper: 5 min) into
 // the initial activity list that the participant edits on the reconstruction
 // website.
 //
@@ -16,7 +16,7 @@
 //   4. Failed/unlabelled chunks each remain a separate null/null activity for
 //      participant correction. They are never assigned a neighbor's label.
 //
-// There is no minimum-duration smoothing: one chunk is a real 5-minute
+// There is no minimum-duration smoothing: one chunk is a real window-long
 // classification unit.
 // ===========================================================================
 

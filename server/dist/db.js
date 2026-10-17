@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAdminTableColumns = exports.isAdminTableName = exports.parseRatingsJson = exports.getLastRatingsMigrationReport = exports.ratingsMigrationTestHooks = exports.LEGACY_RATING_COLUMN_KEYS = exports.FACE_BLUR_ENABLED = exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = exports.CAMERA_FORM_FACTORS = exports.RecordingEventConflictError = exports.RECORDING_EVENT_TYPES = exports.ADMIN_TABLE_NAMES = void 0;
+exports.getAdminTableColumns = exports.isAdminTableName = exports.MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT = exports.parseRatingsJson = exports.getLastRatingsMigrationReport = exports.ratingsMigrationTestHooks = exports.LEGACY_RATING_COLUMN_KEYS = exports.FACE_BLUR_ENABLED = exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = exports.CAMERA_FORM_FACTORS = exports.RecordingEventConflictError = exports.RECORDING_EVENT_TYPES = exports.ADMIN_TABLE_NAMES = void 0;
 exports.chunkStartOf = chunkStartOf;
 exports.initDb = initDb;
 exports.pinRoundResponseList = pinRoundResponseList;
@@ -205,8 +205,18 @@ exports.LEGACY_RATING_COLUMN_KEYS = {
     workload_rating: "mental_demand",
     recovery_rating: "mental_recovery",
 };
-/** Test hook: throw inside the migration transaction (rollback test). */
-exports.ratingsMigrationTestHooks = { failBeforeCommit: false };
+/**
+ * Test hooks: throw inside a migration transaction (rollback tests).
+ * The two WP1 migrations run in separate transactions (the large DRM
+ * migration sits between them in initDb). Each is idempotent and rolls back
+ * on its own; a failure in the ratings migration leaves the already
+ * committed form-factor rebuild in place, which changes no values and is
+ * compatible with the old code (it only drops the CHECK).
+ */
+exports.ratingsMigrationTestHooks = {
+    failBeforeCommit: false,
+    failFormFactorBeforeCommit: false,
+};
 let lastRatingsMigrationReport = null;
 const getLastRatingsMigrationReport = () => lastRatingsMigrationReport;
 exports.getLastRatingsMigrationReport = getLastRatingsMigrationReport;
@@ -319,6 +329,9 @@ function migrateDropFormFactorCheck() {
         }
         db.exec(`DROP TABLE participants`);
         db.exec(`ALTER TABLE participants_form_factor_rebuild RENAME TO participants`);
+        if (exports.ratingsMigrationTestHooks.failFormFactorBeforeCommit) {
+            throw new Error("form-factor migration test failure");
+        }
         db.exec("COMMIT");
     }
     catch (error) {
@@ -393,7 +406,7 @@ function initDb(dbPath) {
       ON frames (participant, deleted_at)
       WHERE deleted_at IS NOT NULL;
   `);
-    // Every frame knows its clock-aligned 5-minute window. NULL marks a row
+    // Every frame knows its clock-aligned window (windowing.windowMinutes). NULL marks a row
     // ingested before chunking existed; it remains available as frame metadata
     // but has no current VLM result.
     migrateAddFrameColumn("chunk_start_ms", "chunk_start_ms INTEGER");
@@ -1288,7 +1301,7 @@ function initDb(dbPath) {
     ORDER BY f.capture_epoch_ms
   `);
     // Compact per-session/per-chunk index of a participant's frames. One row
-    // per (session, 5-minute window) — a few hundred rows for a study day — so
+    // per (session, window) — a few hundred rows for a study day — so
     // the session-anchored day scope can be resolved in memory without a
     // timezone-aware SQL query (SQLite has no timezone support). Soft-deleted
     // rows are included: a deleted frame still bounds the day it was captured
@@ -1668,7 +1681,7 @@ function closeFillingChunksForSession(participant, session) {
     }).changes;
 }
 // Every chunk of one study day, ordered by window start. A chunk belongs to
-// the day whose sessions filled it: windows are clock-aligned and 5 minutes
+// the day whose sessions filled it: windows are clock-aligned and windowing.windowMinutes
 // long, so two sessions on different days can never share one.
 function listChunksOnDay(participant, day) {
     const scope = resolveDayScope(participant, day);
@@ -1890,7 +1903,13 @@ const DEVICE_INFO_COMPARED_COLUMNS = [
  * Inserts a report. "duplicate" = same eventId with identical content
  * (retry); "conflict" = same eventId with different content.
  */
-function recordDeviceInfoReport(participant, report, now = Date.now()) {
+/**
+ * Upper bound per participant (append-only table, review n5). The app sends
+ * one report per BLE connect; a study day with frequent reconnects stays far
+ * below this. Further reports are acknowledged but not stored ("capped").
+ */
+exports.MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT = 5000;
+function recordDeviceInfoReport(participant, report, now = Date.now(), maxReports = exports.MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT) {
     return db.transaction(() => {
         const existing = db
             .prepare(`SELECT ${DEVICE_INFO_COMPARED_COLUMNS.join(", ")}
@@ -1900,6 +1919,11 @@ function recordDeviceInfoReport(participant, report, now = Date.now()) {
             const same = DEVICE_INFO_COMPARED_COLUMNS.every((column) => existing[column] === report[column]);
             return same ? "duplicate" : "conflict";
         }
+        const stored = db
+            .prepare(`SELECT COUNT(*) AS n FROM device_info_reports WHERE participant = ?`)
+            .get(participant).n;
+        if (stored >= maxReports)
+            return "capped";
         db.prepare(`INSERT INTO device_info_reports (
          participant, event_id, session, device, client_epoch_ms,
          server_received_epoch_ms, requested_interval_ms, settings_form_factor,
