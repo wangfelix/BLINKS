@@ -94,6 +94,17 @@ const snapshot = (dbPath: string): Snapshot => {
   return { activities: rows };
 };
 
+// Full participants state: schema SQL + every row/column.
+const participantsState = (dbPath: string) => {
+  const db = new Database(dbPath, { readonly: true });
+  const state = {
+    sql: (db.prepare(`SELECT sql FROM sqlite_master WHERE name = 'participants'`).get() as { sql: string }).sql,
+    rows: db.prepare(`SELECT * FROM participants ORDER BY username`).all(),
+  };
+  db.close();
+  return state;
+};
+
 const columnsOf = (dbPath: string, table: string): string[] => {
   const db = new Database(dbPath, { readonly: true });
   const names = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
@@ -207,6 +218,7 @@ test("rollback: a failure inside the migration leaves the DB untouched", () => {
   buildLegacyDb(dbPath);
   const before = snapshot(dbPath);
   const columnsBefore = columnsOf(dbPath, "activities");
+  const participantsBefore = participantsState(dbPath);
   ratingsMigrationTestHooks.failBeforeCommit = true;
   try {
     assert.throws(() => initDb(dbPath), /ratings migration test failure/);
@@ -216,8 +228,44 @@ test("rollback: a failure inside the migration leaves the DB untouched", () => {
   assert.deepStrictEqual(columnsOf(dbPath, "activities"), columnsBefore);
   assert.deepStrictEqual(snapshot(dbPath), before);
   assert.deepStrictEqual(columnsOf(dbPath, "activity_ratings"), [], "activity_ratings not created");
+  // The form-factor rebuild ran (and committed) before the ratings failure:
+  // CHECK gone, every participant row identical (separate, idempotent step).
+  const participants = participantsState(dbPath);
+  assert.ok(!/CHECK/i.test(participants.sql));
+  assert.deepStrictEqual(participants.rows, participantsBefore.rows);
   // ... and the next regular start migrates normally.
   initDb(dbPath);
+  assert.strictEqual(getLastRatingsMigrationReport()?.migrated, true);
+});
+
+test("rollback: a failure inside the form-factor migration leaves participants untouched", () => {
+  const dbPath = path.join(tmp, "rollback-form-factor.db");
+  buildLegacyDb(dbPath);
+  const participantsBefore = participantsState(dbPath);
+  assert.ok(/CHECK/i.test(participantsBefore.sql), "fixture has the old CHECK");
+  const activitiesBefore = snapshot(dbPath);
+  const columnsBefore = columnsOf(dbPath, "activities");
+  ratingsMigrationTestHooks.failFormFactorBeforeCommit = true;
+  try {
+    assert.throws(() => initDb(dbPath), /form-factor migration test failure/);
+  } finally {
+    ratingsMigrationTestHooks.failFormFactorBeforeCommit = false;
+  }
+  assert.deepStrictEqual(participantsState(dbPath), participantsBefore, "schema incl. CHECK and rows unchanged");
+  const leftovers = new Database(dbPath, { readonly: true });
+  assert.strictEqual(
+    leftovers.prepare(`SELECT COUNT(*) AS n FROM sqlite_master WHERE name LIKE '%_rebuild'`).get().n,
+    0,
+    "no rebuild table left",
+  );
+  leftovers.close();
+  // initDb stopped before the ratings migration: legacy columns intact
+  assert.deepStrictEqual(columnsOf(dbPath, "activities"), columnsBefore);
+  assert.deepStrictEqual(snapshot(dbPath), activitiesBefore);
+  // next regular start migrates both
+  initDb(dbPath);
+  assert.ok(!/CHECK/i.test(participantsState(dbPath).sql));
+  assert.deepStrictEqual(participantsState(dbPath).rows, participantsBefore.rows);
   assert.strictEqual(getLastRatingsMigrationReport()?.migrated, true);
 });
 

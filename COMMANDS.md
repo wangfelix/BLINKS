@@ -148,7 +148,7 @@ npm run build && npm run test-study-config-runtime  # loader exit 2/F1, endpoint
 npm run test-ratings-migration     # workload/recovery -> activity_ratings (counts, idempotent, rollback)
 # dry run of the migration on a COPY of a real DB (refuses paths outside /tmp, aggregated output only):
 #   mkdir -p /tmp/mig-test && cp <copy>.db /tmp/mig-test/work.db
-#   npm run check-ratings-migration-copy -- /tmp/mig-test/work.db [--rollback] && rm -rf /tmp/mig-test
+#   npm run check-ratings-migration-copy -- /tmp/mig-test/work.db [--rollback | --rollback-form-factor] && rm -rf /tmp/mig-test
 # Python (worker venv or any venv with requirements.txt):
 #   cd vlm && python -m unittest test_study_example_prompts test_vlm_contract test_vlm_retry
 #   cd face-blur && python -m unittest test_blur_config

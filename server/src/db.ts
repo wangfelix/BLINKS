@@ -492,8 +492,18 @@ export interface RatingsMigrationReport {
   ratingsByKey: Record<string, number>;
 }
 
-/** Test hook: throw inside the migration transaction (rollback test). */
-export const ratingsMigrationTestHooks = { failBeforeCommit: false };
+/**
+ * Test hooks: throw inside a migration transaction (rollback tests).
+ * The two WP1 migrations run in separate transactions (the large DRM
+ * migration sits between them in initDb). Each is idempotent and rolls back
+ * on its own; a failure in the ratings migration leaves the already
+ * committed form-factor rebuild in place, which changes no values and is
+ * compatible with the old code (it only drops the CHECK).
+ */
+export const ratingsMigrationTestHooks = {
+  failBeforeCommit: false,
+  failFormFactorBeforeCommit: false,
+};
 
 let lastRatingsMigrationReport: RatingsMigrationReport | null = null;
 export const getLastRatingsMigrationReport = (): RatingsMigrationReport | null =>
@@ -641,6 +651,9 @@ function migrateDropFormFactorCheck(): void {
     }
     db.exec(`DROP TABLE participants`);
     db.exec(`ALTER TABLE participants_form_factor_rebuild RENAME TO participants`);
+    if (ratingsMigrationTestHooks.failFormFactorBeforeCommit) {
+      throw new Error("form-factor migration test failure");
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");

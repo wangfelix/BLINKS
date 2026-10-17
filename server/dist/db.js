@@ -205,8 +205,18 @@ exports.LEGACY_RATING_COLUMN_KEYS = {
     workload_rating: "mental_demand",
     recovery_rating: "mental_recovery",
 };
-/** Test hook: throw inside the migration transaction (rollback test). */
-exports.ratingsMigrationTestHooks = { failBeforeCommit: false };
+/**
+ * Test hooks: throw inside a migration transaction (rollback tests).
+ * The two WP1 migrations run in separate transactions (the large DRM
+ * migration sits between them in initDb). Each is idempotent and rolls back
+ * on its own; a failure in the ratings migration leaves the already
+ * committed form-factor rebuild in place, which changes no values and is
+ * compatible with the old code (it only drops the CHECK).
+ */
+exports.ratingsMigrationTestHooks = {
+    failBeforeCommit: false,
+    failFormFactorBeforeCommit: false,
+};
 let lastRatingsMigrationReport = null;
 const getLastRatingsMigrationReport = () => lastRatingsMigrationReport;
 exports.getLastRatingsMigrationReport = getLastRatingsMigrationReport;
@@ -319,6 +329,9 @@ function migrateDropFormFactorCheck() {
         }
         db.exec(`DROP TABLE participants`);
         db.exec(`ALTER TABLE participants_form_factor_rebuild RENAME TO participants`);
+        if (exports.ratingsMigrationTestHooks.failFormFactorBeforeCommit) {
+            throw new Error("form-factor migration test failure");
+        }
         db.exec("COMMIT");
     }
     catch (error) {
