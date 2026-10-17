@@ -47,7 +47,13 @@ Dateien in diesem Branch:
 - `scale.min < scale.max` und `max - min <= 10` (Layout), `min >= 0` steht schon im Shape
 - `capture.intervalMsByFormFactor` hat genau die Keys aus `devices.formFactors`
 - `[py]` jedes Intervall `<` Fenster; Intervall in `[5000, 600000]` ms (Firmware-Grenzen, schon im Shape)
-- `[py]` `1440 % windowing.windowMinutes == 0`, `idleCloseMinutes >= windowMinutes`
+- `[py]` `60 % windowing.windowMinutes == 0` **und** jeder UTC-Offset von `study.timezone`
+  ist ein Vielfaches davon (geprüft: Offsets am 1. und 15. jedes Monats im laufenden und
+  im nächsten Jahr). Grund: Die Fenster sind epoch-ausgerichtet (`chunkStartOf`), nur so
+  liegen sie auf lokalen Marken und laufen nie über Mitternacht oder einen DST-Wechsel
+  (Review PR #1, M3, Variante A). Europe/Berlin: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60;
+  Asia/Kolkata (+05:30): 1, 2, 3, 5, 6, 10, 15, 30. Die Fehlermeldung nennt die erlaubten Werte.
+  Außerdem `idleCloseMinutes >= windowMinutes`.
 - `[py]` nur erlaubte Prompt-Platzhalter (Liste unten)
 - `[py]` `study.timezone` ist eine bekannte IANA-Zone
 - `overreliance.enabled: false` ⇒ `texts.rounds.assistedReminderIncorrectLabelsNotice` muss `null` sein

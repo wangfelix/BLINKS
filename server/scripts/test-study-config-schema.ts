@@ -262,7 +262,7 @@ expectInvalid(
 expectInvalid(
   "7-minute window",
   (raw) => (raw.windowing.windowMinutes = 7),
-  "windowing.windowMinutes: must divide 24 h",
+  "windowing.windowMinutes: must divide 60 and every UTC offset",
 );
 expectInvalid(
   "idle close shorter than window",

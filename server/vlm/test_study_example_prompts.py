@@ -126,7 +126,7 @@ class LoaderTest(unittest.TestCase):
         result = self.run_loader({"BLINKS_STUDY_CONFIG": str(broken)})
         self.assertEqual(result.returncode, 2)
         self.assertIn("[t] FATAL: invalid study config", result.stderr)
-        self.assertIn("windowing.windowMinutes: must divide 24 h", result.stderr)
+        self.assertIn("windowing.windowMinutes: must divide 60 and every UTC offset of Europe/Berlin", result.stderr)
         self.assertIn('vlm.prompts.occupationUnknown: unknown placeholder "{{occupation}}"', result.stderr)
 
     def test_unknown_field_is_a_shape_error(self) -> None:
@@ -197,6 +197,60 @@ class LoaderTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("app.studySettingsPin: is a retired PIN", result.stderr)
         self.assertNotIn(retired, result.stderr)
+
+    def window_issue(self, window: int, time_zone: str = "Europe/Berlin") -> str | None:
+        import re
+
+        source = EXAMPLE_PATH.read_text(encoding="utf-8")
+        source = re.sub(r"(?m)^  timezone: .*$", f'  timezone: "{time_zone}"', source)
+        source = re.sub(r"(?m)^  windowMinutes: .*$", f"  windowMinutes: {window}", source)
+        source = re.sub(r"(?m)^  idleCloseMinutes: .*$", f"  idleCloseMinutes: {max(10, window)}", source)
+        try:
+            blinks_study_config.parse_study_config(source, "inline.yaml")
+            return None
+        except blinks_study_config.StudyConfigError as exc:
+            messages = [message for path, message in exc.issues if path == "windowing.windowMinutes"]
+            return messages[0] if messages else None
+
+    def test_window_alignment_review_m3(self) -> None:
+        berlin = "1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60"
+        self.assertEqual(", ".join(map(str, blinks_study_config.allowed_window_minutes("Europe/Berlin"))), berlin)
+        self.assertEqual(blinks_study_config.allowed_window_minutes("Asia/Kolkata"), [1, 2, 3, 5, 6, 10, 15, 30])
+        self.assertEqual(blinks_study_config.time_zone_offsets_minutes("Europe/Berlin"), [60, 120])
+        for window in (7, 45, 90, 120):
+            message = self.window_issue(window)
+            self.assertIsNotNone(message, window)
+            self.assertIn("must divide 60 and every UTC offset of Europe/Berlin", message)
+            self.assertTrue(message.endswith(f"allowed: {berlin}"), message)
+        for window in (5, 30, 60):
+            self.assertIsNone(self.window_issue(window), window)
+        kolkata = self.window_issue(60, "Asia/Kolkata")
+        self.assertIsNotNone(kolkata)
+        self.assertTrue(kolkata.endswith("allowed: 1, 2, 3, 5, 6, 10, 15, 30"), kolkata)
+        self.assertIsNone(self.window_issue(30, "Asia/Kolkata"))
+
+    def test_dst_days_windows_stay_on_local_marks(self) -> None:
+        # Same alignment as chunkStartOf in server/src/db.ts (t - t % W).
+        from datetime import datetime, timedelta, timezone
+        from zoneinfo import ZoneInfo
+
+        berlin = ZoneInfo("Europe/Berlin")
+        window_ms = 5 * 60_000
+        for day, expected in (("2026-03-29", 276), ("2026-10-25", 300), ("2026-07-14", 288)):
+            start = datetime.fromisoformat(day).replace(tzinfo=berlin)
+            end = start + timedelta(days=1)
+            end = end.replace(tzinfo=berlin)  # next local midnight (wall clock)
+            start_ms = int(start.timestamp() * 1000)
+            end_ms = int(end.timestamp() * 1000)
+            starts = sorted({t - t % window_ms for t in range(start_ms, end_ms, 60_000)})
+            self.assertEqual(len(starts), expected, day)
+            self.assertEqual(starts[0], start_ms, day)
+            for s in starts:
+                first = datetime.fromtimestamp(s / 1000, timezone.utc).astimezone(berlin)
+                last = datetime.fromtimestamp((s + window_ms - 1) / 1000, timezone.utc).astimezone(berlin)
+                self.assertEqual(first.minute % 5, 0)
+                self.assertEqual(first.date().isoformat(), day)
+                self.assertEqual(last.date().isoformat(), day)
 
     def test_overreliance_needs_two_categories(self) -> None:
         source = EXAMPLE_PATH.read_text(encoding="utf-8")

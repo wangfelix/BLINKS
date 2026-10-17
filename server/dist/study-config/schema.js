@@ -22,7 +22,7 @@
 // WEB_URL, DISABLE_PUSH, DRM_DEV_MODE, worker concurrency/retry/poll).
 // ===========================================================================
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.studyConfigCrossCheckIssues = exports.StudyConfigSchema = exports.SCALE_MAX_SPAN = exports.CATEGORY_ICONS = exports.CAPTURE_INTERVAL_MAX_MS = exports.CAPTURE_INTERVAL_MIN_MS = exports.PROMPT_PLACEHOLDERS = void 0;
+exports.studyConfigCrossCheckIssues = exports.allowedWindowMinutes = exports.timeZoneOffsetsMinutes = exports.utcOffsetMinutesAt = exports.StudyConfigSchema = exports.SCALE_MAX_SPAN = exports.CATEGORY_ICONS = exports.CAPTURE_INTERVAL_MAX_MS = exports.CAPTURE_INTERVAL_MIN_MS = exports.PROMPT_PLACEHOLDERS = void 0;
 const zod_1 = require("zod");
 // --- Primitives --------------------------------------------------------------
 /** Stable machine key: lowercase snake_case, used in DB rows and the API. */
@@ -79,7 +79,11 @@ const UiSection = zod_1.z
     .strict();
 const WindowingSection = zod_1.z
     .object({
-    /** VLM chunk / segmentation grid. Must divide 24 h (1440 min). */
+    /**
+     * VLM chunk / segmentation grid. Cross-check: must divide 60 and every UTC
+     * offset of study.timezone (Europe/Berlin: 1, 2, 3, 4, 5, 6, 10, 12, 15,
+     * 20, 30, 60), so the epoch-aligned windows never cross local midnight.
+     */
     windowMinutes: zod_1.z.number().int().min(1).max(120),
     /** Idle sweep that closes a session's last chunk (was CHUNK_IDLE_CLOSE_MS). */
     idleCloseMinutes: zod_1.z.number().int().min(1).max(240),
@@ -374,6 +378,42 @@ const duplicateKeyIssues = (items, basePath) => {
     });
     return issues;
 };
+// --- window alignment (review of PR #1, M3, decided by Felix: variant A) ------
+// Windows are epoch-aligned (chunkStartOf in db.ts: t - t % W). They fall on
+// local W-minute marks, and therefore never cross local midnight, exactly
+// when W divides 60 AND every UTC offset of the study time zone. This is
+// checked for the offsets on the 1st and 15th of every month of the current
+// and the next year (covers DST and announced offset changes).
+/** UTC offset (minutes) of `timeZone` at `epochMs`, e.g. +330 for Asia/Kolkata. */
+const utcOffsetMinutesAt = (timeZone, epochMs) => {
+    const name = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" })
+        .formatToParts(new Date(epochMs))
+        .find((part) => part.type === "timeZoneName").value; // "GMT", "GMT+05:30"
+    const match = /^GMT(?:([+-])(\d{2}):(\d{2}))?$/.exec(name);
+    if (!match)
+        throw new Error(`unexpected offset format "${name}" for ${timeZone}`);
+    if (!match[1])
+        return 0;
+    const minutes = Number(match[2]) * 60 + Number(match[3]);
+    return match[1] === "-" ? -minutes : minutes;
+};
+exports.utcOffsetMinutesAt = utcOffsetMinutesAt;
+const timeZoneOffsetsMinutes = (timeZone, now = new Date()) => {
+    const offsets = new Set();
+    const year = now.getUTCFullYear();
+    for (const y of [year, year + 1])
+        for (let month = 0; month < 12; month++)
+            for (const day of [1, 15])
+                offsets.add((0, exports.utcOffsetMinutesAt)(timeZone, Date.UTC(y, month, day, 12)));
+    return [...offsets].sort((a, b) => a - b);
+};
+exports.timeZoneOffsetsMinutes = timeZoneOffsetsMinutes;
+/** windowMinutes values whose windows stay on local marks in `timeZone`. */
+const allowedWindowMinutes = (timeZone, now = new Date()) => {
+    const offsets = (0, exports.timeZoneOffsetsMinutes)(timeZone, now);
+    return Array.from({ length: 60 }, (_, index) => index + 1).filter((w) => 60 % w === 0 && offsets.every((offset) => offset % w === 0));
+};
+exports.allowedWindowMinutes = allowedWindowMinutes;
 const minutesOf = (time) => {
     const [hour, minute] = time.split(":").map(Number);
     return hour * 60 + minute;
@@ -438,11 +478,20 @@ const studyConfigCrossCheckIssues = (config) => {
             });
         }
     }
-    // [py] window grid divides the day; idle close >= window
-    if (1440 % config.windowing.windowMinutes !== 0) {
+    // [py] windows on local W-minute marks (never across local midnight/DST)
+    let allowedWindows = null;
+    try {
+        allowedWindows = (0, exports.allowedWindowMinutes)(config.study.timezone);
+    }
+    catch {
+        // unknown time zone: reported by the timezone check below
+    }
+    if (allowedWindows && !allowedWindows.includes(config.windowing.windowMinutes)) {
         issues.push({
             path: "windowing.windowMinutes",
-            message: "must divide 24 h (1440 min) without remainder",
+            message: `must divide 60 and every UTC offset of ${config.study.timezone} ` +
+                `(windows are clock-aligned and must not cross local midnight); ` +
+                `allowed: ${allowedWindows.join(", ")}`,
         });
     }
     if (config.windowing.idleCloseMinutes < config.windowing.windowMinutes) {
