@@ -406,7 +406,7 @@ function initDb(dbPath) {
       ON frames (participant, deleted_at)
       WHERE deleted_at IS NOT NULL;
   `);
-    // Every frame knows its clock-aligned 5-minute window. NULL marks a row
+    // Every frame knows its clock-aligned window (windowing.windowMinutes). NULL marks a row
     // ingested before chunking existed; it remains available as frame metadata
     // but has no current VLM result.
     migrateAddFrameColumn("chunk_start_ms", "chunk_start_ms INTEGER");
@@ -1301,7 +1301,7 @@ function initDb(dbPath) {
     ORDER BY f.capture_epoch_ms
   `);
     // Compact per-session/per-chunk index of a participant's frames. One row
-    // per (session, 5-minute window) — a few hundred rows for a study day — so
+    // per (session, window) — a few hundred rows for a study day — so
     // the session-anchored day scope can be resolved in memory without a
     // timezone-aware SQL query (SQLite has no timezone support). Soft-deleted
     // rows are included: a deleted frame still bounds the day it was captured
@@ -1681,7 +1681,7 @@ function closeFillingChunksForSession(participant, session) {
     }).changes;
 }
 // Every chunk of one study day, ordered by window start. A chunk belongs to
-// the day whose sessions filled it: windows are clock-aligned and 5 minutes
+// the day whose sessions filled it: windows are clock-aligned and windowing.windowMinutes
 // long, so two sessions on different days can never share one.
 function listChunksOnDay(participant, day) {
     const scope = resolveDayScope(participant, day);

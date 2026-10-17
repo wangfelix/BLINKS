@@ -30,11 +30,11 @@ failed the blur is marked 'failed' without an API call.
 Per chunk the model receives up to vlm.maxFramesPerWindow face-anonymized frames
 (evenly sampled across the window, chronological order) and returns full
 verbalized probability distributions:
-  - activity probabilities over all 17 keys
+  - activity probabilities over all configured activity keys (paper: 17)
                               -> chunks.vlm_activity_confidences_json
   - their deterministic argmax -> chunks.vlm_label
   - that maximum probability   -> chunks.vlm_activity_confidence
-  - category probabilities over work|break|other
+  - category probabilities over the configured category keys (paper: work|break|other)
                               -> chunks.vlm_category_confidences_json
   - their deterministic argmax -> chunks.vlm_category
   - that maximum probability   -> chunks.vlm_category_confidence
@@ -981,7 +981,7 @@ def run(once: bool, max_chunks: int | None) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="BLINKS VLM scene-understanding worker (5-minute chunks)"
+        description="BLINKS VLM scene-understanding worker (clock-aligned window chunks)"
     )
     parser.add_argument(
         "--once", action="store_true",

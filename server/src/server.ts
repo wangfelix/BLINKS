@@ -1457,7 +1457,7 @@ app.get(
       const dayChunks = listChunksOnDay(participant, day);
       const recordingEnded =
         DRM_DEV_MODE || recordingEndedForFrames(participant, dayFrames);
-      // Pending = frames whose 5-minute chunk is not terminal yet (filling /
+      // Pending = frames whose window chunk is not terminal yet (filling /
       // ready / processing). Legacy frames without a chunk are frozen, and
       // face_status='failed' frames can never feed a chunk's VLM input — do
       // not let either hold the round in "still processing" forever.
