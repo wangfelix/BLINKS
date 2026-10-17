@@ -217,7 +217,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap cleanup EXIT
 
-# Study config (BLINKS-tasks#4): the server and both workers read the same
+# Study config (config/README.md): the server and both workers read the same
 # file. Without BLINKS_STUDY_CONFIG the launcher copies config/study.yaml (or
 # the paper example) with the evening gate opened ("00:00") into a temp file;
 # DEV_GATE_OPEN=0 keeps the configured opening time.
