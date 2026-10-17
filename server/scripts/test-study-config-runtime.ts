@@ -221,7 +221,11 @@ test("face blur back on: requeue-unblurred-frames resets 'disabled' frames (m4)"
   const recordings = path.join(tmp, "requeue");
   fs.mkdirSync(recordings, { recursive: true });
   const dbPath = path.join(recordings, "recordings.db");
-  fs.copyFileSync(path.join(tmp, "noblur.yaml.db"), dbPath);
+  // WAL mode: copy a consistent snapshot, not just the main file
+  const SqliteDb = require("better-sqlite3");
+  const source = new SqliteDb(path.join(tmp, "noblur.yaml.db"), { readonly: true });
+  source.exec(`VACUUM INTO '${dbPath.replace(/'/g, "''")}'`);
+  source.close();
   const requeue = (configPath: string, ...args: string[]) =>
     childProcess.spawnSync(
       process.execPath,

@@ -106,6 +106,39 @@ def _json_path(error: jsonschema.ValidationError) -> str:
     return ".".join(str(part) for part in error.absolute_path)
 
 
+def utc_offset_minutes_at(time_zone: str, when: "datetime") -> int:
+    offset = when.astimezone(ZoneInfo(time_zone)).utcoffset()
+    assert offset is not None
+    return int(offset.total_seconds() // 60)
+
+
+def time_zone_offsets_minutes(time_zone: str, now: "datetime | None" = None) -> list[int]:
+    """Offsets on the 1st and 15th of every month of this and next year.
+
+    Same sampling as timeZoneOffsetsMinutes in server/src/study-config/schema.ts.
+    """
+    from datetime import datetime, timezone as _tz
+
+    year = (now or datetime.now(_tz.utc)).year
+    offsets = {
+        utc_offset_minutes_at(time_zone, datetime(y, month, day, 12, tzinfo=_tz.utc))
+        for y in (year, year + 1)
+        for month in range(1, 13)
+        for day in (1, 15)
+    }
+    return sorted(offsets)
+
+
+def allowed_window_minutes(time_zone: str, now: "datetime | None" = None) -> list[int]:
+    """windowMinutes values whose epoch-aligned windows sit on local marks.
+
+    Review of PR #1, M3 (variant A): W must divide 60 and every UTC offset of
+    the study time zone, so windows never cross local midnight or a DST switch.
+    """
+    offsets = time_zone_offsets_minutes(time_zone, now)
+    return [w for w in range(1, 61) if 60 % w == 0 and all(o % w == 0 for o in offsets)]
+
+
 def _cross_check_issues(config: dict[str, Any]) -> list[tuple[str, str]]:
     """The cross-checks marked [py] in the contract (section 1).
 
@@ -135,8 +168,17 @@ def _cross_check_issues(config: dict[str, Any]) -> list[tuple[str, str]]:
             issues.append(
                 (f"capture.intervalMsByFormFactor.{key}", "must be shorter than windowing.windowMinutes")
             )
-    if 1440 % window_minutes != 0:
-        issues.append(("windowing.windowMinutes", "must divide 24 h (1440 min) without remainder"))
+    time_zone = config["study"]["timezone"]
+    try:
+        allowed_windows: list[int] | None = allowed_window_minutes(time_zone)
+    except (ZoneInfoNotFoundError, ValueError):
+        allowed_windows = None  # reported by the timezone check below
+    if allowed_windows is not None and window_minutes not in allowed_windows:
+        issues.append((
+            "windowing.windowMinutes",
+            f"must divide 60 and every UTC offset of {time_zone} (windows are clock-aligned "
+            f"and must not cross local midnight); allowed: {', '.join(map(str, allowed_windows))}",
+        ))
     if config["windowing"]["idleCloseMinutes"] < window_minutes:
         issues.append(("windowing.idleCloseMinutes", "must be >= windowing.windowMinutes"))
 

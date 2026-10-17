@@ -43,6 +43,10 @@ Check at least:
   or remove keys while a study is running; add new ones instead.
 - `experienceItems`: keys, scales, `required`, `appliesToCategories`. Ratings
   are stored per item key (`activity_ratings`).
+- `windowing.windowMinutes`: must divide 60 and every UTC offset of
+  `study.timezone`; otherwise start-up stops with exit 2 and lists the allowed
+  values. Europe/Berlin: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Time zones
+  with a half-hour offset (e.g. Asia/Kolkata) allow at most 30.
 - `capture.intervalMsByFormFactor`: at least 5000 ms (firmware lower bound);
   the app sends the interval to the camera on every connect.
 - `schedule.reconstructionOpensAt` / `endSessionAvailableAt` (study time zone)

@@ -25,7 +25,10 @@ ui:
   thumbnailsPerActivity: 5
 
 windowing:
-  # Clock-aligned VLM chunk / segmentation grid. Must divide 24 h.
+  # Clock-aligned VLM chunk / segmentation grid. Must divide 60 and every UTC
+  # offset of study.timezone, so no window crosses local midnight or a DST
+  # switch. Allowed for Europe/Berlin: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60
+  # (the loader error lists the allowed values for other time zones).
   # NOTE: vlm.prompts.system below says "about five minutes" literally; adapt
   # the prompt text when you change the window.
   windowMinutes: 5

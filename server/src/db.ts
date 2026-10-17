@@ -279,10 +279,12 @@ export interface PhotoFrameRow {
 // --- Chunks (windowing.windowMinutes, paper: 5 min) ---------------------------
 // The chunk is the VLM inference unit: frames are grouped into clock-aligned
 // windows at ingestion, and the VLM worker labels whole chunks (not
-// individual frames). Epoch-aligned windows are local-clock-aligned when the
-// window divides the UTC offset (every real offset is a multiple of 15 min,
-// so windows of 1, 3, 5 and 15 min always are; the config only requires the
-// window to divide 24 h).
+// individual frames). Windows are epoch-aligned (t - t % W). The config
+// loader only accepts a window W that divides 60 and every UTC offset of
+// study.timezone (review of PR #1, M3), so every window starts on a local
+// W-minute mark and none crosses local midnight, also on DST days (Europe/
+// Berlin, 5 min: 276 windows on 2026-03-29, 300 on 2026-10-25).
+// scripts/test-window-alignment.ts covers this.
 
 export const CHUNK_WINDOW_MS = WINDOW_MS;
 
