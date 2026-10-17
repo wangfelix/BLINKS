@@ -33,7 +33,8 @@ addition to enforcing authentication, round order, and the evening gate.
 ## Assisted time-span editing
 
 The assisted editor treats every activity span as a half-open interval
-`[start, end)` and exposes a complete clock-aligned five-minute grid for the
+`[start, end)` and exposes a complete clock-aligned window grid
+(`windowing.windowMinutes`, five minutes in the paper study) for the
 pinned study day. A grid slot remains selectable when no photo was captured
 and renders **No images available**; live photos in the same slot share one
 visual group. Slots distinguish the current activity, another activity, and
@@ -43,7 +44,7 @@ background and border. The editable selection adds a full-cell blue tint,
 merged three-pixel edge, and prominent Start/End flags without regrouping or
 moving any slots under the pointer.
 Assignment labels and group spans sit in a separate header row above the
-individual five-minute time labels. The half-hour time tape follows the first
+individual window time labels. The half-hour time tape follows the first
 visible grid row, keeps that marker in view, and highlights it persistently.
 
 Both **Insert activity** and **Adjust times** use the same picker. The selected
@@ -93,11 +94,11 @@ npm run dev   # http://localhost:3002 (BLINKS API expected on :3000)
 
 Env vars:
 
-| Variable                            | Default                 | Meaning                                                  |
-| ----------------------------------- | ----------------------- | -------------------------------------------------------- |
-| `API_PROXY_TARGET`                  | `http://127.0.0.1:3000` | Dev-proxy target for `/api`, `/frames`, `/health`        |
-| `DRM_DEV_MODE`                      | (off)                   | `1` shows direct dev navigation; set on API server too   |
-| `NEXT_PUBLIC_API_URL`               | `""` (same origin)      | API base override; normally never needed                 |
+| Variable              | Default                 | Meaning                                                |
+| --------------------- | ----------------------- | ------------------------------------------------------ |
+| `API_PROXY_TARGET`    | `http://127.0.0.1:3000` | Dev-proxy target for `/api`, `/frames`, `/health`      |
+| `DRM_DEV_MODE`        | (off)                   | `1` shows direct dev navigation; set on API server too |
+| `NEXT_PUBLIC_API_URL` | `""` (same origin)      | API base override; normally never needed               |
 
 Study values are **not** configured in the web app. Activity labels,
 categories, rating items, window size, thumbnails per activity, timezone and
@@ -237,7 +238,7 @@ cd /root/BLINKS && git pull && cd drm-web && npm ci && npm run build && cp -r pu
 - `src/lib/time.ts` — study-timezone helpers (day keys, HH:MM conversion,
   DST-aware day bounds).
 - `src/components/reconstruct/` — assisted/self activity rows, frame-picker
-  dialog (five-minute boundary adjustment + insert), slot ownership/grouping,
+  dialog (window-grid boundary adjustment + insert), slot ownership/grouping,
   the two pre-round instruction screens, round editor with debounced autosave,
   and read-only view of submitted rounds.
 - `src/components/ui/` — generated shadcn/ui components.

@@ -169,7 +169,7 @@ const splitLongEmptyGroups = (
   });
 
 /**
- * Five-minute time picker shared by assisted insertion and boundary editing.
+ * Window time picker (`windowing.windowMinutes`, 5 in the paper study) shared by assisted insertion and boundary editing.
  * The full pinned study day remains selectable even when no image was recorded.
  * Images are grouped into their clock-aligned slot and assignment state is
  * shown separately from image availability.

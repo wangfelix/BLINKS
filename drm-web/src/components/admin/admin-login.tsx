@@ -49,9 +49,7 @@ export const AdminLogin = ({
   };
 
   return (
-    <StudyFlowShell
-      contentClassName="flex items-center justify-center"
-    >
+    <StudyFlowShell contentClassName="flex items-center justify-center">
       <Column
         gap="xl"
         className="onboarding-step-enter onboarding-stagger w-full max-w-md"

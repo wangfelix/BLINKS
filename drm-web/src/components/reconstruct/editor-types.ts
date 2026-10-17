@@ -224,7 +224,7 @@ const agreedValue = <T>(first: T, second: T): T | null =>
 
 /**
  * Merge one activity with the activity that follows it into a single span
- * [first.start, second.end). The 5-minute segmentation splits a continuous
+ * [first.start, second.end). The per-window segmentation splits a continuous
  * stretch of work whenever the VLM's argmax wobbles, so rejoining those rows
  * is the most common assisted-round correction.
  *
@@ -352,7 +352,7 @@ export const resolveSpanOverlaps = (
 /**
  * True only when the gap adjacent to one Insert button contains a live image
  * that is not covered by any activity. Image-free time never turns the button
- * red; it remains selectable in the five-minute picker.
+ * red; it remains selectable in the window picker.
  */
 export const gapHasUnassignedImages = (
   rows: EditableActivity[],
