@@ -14,11 +14,6 @@ import path from "path";
 
 import { parse as parseYaml } from "yaml";
 
-import { ACTIVITY_LABELS } from "../src/activity-vocabulary";
-import {
-  INCORRECT_ANNOTATION_MIN_MEAN_CONFIDENCE,
-  INCORRECT_ANNOTATION_RATE,
-} from "../src/incorrect-annotation-injection";
 import {
   StudyConfigSchema,
   studyConfigCrossCheckIssues,
@@ -75,20 +70,48 @@ test("study.example.yaml is valid", () => {
 
 const example: StudyConfig = StudyConfigSchema.parse(exampleRaw);
 
+// Paper-study values as they were hardcoded on master before the study config
+// (server/src/activity-vocabulary.ts, incorrect-annotation-injection.ts).
+// Frozen literals instead of imports: the runtime modules now derive these from
+// the ACTIVE config, so importing them made this test fail under
+// BLINKS_STUDY_CONFIG=config/study.test.yaml (review PR #1, m6). This file
+// only reads study.example.yaml and runs under any active config.
+const PAPER_ACTIVITY_KEYS = [
+  "computer_or_monitor_use",
+  "watching_video",
+  "paper_reading_writing",
+  "handheld_device_use",
+  "remote_meeting",
+  "phone_call",
+  "in_person_interaction",
+  "tools_or_materials",
+  "eating_drinking",
+  "food_preparation",
+  "cleaning_household",
+  "assisting_person_animal",
+  "personal_care",
+  "walking_or_movement",
+  "no_task_engagement",
+  "other",
+  "unclear",
+];
+const PAPER_OVERRELIANCE_RATE = 0.1;
+const PAPER_OVERRELIANCE_MIN_CONFIDENCE = 0.8;
+
 test("example = today's server constants", () => {
   assert.deepEqual(
     example.activities.map((a) => a.key),
-    [...ACTIVITY_LABELS],
+    PAPER_ACTIVITY_KEYS,
   );
   assert.deepEqual(
     example.categories.map((c) => c.key),
     ["work", "break", "other"],
   );
   assert.equal(example.overreliance.enabled, true);
-  assert.equal(example.overreliance.rate, INCORRECT_ANNOTATION_RATE);
+  assert.equal(example.overreliance.rate, PAPER_OVERRELIANCE_RATE);
   assert.equal(
     example.overreliance.minConfidence,
-    INCORRECT_ANNOTATION_MIN_MEAN_CONFIDENCE,
+    PAPER_OVERRELIANCE_MIN_CONFIDENCE,
   );
   assert.equal(example.windowing.windowMinutes * 60 * 1000, 5 * 60 * 1000);
   assert.equal(example.windowing.idleCloseMinutes, 10);
