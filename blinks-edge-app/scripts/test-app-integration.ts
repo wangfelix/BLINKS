@@ -43,6 +43,8 @@ const main = async () => {
     await import("@/capture/storage/device-info-queue-core");
   const { CameraLink } = await import("@/capture/ble/camera-link");
   const { toByteArray, fromByteArray } = await import("base64-js");
+  const { pendingTransactions, cancelledTransactions } =
+    await import("./stubs/react-native-ble-plx");
   const realFetch = globalThis.fetch;
 
   const login = await (
@@ -145,42 +147,93 @@ const main = async () => {
         (c) => c.charCodeAt(0),
       ),
     );
-  const fakeDevice = (withInfo: boolean) => ({
-    id: "AA:BB:CC:DD:EE:01",
-    requestMTU: async (mtu: number) => void calls.push(`mtu ${mtu}`),
-    discoverAllServicesAndCharacteristics: async () =>
-      void calls.push("discover"),
-    characteristicsForService: async () => [
-      { uuid: FRAMES },
-      { uuid: CONTROL },
-      ...(withInfo ? [{ uuid: INFO }] : []),
-    ],
-    readCharacteristicForService: async (_s: string, uuid: string) => {
-      calls.push(`read ${uuid.slice(9, 13)}`);
-      return { value: deviceInfo() };
-    },
-    writeCharacteristicWithResponseForService: async (
-      _s: string,
-      uuid: string,
-      value: string,
-    ) => {
-      const bytes = Array.from(toByteArray(value));
-      calls.push(
-        `write ${uuid.slice(9, 13)} [${bytes.map((b) => b.toString(16).padStart(2, "0")).join(" ")}]`,
-      );
-      if (bytes[0] === 0x03) {
-        const ms =
-          (bytes[1] << 24) | (bytes[2] << 16) | (bytes[3] << 8) | bytes[4];
-        firmwareInterval = Math.min(600000, Math.max(5000, ms));
-      }
-    },
-    onDisconnected: () => ({ remove: () => {} }),
-    monitorCharacteristicForService: (_s: string, uuid: string) => {
-      calls.push(`monitor ${uuid.slice(9, 13)}`);
-      return { remove: () => {} };
-    },
-    cancelConnection: async () => {},
-  });
+  // hang(op): that BLE call (e.g. "read 0004#2" = second 0004 read) never
+  // resolves on its own; it rejects when its transaction is cancelled, and
+  // late() lets a test resolve it afterwards (firmware ignoring the cancel).
+  type FakeOptions = { hang?: (op: string) => boolean };
+  const late: (() => void)[] = [];
+  let writesInFlight = 0;
+  let maxWritesInFlight = 0;
+  let disconnect: (() => void) | null = null;
+  const fakeDevice = (withInfo: boolean, options: FakeOptions = {}) => {
+    const seen = new Map<string, number>();
+    const step = async <T>(
+      op: string,
+      transactionId: string | undefined,
+      run: () => T,
+    ): Promise<T> => {
+      const n = (seen.get(op) ?? 0) + 1;
+      seen.set(op, n);
+      if (!options.hang?.(`${op}#${n}`)) return run();
+      return new Promise<T>((resolve, reject) => {
+        if (transactionId) {
+          pendingTransactions.set(transactionId, () =>
+            reject(new Error("Operation was cancelled")),
+          );
+        }
+        late.push(() => resolve(run()));
+      });
+    };
+    return {
+      id: "AA:BB:CC:DD:EE:01",
+      requestMTU: async (mtu: number) => void calls.push(`mtu ${mtu}`),
+      discoverAllServicesAndCharacteristics: async () =>
+        void calls.push("discover"),
+      characteristicsForService: async () => [
+        { uuid: FRAMES },
+        { uuid: CONTROL },
+        ...(withInfo ? [{ uuid: INFO }] : []),
+      ],
+      readCharacteristicForService: (
+        _s: string,
+        uuid: string,
+        transactionId?: string,
+      ) =>
+        step(`read ${uuid.slice(9, 13)}`, transactionId, () => {
+          calls.push(`read ${uuid.slice(9, 13)}`);
+          return { value: deviceInfo() };
+        }),
+      writeCharacteristicWithResponseForService: async (
+        _s: string,
+        uuid: string,
+        value: string,
+        transactionId?: string,
+      ) => {
+        const bytes = Array.from(toByteArray(value));
+        const label = bytes[0] === 0x03 ? "write 0x03" : "write control";
+        writesInFlight += 1;
+        maxWritesInFlight = Math.max(maxWritesInFlight, writesInFlight);
+        try {
+          await step(label, transactionId, () => {
+            calls.push(
+              `write ${uuid.slice(9, 13)} [${bytes.map((b) => b.toString(16).padStart(2, "0")).join(" ")}]`,
+            );
+            if (bytes[0] === 0x03) {
+              const ms =
+                (bytes[1] << 24) |
+                (bytes[2] << 16) |
+                (bytes[3] << 8) |
+                bytes[4];
+              firmwareInterval = Math.min(600000, Math.max(5000, ms));
+            }
+          });
+          // Let a concurrent write (if any) overlap this one.
+          await new Promise((r) => setTimeout(r, 5));
+        } finally {
+          writesInFlight -= 1;
+        }
+      },
+      onDisconnected: (listener: () => void) => {
+        disconnect = listener;
+        return { remove: () => {} };
+      },
+      monitorCharacteristicForService: (_s: string, uuid: string) => {
+        calls.push(`monitor ${uuid.slice(9, 13)}`);
+        return { remove: () => {} };
+      },
+      cancelConnection: async () => {},
+    };
+  };
   const reports: {
     requestedIntervalMs: number | null;
     info: unknown;
@@ -195,6 +248,8 @@ const main = async () => {
     });
     (link as unknown as { running: boolean }).running = true;
     return link as unknown as {
+      captureIntervalTimeoutMs: number;
+      handleAppConfigChange: () => void;
       finishConnection: (d: unknown) => Promise<void>;
       setPaused: (p: boolean) => Promise<void>;
       appConfigUnsubscribe: (() => void) | null;
@@ -209,17 +264,17 @@ const main = async () => {
       ),
     ].join(" ");
 
-  await test("connect order: MTU, discover, read 0004, write 0x03, re-read 0004, pause, monitor", async () => {
+  await test("connect order (paused): MTU, discover, pause first, read 0004, write 0x03, re-read 0004, monitor", async () => {
     const link = newLink();
     await link.setPaused(true);
     await link.finishConnection(fakeDevice(true));
     assert.deepEqual(calls, [
       "mtu 517",
       "discover",
+      "write 0003 [01]",
       "read 0004",
       `write 0003 [${be(expectedInterval)}]`,
       "read 0004",
-      "write 0003 [01]",
       "monitor 0002",
     ]);
     const last = reports.at(-1)!;
@@ -259,6 +314,110 @@ const main = async () => {
     const otherMs =
       appConfigStore.getState().config!.capture.intervalMsByFormFactor[other];
     assert.deepEqual(calls, [`write 0003 [${be(otherMs)}]`, "read 0004"]);
+    link.appConfigUnsubscribe?.();
+    appConfigStore.setCameraFormFactor(formFactor);
+  });
+
+  await test("handshake timeout: aborted, monitor starts, no stray 0x03 when the read resolves late", async () => {
+    calls.length = 0;
+    late.length = 0;
+    const cancelledBefore = cancelledTransactions.length;
+    const link = newLink();
+    link.captureIntervalTimeoutMs = 100;
+    await link.setPaused(true);
+    const started = Date.now();
+    await link.finishConnection(
+      fakeDevice(true, { hang: (op) => op === "read 0004#1" }),
+    );
+    assert.ok(Date.now() - started < 1_000, "bounded by the timeout");
+    assert.deepEqual(calls, [
+      "mtu 517",
+      "discover",
+      "write 0003 [01]",
+      "monitor 0002",
+    ]);
+    assert.equal(
+      cancelledTransactions.length,
+      cancelledBefore + 1,
+      "read cancelled",
+    );
+    // Firmware answers after all: the aborted handshake must not continue.
+    late.splice(0).forEach((resolve) => resolve());
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(calls.slice(4), ["read 0004"]);
+    assert.ok(
+      !calls.some((c) => c.startsWith("write 0003 [03")),
+      "no 0x03 after timeout",
+    );
+  });
+
+  await test("disconnect during the 0x03 write: aborted at once, no re-read, no monitor", async () => {
+    calls.length = 0;
+    late.length = 0;
+    const link = newLink();
+    await link.setPaused(false);
+    link.captureIntervalTimeoutMs = 5_000;
+    const reportsBefore = reports.length;
+    const done = link.finishConnection(
+      fakeDevice(true, { hang: (op) => op === "write 0x03#1" }),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    const started = Date.now();
+    disconnect!();
+    await done;
+    assert.ok(Date.now() - started < 500, "not waiting for the timeout");
+    late.splice(0).forEach((resolve) => resolve());
+    await new Promise((r) => setTimeout(r, 50));
+    // The late write lands (firmware ignored the cancel) but nothing follows it.
+    assert.deepEqual(calls, [
+      "mtu 517",
+      "discover",
+      "read 0004",
+      `write 0003 [${be(expectedInterval)}]`,
+    ]);
+    assert.equal(
+      reports.length,
+      reportsBefore,
+      "no report for an aborted write",
+    );
+  });
+
+  await test("form-factor change during the handshake: queued, one 0x03 at a time", async () => {
+    calls.length = 0;
+    late.length = 0;
+    maxWritesInFlight = 0;
+    const link = newLink();
+    link.appConfigUnsubscribe = appConfigStore.subscribe(() =>
+      link.handleAppConfigChange(),
+    );
+    const done = link.finishConnection(
+      fakeDevice(true, { hang: (op) => op === "read 0004#2" }),
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    const other = formFactors[0];
+    appConfigStore.setCameraFormFactor(other);
+    await new Promise((r) => setTimeout(r, 30));
+    late.splice(0).forEach((resolve) => resolve());
+    await done;
+    await new Promise((r) => setTimeout(r, 80));
+    const otherMs =
+      appConfigStore.getState().config!.capture.intervalMsByFormFactor[other];
+    // The queued rewrite starts once the handshake's re-read is done; frame
+    // monitoring does not wait for it (their relative order is not fixed).
+    assert.deepEqual(
+      calls.filter((c) => c !== "monitor 0002"),
+      [
+        "mtu 517",
+        "discover",
+        "read 0004",
+        `write 0003 [${be(expectedInterval)}]`,
+        "read 0004",
+        `write 0003 [${be(otherMs)}]`,
+        "read 0004",
+      ],
+    );
+    assert.equal(calls.filter((c) => c === "monitor 0002").length, 1);
+    assert.equal(maxWritesInFlight, 1, "never two writes at once");
     link.appConfigUnsubscribe?.();
     appConfigStore.setCameraFormFactor(formFactor);
   });

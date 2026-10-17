@@ -58,7 +58,7 @@ Neu, nur lesbar, kein Notify. Inhalt: **kompaktes UTF-8-JSON**, ohne Leerzeichen
 | `defaultMs` | int | einkompilierter Default |
 | `minMs`, `maxMs` | int | Clamping-Grenzen |
 
-- Länge ~110 Bytes. Die App fordert schon MTU 517 an (`camera-link.ts:219`),
+- Länge ~110 Bytes. Die App fordert schon MTU 517 an (`CameraLink.finishConnection`),
   sonst liest Android lange Werte per Read Blob.
 - Die Firmware aktualisiert den Wert bei Connect, nach `0x03` und bei Disconnect.
 - Erweiterungen: nur neue Felder. Die App ignoriert unbekannte Felder. `v` steigt
@@ -72,18 +72,24 @@ die Kamera `0x03`. Fehlt sie → Warnung ins Log, **kein** `0x03`, Aufnahme mit 
 Reihenfolge nach jedem (Re-)Connect:
 
 1. `requestMTU(517)`, discover
-2. `…0004` lesen (Support + gemeldete Bauform)
-3. Intervall = `capture.intervalMsByFormFactor[<Bauform aus Study Settings>]` aus
+2. Pause-Zustand neu setzen (`0x01`), wenn die Session pausiert ist. Die Firmware
+   nimmt ab dem Connect auf (`paused=false` nach Disconnect), deshalb vor dem
+   Handshake (Review PR #1, m5).
+3. `…0004` lesen (Support + gemeldete Bauform)
+4. Intervall = `capture.intervalMsByFormFactor[<Bauform aus Study Settings>]` aus
    `/api/app-config` (Cache) → `0x03` schreiben. Ohne Config-Cache: kein `0x03`.
-4. `…0004` erneut lesen, `intervalMs` loggen. Warnung, wenn es vom gewünschten
+5. `…0004` erneut lesen, `intervalMs` loggen. Warnung, wenn es vom gewünschten
    Wert abweicht (geklemmt) oder `formFactor` ≠ Bauform aus Study Settings.
    Bei Mismatch gilt weiter die Bauform aus Study Settings (die Teilnehmer-Einstellung
    ist die Wahrheit, wie heute), die Warnung erscheint in Study Settings.
-5. Pause-Zustand neu setzen (`0x01`/`0x02`), wie heute
 6. Frames auf `…0002` abonnieren
 
-Fehler in 2–4 brechen die Aufnahme **nie** ab. Ändert sich die Bauform in Study
-Settings während einer Verbindung, schreibt die App `0x03` sofort neu und liest `…0004`.
+Fehler in 3–5 brechen die Aufnahme **nie** ab. Schritte 3–5 haben zusammen höchstens
+5 s. Bei Timeout oder Disconnect wird der Handshake abgebrochen (laufende
+BLE-Transaktion per `cancelTransaction`), danach schreibt die App für diese
+Verbindung nichts mehr. Ändert sich die Bauform in Study Settings während einer
+Verbindung, schreibt die App `0x03` sofort neu und liest `…0004`. Das läuft in einer
+Warteschlange pro Verbindung, also nie zwei `0x03` gleichzeitig.
 
 ## 4. Device-Info an den Server melden (F3, entschieden: ja)
 
