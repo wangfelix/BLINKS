@@ -53,6 +53,13 @@ Dateien in diesem Branch:
 - `overreliance.enabled: false` ⇒ `texts.rounds.assistedReminderIncorrectLabelsNotice` muss `null` sein
   (sonst würde Teilnehmenden etwas Falsches gesagt)
 - `reminders.bedtime.afterMidnightCutoff <= latestAt`
+- `[py]` `overreliance.enabled: true` ⇒ mindestens 2 Kategorien (Review PR #1, m1)
+
+**Nur in Produktion** (Server-Loader, Python-Loader und `deploy.sh`, Review PR #1, m2):
+`app.studySettingsPin` darf weder der Platzhalter-PIN aus `study.example.yaml` noch der
+alte PIN aus der Zeit vor der Config sein (Vergleich per SHA-256). Survey- und Payout-Links
+mit `example.org`/`example.com` werden abgelehnt. Damit fällt auch eine 1:1-Kopie des
+Examples unter anderem Namen auf.
 - `categories[].icon` nur aus der Allowlist `briefcase, pause, ellipsis, coffee, users, house, book-open, heart, circle` (Shape, zod-Enum). Das Mapping auf lucide-react baut Martin im Web
 
 ## 2. Struktur (Kurzüberblick)
@@ -190,8 +197,19 @@ Das Web hängt wie heute `participantParameter=<username>` an die URL an.
 
 ### 4.2 `GET /api/payout` (neu, ersetzt die Next-Route `/payout`)
 
-- Ohne Auth, wie die heutige Route (Link öffnet in neuem Tab, kein Bearer möglich).
-- `302` mit `Location: surveys.payoutUrl`, `Cache-Control: no-store`.
+- **Auth (geändert nach Review von PR #1, M1):** nur für eine angemeldete Teilnehmerin
+  mit abgeschlossenem Onboarding, wie auf master das Next-Gate in `drm-web/src/proxy.ts`.
+  Der Link ist eine normale Browser-Navigation ohne Bearer. Deshalb akzeptiert der Server
+  neben `Authorization: Bearer` auch das Cookie `blinks_token`, das das Web schon für
+  `/frames/*` setzt (same-origin über Apache bzw. den Dev-Proxy). Nur GET ohne
+  Seiteneffekt, daher ist der Cookie-Fallback CSRF-unkritisch.
+- Ohne gültige Teilnehmer-Session (kein/ungültiges Token, Admin-Token): `401`
+  `{ "error": "unauthorized" }`. Onboarding nicht abgeschlossen: `403`
+  `{ "error": "onboarding required", "code": "onboarding_required" }`. In beiden Fällen
+  kein `Location`, der Payout-Link wird nie anonym herausgegeben.
+- Web: `survey/page.tsx` verlinkt same-origin `/api/payout`, das Cookie wird mitgeschickt,
+  keine Änderung nötig. App: ruft den Endpunkt nicht auf.
+- `302` mit `Location: surveys.payoutUrl`, `Cache-Control: no-store` (auch bei 401/403).
 - `503` Text `Payout link is not configured.`, falls `payoutUrl` fehlt oder kein https ist.
   (Mit Pflichtfeld im Schema praktisch nur bei einer Example-Config mit Platzhalter,
   die der Loader in Produktion ablehnen soll, siehe F1.)
@@ -245,6 +263,8 @@ Telefon-Zeitzone. Auf den Studien-Telefonen (Europe/Berlin) ändert sich nichts.
 |---|---|---|---|
 | beide | `401` | `{ "error": "unauthorized" }` | Token fehlt/ungültig (bei app-config auch Admin-Token) → Login |
 | beide | `5xx` / Netzwerk | – | Web: Fehlerzustand mit Retry, **keine Defaults im Web-Code**. App: Cache (4.5) |
+| `/api/payout` | `401` | `{ "error": "unauthorized" }` | keine Teilnehmer-Session (Bearer oder Cookie `blinks_token`) → Login |
+| `/api/payout` | `403` | `{ "error": "onboarding required", "code": "onboarding_required" }` | Onboarding offen → Onboarding |
 | `/api/payout` | `503` | Text | nicht konfiguriert |
 
 Eine ungültige Config gibt es zur Laufzeit nicht, weil der Server dann nicht startet.
@@ -375,8 +395,14 @@ Wer gar nichts will, nimmt `enabled: false`.
 - `false`: Ingestion legt Frames direkt mit `face_status='done'`,
   `face_method='disabled'`, `face_count=NULL` an. Die drei Gate-Stellen
   (`listFrames`, `getFrameStatusByPath`, VLM `_claim_batch`) bleiben unverändert.
-  Server loggt beim Start eine deutliche Warnung. Der Blur-Worker beendet sich
-  mit Hinweis (Exit 0). `deploy.sh` toleriert dann den gestoppten `blinks-face-blur`.
+  Server und `deploy.sh` warnen deutlich: unverpixelte Frames gehen an die
+  Teilnehmenden **und an den externen VLM-Endpunkt**. Der Blur-Worker arbeitet den
+  Rückstand ab und beendet sich mit Hinweis (Exit 3; im systemd-Unit
+  `SuccessExitStatus=3`/`RestartPreventExitStatus=3` bei `Restart=always`; `--once`: Exit 0).
+  `deploy.sh` toleriert dann den gestoppten `blinks-face-blur`.
+- Nach dem Wiedereinschalten bleiben Frames mit `face_method='disabled'` unverpixelt,
+  bis sie mit `npm run requeue-unblurred-frames -- --apply` auf `pending` gesetzt werden
+  (Review PR #1, m4).
 - Schon `pending` Frames beim Umschalten bleiben im Worker-Pfad (werden nicht
   automatisch freigegeben).
 - `METHOD_TAG` bleibt `"<method>:centerface@<threshold>"`.

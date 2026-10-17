@@ -14,6 +14,7 @@
 // There is deliberately no version, hash, or DB snapshot of the config.
 // ===========================================================================
 
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
@@ -120,6 +121,68 @@ export const parseStudyConfig = (source: string, configPath: string): StudyConfi
   return parsed.data;
 };
 
+// --- production-only content rules (review of PR #1, m2) -----------------------
+// A 1:1 copy of study.example.yaml under another name must not run a study
+// either (F1/F6): placeholder PIN or links, or the PIN used before the study
+// config existed, are refused in production. The retired PIN is compared by
+// SHA-256 so it is not written to the code again in clear text (it stays in
+// the public git history, which is why it is retired). Same rule set in
+// server/blinks_study_config.py and deploy/deploy.sh.
+export const RETIRED_PIN_SHA256: readonly string[] = [
+  "305800b71062b49b350208327a02ec378199b4cf35e60eeb971611bef4928394",
+];
+const PLACEHOLDER_HOST = /^(?:[a-z0-9-]+\.)*example\.(?:org|com)$/i;
+
+const examplePin = (): string | null => {
+  try {
+    const raw = parseYaml(fs.readFileSync(EXAMPLE_STUDY_CONFIG_PATH, "utf8")) as {
+      app?: { studySettingsPin?: unknown };
+    };
+    return typeof raw?.app?.studySettingsPin === "string" ? raw.app.studySettingsPin : null;
+  } catch {
+    return null;
+  }
+};
+
+const isPlaceholderUrl = (value: string): boolean => {
+  try {
+    return PLACEHOLDER_HOST.test(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+};
+
+/** Content rules that only apply in production (exit 2 like schema errors). */
+export const productionConfigIssues = (config: StudyConfig): StudyConfigIssue[] => {
+  const issues: StudyConfigIssue[] = [];
+  const pin = config.app.studySettingsPin;
+  const placeholderPin = examplePin() ?? "0000";
+  if (pin === placeholderPin) {
+    issues.push({
+      path: "app.studySettingsPin",
+      message: "is the placeholder PIN from study.example.yaml; set a new PIN for this study",
+    });
+  }
+  const pinHash = crypto.createHash("sha256").update(pin, "utf8").digest("hex");
+  if (RETIRED_PIN_SHA256.includes(pinHash)) {
+    issues.push({
+      path: "app.studySettingsPin",
+      message: "is a retired PIN (public in the git history); set a new PIN for this study",
+    });
+  }
+  const links: [string, string | null | undefined][] = [
+    ["surveys.onboarding.url", config.surveys.onboarding.url],
+    ["surveys.final.url", config.surveys.final.url],
+    ["surveys.payoutUrl", config.surveys.payoutUrl],
+  ];
+  for (const [field, url] of links) {
+    if (typeof url === "string" && isPlaceholderUrl(url)) {
+      issues.push({ path: field, message: "is a placeholder example.org/example.com link" });
+    }
+  }
+  return issues;
+};
+
 export const loadStudyConfigFile = (configPath: string): StudyConfig =>
   parseStudyConfig(fs.readFileSync(configPath, "utf8"), configPath);
 
@@ -132,6 +195,10 @@ export const getStudyConfig = (): StudyConfig => {
   try {
     const resolved = resolveStudyConfigPath();
     const config = loadStudyConfigFile(resolved.path);
+    if (isProduction()) {
+      const issues = productionConfigIssues(config);
+      if (issues.length > 0) throw new StudyConfigError(resolved.path, issues);
+    }
     cached = { config, ...resolved };
     if (resolved.usingExample) {
       console.warn(

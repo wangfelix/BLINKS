@@ -559,16 +559,30 @@ app.get("/api/app-config", requireAuth, (_req: AuthenticatedRequest, res) => {
   res.json(appConfigResponse());
 });
 
-// Unauthenticated redirect (opened in a new tab, no bearer possible).
-app.get("/api/payout", (_req, res) => {
+// Payout redirect (contract 4.2). Opened as a same-origin browser link, so no
+// bearer header: the blinks_token cookie is accepted as on /frames/*, and the
+// participant must have completed onboarding (as the master Next.js gate did).
+// GET-only and side-effect free, so the cookie fallback is CSRF-safe. Without
+// a valid participant session: 401/403 JSON, never the payout link.
+const noStore: express.RequestHandler = (_req, res, next) => {
   res.set("Cache-Control", "no-store");
-  const payoutUrl = studyConfig.surveys.payoutUrl;
-  if (typeof payoutUrl !== "string" || !/^https:\/\/\S+$/.test(payoutUrl)) {
-    res.status(503).type("text/plain").send("Payout link is not configured.");
-    return;
-  }
-  res.redirect(302, payoutUrl);
-});
+  next();
+};
+
+app.get(
+  "/api/payout",
+  noStore,
+  requireAuthWithCookieFallback,
+  requireCompletedOnboarding,
+  (_req: AuthenticatedRequest, res) => {
+    const payoutUrl = studyConfig.surveys.payoutUrl;
+    if (typeof payoutUrl !== "string" || !/^https:\/\/\S+$/.test(payoutUrl)) {
+      res.status(503).type("text/plain").send("Payout link is not configured.");
+      return;
+    }
+    res.redirect(302, payoutUrl);
+  },
+);
 
 app.get("/api/onboarding", requireAuth, (req: AuthenticatedRequest, res) => {
   const user = getUser(req.participant!);
@@ -2226,8 +2240,10 @@ server.listen(PORT, HOST, () => {
   );
   if (!studyConfig.privacy.faceBlur.enabled) {
     console.warn(
-      "WARNING: privacy.faceBlur.enabled=false. New frames are stored and served " +
-        "WITHOUT face anonymization (face_method='disabled').",
+      "WARNING: privacy.faceBlur.enabled=false. New frames are stored, served to " +
+        "participants AND sent to the external VLM endpoint WITHOUT face " +
+        "anonymization (face_method='disabled'). They stay unblurred after " +
+        "re-enabling blur unless requeued (npm run requeue-unblurred-frames).",
     );
   }
 });

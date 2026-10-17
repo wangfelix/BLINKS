@@ -46,7 +46,9 @@ Infrastructure config (environment variables):
 Study config (privacy.faceBlur, see docs/study-config-contract.md section 6):
     enabled           false = the server stores new frames as already done
                       (face_method='disabled'); this worker then anonymizes the
-                      remaining 'pending' backlog once and exits 0 with a notice
+                      remaining 'pending' backlog once and exits with
+                      EXIT_DISABLED (3) in daemon mode (0 with --once); the
+                      systemd unit treats 3 as success and does not restart
     threshold         CenterFace confidence threshold         (paper: 0.2)
     method            'mosaic' (pixelate) or 'blur'           (paper: mosaic)
     blocks            mosaic granularity, smaller = coarser   (paper: 8)
@@ -325,6 +327,13 @@ def run(once: bool, max_frames: int | None) -> None:
     _log(f"stopping. processed {processed} frame(s) this run.")
 
 
+# Daemon exit code for "anonymization switched off in the study config".
+# blinks-face-blur.service: Restart=always, SuccessExitStatus=3,
+# RestartPreventExitStatus=3. Any other exit (crash, invalid config = 2, an
+# unexpected clean exit while blur is on) is restarted.
+EXIT_DISABLED = 3
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="BLINKS face-anonymization worker")
     parser.add_argument(
@@ -345,11 +354,14 @@ def main() -> None:
         _log(
             "NOTICE: privacy.faceBlur.enabled=false in the study config. New frames "
             "bypass this worker (face_method='disabled'). Processing the remaining "
-            "pending backlog once, then exiting 0."
+            "pending backlog once, then exiting. Unblurred frames are served to "
+            "participants AND sent to the VLM endpoint; frames stored while blur is "
+            "off stay unblurred after re-enabling it."
         )
         run(once=True, max_frames=args.max)
-        _log("face blur disabled: exiting (0)")
-        sys.exit(0)
+        code = 0 if args.once else EXIT_DISABLED
+        _log(f"face blur disabled: exiting ({code})")
+        sys.exit(code)
     run(once=args.once, max_frames=args.max)
 
 

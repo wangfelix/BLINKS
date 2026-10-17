@@ -13,6 +13,10 @@ exports.INCORRECT_ANNOTATION_MIN_MEAN_CONFIDENCE = exports.CONFIGURED_OVERRELIAN
 const defaultRandomIndex = (upperExclusive) => (0, crypto_1.randomInt)(upperExclusive);
 const chooseAlternative = (values, original, randomIndex) => {
     const alternatives = values.filter((value) => value !== original);
+    // The loader requires >= 2 categories/activities when injection is on; keep
+    // the original rather than calling randomIndex(0) (crypto.randomInt throws).
+    if (alternatives.length === 0)
+        return original;
     return alternatives[randomIndex(alternatives.length)];
 };
 /**

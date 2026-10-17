@@ -9,10 +9,13 @@ ExecStart=/root/BLINKS/server/face-blur/.venv/bin/python blur_worker.py
 Environment=RECORDINGS_DIR=/root/BLINKS/server/recordings
 # Study config /root/BLINKS/config/study.yaml is required in production.
 Environment=BLINKS_ENV=production
-# on-failure, not always: with privacy.faceBlur.enabled=false the worker
-# finishes the pending backlog and exits 0 on purpose. An invalid config
-# exits 2 and is retried (and logged) every RestartSec.
-Restart=on-failure
+# always: the worker owns the serving gate, so any exit while anonymization
+# is on (crash, invalid config = exit 2, even an unexpected clean exit) is
+# restarted. With privacy.faceBlur.enabled=false it finishes the pending
+# backlog and exits 3 (EXIT_DISABLED) on purpose: success, no restart.
+Restart=always
+SuccessExitStatus=3
+RestartPreventExitStatus=3
 RestartSec=5
 UMask=0077
 
