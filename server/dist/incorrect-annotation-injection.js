@@ -29,7 +29,8 @@ const chooseAlternative = (values, original, randomIndex) => {
  * selected from scores >= minConfidence (paper: 10%, 0.8). If none reaches
  * the threshold and fallbackToTopWhenNoneAboveThreshold is set, the single
  * highest-scoring activity is selected. Blank/legacy activities without
- * confidence are not candidates. enabled=false injects nothing.
+ * confidence are not candidates. enabled=false or rate=0 injects nothing
+ * (rate=0 also skips the fallback).
  */
 const injectIncorrectAnnotations = (activities, randomIndex = defaultRandomIndex, settings = exports.CONFIGURED_OVERRELIANCE) => {
     const prepared = activities.map((activity) => ({
@@ -38,7 +39,8 @@ const injectIncorrectAnnotations = (activities, randomIndex = defaultRandomIndex
         presentedCategoryLabel: activity.categoryLabel,
         isIncorrectAnnotationInjected: false,
     }));
-    if (!settings.enabled)
+    // rate 0 = never inject (decided 17.10.: no fallback label either).
+    if (!settings.enabled || settings.rate === 0)
         return prepared;
     const candidates = prepared
         .map((activity, index) => ({ activity, index }))

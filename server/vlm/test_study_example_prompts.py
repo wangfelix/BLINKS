@@ -262,6 +262,11 @@ class LoaderTest(unittest.TestCase):
         result = self.run_loader({"BLINKS_STUDY_CONFIG": str(single)})
         self.assertEqual(result.returncode, 2)
         self.assertIn("overreliance.enabled: needs at least 2 categories", result.stderr)
+        # rate 0 never injects: a single category is fine for this rule
+        rate_zero = Path(self.tmp) / "one-rate0.yaml"
+        rate_zero.write_text(single.read_text(encoding="utf-8").replace("  rate: 0.1\n", "  rate: 0\n"), encoding="utf-8")
+        result = self.run_loader({"BLINKS_STUDY_CONFIG": str(rate_zero)})
+        self.assertNotIn("needs at least 2 categories", result.stderr)
 
     def setUp(self) -> None:
         import tempfile

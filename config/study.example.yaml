@@ -196,7 +196,10 @@ vlm:
     occupationUnknown: "The camera wearer's occupation is unknown."
 
 # Deliberately incorrect labels in the assisted round (overreliance measure).
-# Never sent to any client.
+# Never sent to any client. rate: share of VLM-labelled activities, rounded up;
+# rate 0 = never inject (like enabled: false, no fallback label). With
+# enabled: false or rate 0, texts.rounds.assistedReminderIncorrectLabelsNotice
+# must be null.
 overreliance:
   enabled: true
   rate: 0.1

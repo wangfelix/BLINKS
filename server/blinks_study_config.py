@@ -191,7 +191,8 @@ def _cross_check_issues(config: dict[str, Any]) -> list[tuple[str, str]]:
                     f"(allowed: {', '.join(allowed) if allowed else 'none'})",
                 ))
 
-    if config["overreliance"]["enabled"] and len(config["categories"]) < 2:
+    overreliance = config["overreliance"]
+    if overreliance["enabled"] and overreliance["rate"] > 0 and len(config["categories"]) < 2:
         issues.append(("overreliance.enabled", "needs at least 2 categories (a wrong label needs an alternative)"))
 
     try:

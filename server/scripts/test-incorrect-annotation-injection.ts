@@ -154,22 +154,35 @@ assert.equal(single.isIncorrectAnnotationInjected, true);
 assert.equal(single.presentedCategoryLabel, "work", "no alternative category: unchanged");
 assert.notEqual(single.presentedRawLabel, single.rawLabel, "activity still swapped");
 
-// rate 0 (documented in contract section 5): no rate-based selection, but the
-// fallback still picks the top activity when none reaches minConfidence.
+// rate 0 = never inject (decided 17.10.): no rate-based selection AND no
+// fallback, for many activities and for the smallest possible input.
+const allBelow = Array.from({ length: 200 }, (_, index) => activity(index, 0.5 - index * 0.001));
+const allAbove = Array.from({ length: 200 }, (_, index) => activity(index, 0.99));
+for (const [name, input] of [
+  ["200 above the threshold", allAbove],
+  ["200 below the threshold", allBelow],
+  ["one activity above", [activity(0, 0.95)]],
+  ["one activity below", [activity(0, 0.5)]],
+  ["no activities", []],
+] as [string, SegmentedActivity[]][]) {
+  for (const fallbackToTopWhenNoneAboveThreshold of [true, false]) {
+    const out = injectIncorrectAnnotations(input, () => 0, { ...PAPER, rate: 0, fallbackToTopWhenNoneAboveThreshold });
+    assert.ok(
+      out.every((e) => !e.isIncorrectAnnotationInjected && e.presentedRawLabel === e.rawLabel && e.presentedCategoryLabel === e.categoryLabel),
+      `rate 0, ${name}, fallback ${fallbackToTopWhenNoneAboveThreshold}: nothing injected`,
+    );
+  }
+}
+// rate > 0 unchanged: the smallest rate still selects ceil(...) = 1, and the
+// fallback still applies when none reaches the threshold
 assert.equal(
-  injectIncorrectAnnotations(twenty, () => 0, { ...PAPER, rate: 0 }).filter((e) => e.isIncorrectAnnotationInjected).length,
-  0,
-  "rate 0 + candidates above the threshold: nothing",
-);
-assert.equal(
-  injectIncorrectAnnotations([activity(0, 0.5)], () => 0, { ...PAPER, rate: 0 }).filter((e) => e.isIncorrectAnnotationInjected).length,
+  injectIncorrectAnnotations(allAbove, () => 0, { ...PAPER, rate: 0.001 }).filter((e) => e.isIncorrectAnnotationInjected).length,
   1,
-  "rate 0 + none above the threshold + fallback: one",
 );
 assert.equal(
-  injectIncorrectAnnotations([activity(0, 0.5)], () => 0, { ...PAPER, rate: 0, fallbackToTopWhenNoneAboveThreshold: false })
-    .filter((e) => e.isIncorrectAnnotationInjected).length,
-  0,
+  injectIncorrectAnnotations([activity(0, 0.5)], () => 0, PAPER).filter((e) => e.isIncorrectAnnotationInjected).length,
+  1,
+  "paper: fallback when none reaches 0.8",
 );
 
 // non-paper threshold/rate: 0.5 / 0.5 over 6 activities -> ceil(3) of those >= 0.6

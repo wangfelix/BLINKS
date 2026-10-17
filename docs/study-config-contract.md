@@ -56,10 +56,10 @@ Dateien in diesem Branch:
   Außerdem `idleCloseMinutes >= windowMinutes`.
 - `[py]` nur erlaubte Prompt-Platzhalter (Liste unten)
 - `[py]` `study.timezone` ist eine bekannte IANA-Zone
-- `overreliance.enabled: false` ⇒ `texts.rounds.assistedReminderIncorrectLabelsNotice` muss `null` sein
+- `overreliance.enabled: false` **oder** `overreliance.rate: 0` ⇒ `texts.rounds.assistedReminderIncorrectLabelsNotice` muss `null` sein
   (sonst würde Teilnehmenden etwas Falsches gesagt)
 - `reminders.bedtime.afterMidnightCutoff <= latestAt`
-- `[py]` `overreliance.enabled: true` ⇒ mindestens 2 Kategorien (Review PR #1, m1)
+- `[py]` `overreliance.enabled: true` und `rate > 0` ⇒ mindestens 2 Kategorien (Review PR #1, m1)
 
 **Nur in Produktion** (Server-Loader, Python-Loader und `deploy.sh`, Review PR #1, m2):
 `app.studySettingsPin` darf weder der Platzhalter-PIN aus `study.example.yaml` noch der
@@ -397,8 +397,9 @@ interval_ms, default_ms, info_json`, `PRIMARY KEY (participant, event_id)`.
 Studienentscheidung). Logik sonst wie heute: Ziel `ceil(rate × gültige Aktivitäten)`
 aus denen mit `mean confidence >= minConfidence`. Liegt keine darüber und
 `fallbackToTopWhenNoneAboveThreshold: true`, wird die eine mit der höchsten
-Confidence gewählt (heutiges Verhalten). `rate: 0` ergibt nur noch den Fallback.
-Wer gar nichts will, nimmt `enabled: false`.
+Confidence gewählt (heutiges Verhalten). **`rate: 0` bedeutet „nie injizieren“**
+(entschieden 17.10., Felix): auch der Fallback entfällt, Verhalten wie `enabled: false`.
+Entsprechend muss der Hinweistext auch bei `rate: 0` `null` sein (Validierungsfehler sonst).
 
 ## 6. Face-Blur-Schalter
 
