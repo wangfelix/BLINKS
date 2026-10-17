@@ -376,7 +376,7 @@ if [ "$FACE_BLUR_ENABLED" = "true" ]; then
     FAILED=1
   fi
 else
-  warn "privacy.faceBlur.enabled=false — new frames are stored and served WITHOUT face anonymization"
+  warn "privacy.faceBlur.enabled=false — new frames are stored, served AND sent to the VLM endpoint WITHOUT face anonymization (requeue them after re-enabling: npm run requeue-unblurred-frames)"
 fi
 
 [ "$FAILED" -eq 0 ] || die "deployed, but health checks failed — investigate before the study"

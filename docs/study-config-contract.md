@@ -395,8 +395,14 @@ Wer gar nichts will, nimmt `enabled: false`.
 - `false`: Ingestion legt Frames direkt mit `face_status='done'`,
   `face_method='disabled'`, `face_count=NULL` an. Die drei Gate-Stellen
   (`listFrames`, `getFrameStatusByPath`, VLM `_claim_batch`) bleiben unverändert.
-  Server loggt beim Start eine deutliche Warnung. Der Blur-Worker beendet sich
-  mit Hinweis (Exit 0). `deploy.sh` toleriert dann den gestoppten `blinks-face-blur`.
+  Server und `deploy.sh` warnen deutlich: unverpixelte Frames gehen an die
+  Teilnehmenden **und an den externen VLM-Endpunkt**. Der Blur-Worker arbeitet den
+  Rückstand ab und beendet sich mit Hinweis (Exit 3; im systemd-Unit
+  `SuccessExitStatus=3`/`RestartPreventExitStatus=3` bei `Restart=always`; `--once`: Exit 0).
+  `deploy.sh` toleriert dann den gestoppten `blinks-face-blur`.
+- Nach dem Wiedereinschalten bleiben Frames mit `face_method='disabled'` unverpixelt,
+  bis sie mit `npm run requeue-unblurred-frames -- --apply` auf `pending` gesetzt werden
+  (Review PR #1, m4).
 - Schon `pending` Frames beim Umschalten bleiben im Worker-Pfad (werden nicht
   automatisch freigegeben).
 - `METHOD_TAG` bleibt `"<method>:centerface@<threshold>"`.

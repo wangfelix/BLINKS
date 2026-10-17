@@ -2240,8 +2240,10 @@ server.listen(PORT, HOST, () => {
   );
   if (!studyConfig.privacy.faceBlur.enabled) {
     console.warn(
-      "WARNING: privacy.faceBlur.enabled=false. New frames are stored and served " +
-        "WITHOUT face anonymization (face_method='disabled').",
+      "WARNING: privacy.faceBlur.enabled=false. New frames are stored, served to " +
+        "participants AND sent to the external VLM endpoint WITHOUT face " +
+        "anonymization (face_method='disabled'). They stay unblurred after " +
+        "re-enabling blur unless requeued (npm run requeue-unblurred-frames).",
     );
   }
 });

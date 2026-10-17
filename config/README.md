@@ -73,6 +73,38 @@ BLINKS_STUDY_CONFIG=../config/study.yaml NODE_ENV=production \
 `deploy.sh` runs the same check (plus the Python loaders in both worker venvs)
 before it restarts anything.
 
+## Face blur off (`privacy.faceBlur.enabled: false`)
+
+Only with an ethics/GDPR basis for it. While it is off:
+
+- new frames are stored as already anonymized (`face_method='disabled'`) and
+  are shown to the participant **unblurred**;
+- the same unblurred frames are sent to the **external VLM endpoint**
+  (`vlm.*`), since the VLM worker only waits for `face_status='done'`;
+- the server and `deploy.sh` log a warning, `blinks-face-blur` finishes the
+  pending backlog and stops (exit 3, not restarted).
+
+Switching it back on only affects new frames. Frames stored while it was off
+**stay unblurred** until they are requeued:
+
+```bash
+cd server
+npx tsx scripts/requeue-unblurred-frames.ts           # count (dry run)
+npx tsx scripts/requeue-unblurred-frames.ts --apply   # after enabled: true + deploy
+```
+
+Requeued frames are hidden until `blinks-face-blur` has processed them. VLM
+labels already computed from the unblurred frames are not changed.
+
+## Analysis notes
+
+- Ratings are stored per item key in `activity_ratings`. Values for items whose
+  `appliesTo` does not include the activity's final category can exist (the
+  editor keeps a value when the category is changed afterwards, and the
+  `activity_ratings` migration carried such legacy values over). The API
+  returns them, so filter by `appliesTo` and the final `category_label` in the
+  analysis.
+
 ## Changing the schema
 
 The zod schema in `server/src/study-config/schema.ts` is the source of truth.

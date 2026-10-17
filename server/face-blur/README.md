@@ -66,7 +66,7 @@ existing backlog automatically (every pre-existing row defaults to
 
 | Key | Paper value | Meaning |
 |---|---|---|
-| `enabled` | `true` | `false`: the server stores new frames as already anonymized (`face_method='disabled'`); this worker anonymizes the remaining `pending` backlog once and exits 0 with a notice. **Privacy impact, needs ethics/GDPR basis.** |
+| `enabled` | `true` | `false`: the server stores new frames as already anonymized (`face_method='disabled'`); this worker anonymizes the remaining `pending` backlog once and exits 3 (`--once`: 0) with a notice. Unblurred frames are served and sent to the VLM endpoint; after re-enabling, requeue them with `npm run requeue-unblurred-frames -- --apply` (`config/README.md`). **Privacy impact, needs ethics/GDPR basis.** |
 | `threshold` | `0.2` | CenterFace confidence; **lower = more faces blurred = safer**. Matches deface's default. |
 | `method` | `mosaic` | `mosaic` (pixelate) or `blur` (gaussian) |
 | `blocks` | `8` | mosaic granularity; smaller = coarser |

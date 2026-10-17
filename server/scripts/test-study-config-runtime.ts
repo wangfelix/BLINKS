@@ -217,6 +217,37 @@ test("face blur off: frames are stored as done/disabled (contract 6)", () => {
   });
 });
 
+test("face blur back on: requeue-unblurred-frames resets 'disabled' frames (m4)", () => {
+  const recordings = path.join(tmp, "requeue");
+  fs.mkdirSync(recordings, { recursive: true });
+  const dbPath = path.join(recordings, "recordings.db");
+  fs.copyFileSync(path.join(tmp, "noblur.yaml.db"), dbPath);
+  const requeue = (configPath: string, ...args: string[]) =>
+    childProcess.spawnSync(
+      process.execPath,
+      [path.join(SERVER_DIR, "node_modules", "tsx", "dist", "cli.mjs"), path.join(SERVER_DIR, "scripts", "requeue-unblurred-frames.ts"), ...args],
+      { env: { PATH: process.env.PATH, BLINKS_STUDY_CONFIG: configPath, RECORDINGS_DIR: recordings }, encoding: "utf8", cwd: SERVER_DIR },
+    );
+  const dry = requeue(TEST_CONFIG);
+  assert.strictEqual(dry.status, 0, dry.stderr);
+  assert.match(dry.stdout, /unblurred frames \(face_method='disabled'\): 1 from 1 participant/);
+  const refused = requeue(path.join(tmp, "noblur.yaml"), "--apply");
+  assert.strictEqual(refused.status, 1);
+  assert.match(refused.stderr, /refusing --apply/);
+  const applied = requeue(TEST_CONFIG, "--apply");
+  assert.strictEqual(applied.status, 0, applied.stderr);
+  assert.match(applied.stdout, /requeued 1 frame/);
+  const Database = require("better-sqlite3");
+  const db = new Database(dbPath, { readonly: true });
+  assert.deepStrictEqual(db.prepare("SELECT face_status, face_method, face_completed_at FROM frames").get(), {
+    face_status: "pending",
+    face_method: null,
+    face_completed_at: null,
+  });
+  db.close();
+  assert.match(requeue(TEST_CONFIG).stdout, /: 0 from 0 participant/);
+});
+
 // --- pure projections + ratings ----------------------------------------------
 
 const SECRET_FIELDS = /vlmDefinition|prompts|overreliance|minConfidence|faceBlur|studySettingsPin|payoutUrl/;
