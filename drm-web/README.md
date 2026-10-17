@@ -98,19 +98,17 @@ Env vars:
 | `API_PROXY_TARGET`                  | `http://127.0.0.1:3000` | Dev-proxy target for `/api`, `/frames`, `/health`        |
 | `DRM_DEV_MODE`                      | (off)                   | `1` shows direct dev navigation; set on API server too   |
 | `NEXT_PUBLIC_API_URL`               | `""` (same origin)      | API base override; normally never needed                 |
-| `NEXT_PUBLIC_DRM_TZ`                | `Europe/Berlin`         | Study timezone; keep in sync with the server's `DRM_TZ`  |
-| `NEXT_PUBLIC_ONBOARDING_SURVEY_URL` | (required)              | Pre-study LimeSurvey base URL; app adds `participant_id` |
-| `NEXT_PUBLIC_FINAL_SURVEY_URL`      | (required)              | Final LimeSurvey base URL; app adds `participantId`      |
-| `PAYOUT_URL`                        | (required)              | Server-only payout destination used by `/payout`         |
 
-Copy `.env.example` to `.env.local` for development. `NEXT_PUBLIC_*` values are
-compiled into the client bundle, so production values must be present when
-running `npm run build`. `PAYOUT_URL` is read only by the server-side `/payout`
-redirect and is not included in the client bundle.
-
-The redirect keeps the destination out of tracked source and public JavaScript.
-A participant who follows the redirect can still see the final destination in
-their browser, as with any external link.
+Study values are **not** configured in the web app. Activity labels,
+categories, rating items, window size, thumbnails per activity, timezone and
+locale, round texts and survey links come from the server's
+`GET /api/study-config` at runtime (`config/study.yaml`, see
+`config/README.md`). `StudyConfigGate` loads the config once per sign-in
+before any study page renders and shows an error with a retry button if the
+request fails; the web code has no study defaults. The payout link is the
+server redirect `GET /api/payout`, so its destination stays out of the
+tracked source and the client bundle. A participant who follows it can still
+see the final destination in their browser, as with any external link.
 
 With `DRM_DEV_MODE=1` on both the web app and API server, a floating menu
 links directly to the onboarding preview, Self DRM, VLM-assisted DRM, the

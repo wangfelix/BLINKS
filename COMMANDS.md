@@ -294,9 +294,9 @@ npm install                 # once
 npm run dev                 # http://localhost:3002 (Node 22)
 npm run build               # standalone production bundle; see drm-web/README.md
 
-# focused assisted-editor time-span regressions
-../server/node_modules/.bin/tsx scripts/test-span-overlaps.ts
-../server/node_modules/.bin/tsx scripts/test-time-slots.ts
+# pure-logic tests (run against config/study.example.yaml + an alternative study)
+for t in scripts/test-*.ts; do npx tsx "$t" || break; done
+npx tsx scripts/test-study-config.ts   # config-driven labels, items, window, merge
 ```
 
 To show the floating dev navigator, start both the server and web app with
@@ -311,9 +311,11 @@ behavior. Authentication and submitted-round finality still apply.
   Default target is `http://127.0.0.1:3000`; override with
   `API_PROXY_TARGET=http://127.0.0.1:3100 npm run dev`.
 - Login uses the same participant credentials as the app.
-- Copy `drm-web/.env.example` to `.env.local` to configure both external survey
-  links and the server-only payout redirect. The pre-study URL receives
-  `participant_id`; the final URL receives `participantId`.
+- No study env vars: labels, items, window, texts and survey links come from
+  the server's `GET /api/study-config`, the payout link is `/api/payout`.
+  To click through another study, start the server with
+  `BLINKS_STUDY_CONFIG=../config/study.test.yaml` (own `DATA_DIR`/`RECORDINGS_DIR`)
+  and reload the web app; no web restart or rebuild is needed.
 
 ### Seed clickable demo data (no camera/VLM run needed)
 
@@ -360,6 +362,18 @@ EXPO_PUBLIC_SERVER_URL=https://<name>.ngrok-free.dev        # ngrok-tunneled ser
 - `EXPO_PUBLIC_*` is inlined at bundle time → after editing `.env.local`, run
   `npx expo start --dev-client --clear` and reload the app.
 - Find your LAN IP: `ipconfig getifaddr en0`.
+- Study values (Study Settings PIN, camera types + capture intervals, end-session
+  time, texts) come from `GET /api/app-config` and are cached per user. A fresh
+  install needs one online login; until then Study Settings stays locked and no
+  `0x03` is sent (camera uses its firmware default).
+- App logic tests without a phone:
+
+```bash
+npx tsx scripts/test-study-config.ts      # pure helpers (0x03 bytes, 0004 parsing, end session)
+# against a running server (in-memory SecureStore/file/BLE stubs):
+BLINKS_TEST_SERVER=http://localhost:3000 BLINKS_TEST_USER=demo BLINKS_TEST_PASSWORD=demo12345 \
+  npx tsx --tsconfig scripts/tsconfig.node.json scripts/test-app-integration.ts
+```
 
 ---
 
