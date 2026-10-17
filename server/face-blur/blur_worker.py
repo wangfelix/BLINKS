@@ -27,7 +27,7 @@ the brief window before this worker processes it.
 
 Detection uses CenterFace (the model bundled with `deface`), tuned for recall
 over precision: a missed face is a privacy breach, a false positive merely
-pixelates a doorknob. The threshold is configurable (FACE_THRESHOLD); the
+pixelates a doorknob. The threshold is configurable (privacy.faceBlur.threshold); the
 default matches deface's own default so the method stays citable in the paper.
 
 Idempotency / crash safety: rows stay 'pending' until the JPEG has been
@@ -36,16 +36,24 @@ updated. If the process dies mid-frame the row is still 'pending' and is simply
 retried on the next run; re-running over an already-blurred frame is a near
 no-op (no faces left to detect).
 
-Config (all via environment variables):
+Infrastructure config (environment variables):
     RECORDINGS_DIR    directory holding the recordings tree   (default: ../recordings)
     RECORDINGS_DB     path to recordings.db                   (default: <RECORDINGS_DIR>/recordings.db)
-    FACE_THRESHOLD    CenterFace confidence threshold         (default: 0.2)
-    FACE_METHOD       'mosaic' (pixelate) or 'blur'           (default: mosaic)
-    FACE_BLOCKS       mosaic granularity, smaller = coarser   (default: 8)
-    FACE_BLUR_KSIZE   gaussian kernel for method=blur         (default: 0 -> auto)
-    FACE_MARGIN       fraction to expand each face box         (default: 0.12)
     POLL_INTERVAL_S   sleep between polls when queue is empty  (default: 2.0)
     BATCH_SIZE        rows fetched per poll                    (default: 50)
+    BLINKS_STUDY_CONFIG  study config path (default: <repo>/config/study.yaml)
+
+Study config (privacy.faceBlur, see docs/study-config-contract.md section 6):
+    enabled           false = the server stores new frames as already done
+                      (face_method='disabled'); this worker then anonymizes the
+                      remaining 'pending' backlog once and exits 0 with a notice
+    threshold         CenterFace confidence threshold         (paper: 0.2)
+    method            'mosaic' (pixelate) or 'blur'           (paper: mosaic)
+    blocks            mosaic granularity, smaller = coarser   (paper: 8)
+    blurKernel        gaussian kernel for method=blur         (paper: 0 -> auto)
+    margin            fraction to expand each face box         (paper: 0.12)
+The former env vars FACE_THRESHOLD, FACE_METHOD, FACE_BLOCKS, FACE_BLUR_KSIZE
+and FACE_MARGIN are ignored (logged at start-up). Invalid config -> exit 2.
 
 CLI:
     python blur_worker.py            # daemon: poll forever
@@ -77,11 +85,27 @@ RECORDINGS_DB = Path(
     os.environ.get("RECORDINGS_DB", RECORDINGS_DIR / "recordings.db")
 ).resolve()
 
-FACE_THRESHOLD = float(os.environ.get("FACE_THRESHOLD", "0.2"))
-FACE_METHOD = os.environ.get("FACE_METHOD", "mosaic").lower()
-FACE_BLOCKS = int(os.environ.get("FACE_BLOCKS", "8"))
-FACE_BLUR_KSIZE = int(os.environ.get("FACE_BLUR_KSIZE", "0"))
-FACE_MARGIN = float(os.environ.get("FACE_MARGIN", "0.12"))
+# Detection/anonymization parameters come from the study config
+# (privacy.faceBlur), validated by the shared loader (exit 2 if invalid).
+sys.path.insert(0, str(SCRIPT_DIR.parent))
+import blinks_study_config  # noqa: E402
+
+STUDY_CONFIG, STUDY_CONFIG_PATH = blinks_study_config.load_study_config_or_exit("[face-blur] ")
+_FACE_BLUR = STUDY_CONFIG["privacy"]["faceBlur"]
+
+FACE_BLUR_ENABLED = bool(_FACE_BLUR["enabled"])
+FACE_THRESHOLD = float(_FACE_BLUR["threshold"])
+FACE_METHOD = str(_FACE_BLUR["method"])
+FACE_BLOCKS = int(_FACE_BLUR["blocks"])
+FACE_BLUR_KSIZE = int(_FACE_BLUR["blurKernel"])
+FACE_MARGIN = float(_FACE_BLUR["margin"])
+RETIRED_STUDY_ENV_VARS = (
+    "FACE_THRESHOLD",
+    "FACE_METHOD",
+    "FACE_BLOCKS",
+    "FACE_BLUR_KSIZE",
+    "FACE_MARGIN",
+)
 POLL_INTERVAL_S = float(os.environ.get("POLL_INTERVAL_S", "2.0"))
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "50"))
 
@@ -250,6 +274,14 @@ def run(once: bool, max_frames: int | None) -> None:
 
     _log(f"db={RECORDINGS_DB}")
     _log(f"recordings={RECORDINGS_DIR}")
+    _log(f"study config={STUDY_CONFIG_PATH} ({STUDY_CONFIG['study']['name']})")
+    stale = [name for name in RETIRED_STUDY_ENV_VARS if os.environ.get(name)]
+    if stale:
+        _log(
+            "NOTE: ignoring retired env var(s) "
+            + ", ".join(stale)
+            + " (now privacy.faceBlur in the study config)"
+        )
     _log(f"method={METHOD_TAG} blocks={FACE_BLOCKS} margin={FACE_MARGIN}")
     cf = CenterFace()
     _log("CenterFace model loaded")
@@ -307,6 +339,17 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
+    if not FACE_BLUR_ENABLED:
+        # Contract section 6: frames already 'pending' when blur was switched
+        # off stay in this worker path; anonymize that backlog once, then stop.
+        _log(
+            "NOTICE: privacy.faceBlur.enabled=false in the study config. New frames "
+            "bypass this worker (face_method='disabled'). Processing the remaining "
+            "pending backlog once, then exiting 0."
+        )
+        run(once=True, max_frames=args.max)
+        _log("face blur disabled: exiting (0)")
+        sys.exit(0)
     run(once=args.once, max_frames=args.max)
 
 

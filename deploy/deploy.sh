@@ -87,15 +87,37 @@ BEFORE_SHA="$(git rev-parse --short HEAD)"
 log "deploying $BEFORE_SHA ($(git log -1 --format=%s))"
 echo "    roll back with: git checkout <previous-sha> && $0"
 
-# NEXT_PUBLIC_* is inlined at build time. Building without this file produces a
-# bundle whose LimeSurvey links are undefined, and nothing fails loudly later.
-[ -f "$REPO/drm-web/.env.local" ] \
-  || die "drm-web/.env.local is missing — the survey and payout links would be unavailable.
-       cp drm-web/.env.example drm-web/.env.local and set the real URLs first."
+# Study config (BLINKS-tasks#4): every study setting, the survey/payout links
+# and the Study Settings PIN live in the gitignored config/study.yaml. The
+# server and both workers refuse to start without a valid file in production
+# (no fallback to study.example.yaml), so check it before building anything.
+# It is validated after the builds below (same loaders as at runtime).
+STUDY_CONFIG="$REPO/config/study.yaml"
+[ -f "$STUDY_CONFIG" ] && [ ! -L "$STUDY_CONFIG" ] \
+  || die "config/study.yaml is missing (or a symlink) — the server would not start.
+       cp config/study.example.yaml config/study.yaml, fill in the real survey/payout
+       links and a new PIN (see config/README.md), then chmod 600 config/study.yaml."
+git ls-files --error-unmatch config/study.yaml >/dev/null 2>&1 \
+  && die "config/study.yaml is tracked by git — it holds the PIN and survey links; untrack it"
+STUDY_CONFIG_MODE="$(stat -c %a "$STUDY_CONFIG")"
+[ "${STUDY_CONFIG_MODE: -1}" = "0" ] \
+  || warn "config/study.yaml is world-readable (mode $STUDY_CONFIG_MODE); chmod 600 recommended"
+grep -qE 'example\.(org|com)' "$STUDY_CONFIG" \
+  && die "config/study.yaml still contains example.org/example.com placeholder links"
 
-for v in NEXT_PUBLIC_ONBOARDING_SURVEY_URL NEXT_PUBLIC_FINAL_SURVEY_URL PAYOUT_URL; do
-  grep -qE "^${v}=.+" "$REPO/drm-web/.env.local" || die "$v is unset in drm-web/.env.local"
-done
+# Transitional: as long as drm-web still builds the survey links from env
+# (before it reads GET /api/study-config), keep requiring them in .env.local.
+# NEXT_PUBLIC_* is inlined at build time, so a missing value would fail silently.
+if grep -rqE 'NEXT_PUBLIC_(ONBOARDING|FINAL)_SURVEY_URL|process\.env\.PAYOUT_URL' "$REPO/drm-web/src"; then
+  warn "drm-web still reads survey/payout links from env; checking drm-web/.env.local (legacy)"
+  [ -f "$REPO/drm-web/.env.local" ] || die "drm-web/.env.local is missing (legacy web survey links)"
+  for v in NEXT_PUBLIC_ONBOARDING_SURVEY_URL NEXT_PUBLIC_FINAL_SURVEY_URL PAYOUT_URL; do
+    grep -qE "^${v}=.+" "$REPO/drm-web/.env.local" || die "$v is unset in drm-web/.env.local"
+  done
+elif [ -f "$REPO/drm-web/.env.local" ] \
+  && grep -qE '^(NEXT_PUBLIC_(ONBOARDING|FINAL)_SURVEY_URL|PAYOUT_URL|NEXT_PUBLIC_DRM_TZ)=' "$REPO/drm-web/.env.local"; then
+  warn "drm-web/.env.local still sets survey/payout/timezone vars; they are unused now (config/study.yaml) and can be removed"
+fi
 
 if [ ! -f "$REPO/server/vlm/.env" ]; then
   die "server/vlm/.env is missing — the VLM worker has no KIT_API_KEY."
@@ -122,6 +144,22 @@ npm run test-push
 [ -f dist/server.js ] || die "server build produced no dist/server.js"
 git -C "$REPO" diff --quiet -- server/dist \
   || die "server build changed tracked dist/ output; build and commit dist/ before production deployment"
+
+log "validating config/study.yaml (server loader, production rules)"
+# Same loader the service runs: exit 2 + "path: reason" lines on any problem.
+env -u BLINKS_STUDY_CONFIG NODE_ENV=production /usr/bin/node -e '
+  const { studyConfig } = require("./dist/study-config/index.js");
+  const b = studyConfig.reminders.bedtime;
+  console.log(`    ok  ${studyConfig.study.name} (${studyConfig.study.timezone}), ` +
+    `faceBlur=${studyConfig.privacy.faceBlur.enabled}, overreliance=${studyConfig.overreliance.enabled}, ` +
+    `bedtime push=${b.enabled} (lead ${b.leadMinutes} min)`);
+' || die "config/study.yaml is invalid (see the lines above); nothing was restarted"
+# Values the health checks below depend on.
+FACE_BLUR_ENABLED="$(env -u BLINKS_STUDY_CONFIG NODE_ENV=production /usr/bin/node -p \
+  'require("./dist/study-config/index.js").studyConfig.privacy.faceBlur.enabled')"
+PUSH_EXPECT="$(env -u BLINKS_STUDY_CONFIG NODE_ENV=production /usr/bin/node -p '
+  const b = require("./dist/study-config/index.js").studyConfig.reminders.bedtime;
+  JSON.stringify({ enabled: b.enabled, leadMinutes: b.leadMinutes })')"
 
 log "building drm-web/"
 cd "$REPO/drm-web"
@@ -153,6 +191,16 @@ if [ "$SKIP_PYTHON" -eq 0 ]; then
     .venv/bin/pip install --quiet -r requirements.txt
   done
 fi
+
+log "validating config/study.yaml (Python worker loader)"
+for worker in face-blur vlm; do
+  [ -x "$REPO/server/$worker/.venv/bin/python" ] \
+    || die "server/$worker/.venv is missing — run without --skip-python once"
+  ( cd "$REPO/server" && env -u BLINKS_STUDY_CONFIG BLINKS_ENV=production \
+      "$REPO/server/$worker/.venv/bin/python" -c \
+      'import blinks_study_config as b; b.load_study_config_or_exit("    "); print("    ok  python loader")' ) \
+    || die "config/study.yaml rejected by the $worker worker loader; nothing was restarted"
+done
 
 # The server applies SQLite migrations on startup. Take transactionally
 # consistent online backups before restarting so a schema regression can be
@@ -256,6 +304,12 @@ sleep 4
 
 FAILED=0
 for svc in "${SERVICES[@]}"; do
+  if [ "$svc" = "blinks-face-blur" ] && [ "$FACE_BLUR_ENABLED" != "true" ]; then
+    # privacy.faceBlur.enabled=false: the worker anonymizes any remaining
+    # pending backlog once and then exits 0 (Restart=on-failure keeps it down).
+    printf '    \033[1;33mdisabled\033[0m %s (privacy.faceBlur.enabled=false)\n' "$svc"
+    continue
+  fi
   if systemctl is-active --quiet "$svc"; then
     printf '    \033[1;32mok\033[0m       %s\n' "$svc"
   else
@@ -287,16 +341,20 @@ check() {
 }
 
 check "api  (:3000)"        "http://127.0.0.1:3000/health" '"status":"ok"'
-check "push scheduler"      "http://127.0.0.1:3000/health" '"pushScheduler":{"enabled":true,"leadMinutes":30}'
+check "push scheduler"      "http://127.0.0.1:3000/health" "\"pushScheduler\":$PUSH_EXPECT"
 check "web  (:3001)"        "http://127.0.0.1:3001/"       '<html'
 check "api  (via https)"    "https://blinks.win.kit.edu/health" '"status":"ok"'
 check "web  (via https)"    "https://blinks.win.kit.edu/"       '<html'
 
 # The face-blur worker owns the serving gate: frames stay hidden until it marks
 # them done, so a silently dead worker means participants see no photos at all.
-if ! systemctl is-active --quiet blinks-face-blur; then
-  warn "blinks-face-blur is not running — NO frames will be served to anyone"
-  FAILED=1
+if [ "$FACE_BLUR_ENABLED" = "true" ]; then
+  if ! systemctl is-active --quiet blinks-face-blur; then
+    warn "blinks-face-blur is not running — NO frames will be served to anyone"
+    FAILED=1
+  fi
+else
+  warn "privacy.faceBlur.enabled=false — new frames are stored and served WITHOUT face anonymization"
 fi
 
 [ "$FAILED" -eq 0 ] || die "deployed, but health checks failed — investigate before the study"

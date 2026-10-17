@@ -13,9 +13,9 @@ Environment=NODE_ENV=production
 Environment=CAMERA_HOST=127.0.0.1
 Environment=CAMERA_PORT=3000
 Environment=WEB_URL=https://blinks.win.kit.edu
-Environment=DRM_TZ=Europe/Berlin
-Environment=DRM_AVAILABLE_FROM_HOUR=19
-Environment=DRM_DEFAULT_BEDTIME=22:00
+# Study settings (timezone, reconstruction opening time, bedtime reminder,
+# vocabulary, survey links, PIN, ...) live in /root/BLINKS/config/study.yaml
+# (gitignored). NODE_ENV=production makes a missing/invalid file fatal (exit 2).
 Environment=DISABLE_PUSH=0
 # Never set DRM_DEV_MODE here. It bypasses the evening gate and the
 # round-1-before-round-2 gate, and exposes the injected-annotation marker.

@@ -1,6 +1,7 @@
 # Study-Config: Vertrag (WP0-Entwurf)
 
-Status: **Entwurf zur Review durch Martin** (BLINKS-tasks#3, BE-Teil #4), Pre-Review von Martin
+Status: **Freigegeben** (Martin, 17.10. 19:38; Entscheidungen Felix F1–F7 siehe Abschnitt 8). Implementierung läuft (WP1).
+Vorher: Entwurf zur Review durch Martin (BLINKS-tasks#3, BE-Teil #4), Pre-Review von Martin
 (https://github.com/wangfelix/BLINKS-tasks/issues/3#issuecomment-6237693031) eingearbeitet.
 Erst nach Freigabe in #3 wird implementiert. Felix' Vorgaben: eine zentrale
 YAML-Datei, **keine** Versionierung/Hashing/DB-Snapshot, Validierung beim
@@ -23,8 +24,7 @@ Dateien in diesem Branch:
 - Pfad: Env `BLINKS_STUDY_CONFIG`, Default `config/study.yaml` (relativ zum Repo-Root).
   `config/study.yaml` ist gitignored. Fehlt sie, fällt der Loader auf
   `config/study.example.yaml` zurück, **mit deutlicher Warnung** (Dev/Tests).
-  Offene Frage F1: in Produktion (`NODE_ENV=production` bzw. `deploy.sh`) den
-  Fallback verbieten?
+  **In Produktion (`NODE_ENV=production`) gibt es keinen Fallback (F1, entschieden).**
 - YAML-Parser: Node `yaml` (YAML 1.2), Python `PyYAML` (`safe_load`, YAML 1.1).
   Damit beide gleich parsen: Zeiten, PIN und mehrdeutige Strings (`on`, `no`,
   `0000`) **immer quoten**. Das Example hält sich daran.
@@ -304,6 +304,60 @@ Fehlerfälle (`400`, `{ "error": string }`, ein Fehler pro Request wie heute):
 - Admin: `activity_ratings` kommt in `ADMIN_TABLE_NAMES` (Tabellenansicht + CSV-Download,
   Whitelist auf dem Server). Das Label macht Martin.
 
+### 4.8 `POST /api/recording/device-info` (F3, entschieden: ja)
+
+Die App meldet nach jedem Connect (BLE-Doc Abschnitt 3, nach Schritt 4) die
+Geräteinfo der Kamera. Append-only, best-effort: Die App queued die Meldung wie
+die Recording-Events (pro Participant, SecureStore) und wiederholt sie
+idempotent. Fehler blockieren die Aufnahme nie.
+
+- Auth: Participant-Bearer (`requireAuth`), Admin-Token → `401`.
+- Nur für die **Haupt-Session** senden, nicht für Test-Aufnahmen (die erzeugen
+  bewusst keine DB-Zeilen). Der Server prüft nicht, ob die Session schon ein
+  `start`-Event hat (Queue-Reihenfolge ist best-effort).
+
+Request (`Content-Type: application/json`):
+
+```ts
+export interface DeviceInfoReportRequest {
+  eventId: string;            // vom Client erzeugt, 1-128 Zeichen, eindeutig pro Participant (Idempotenz)
+  session: number;            // Session-ID (Epoch-Sekunden des Start-Taps), wie bei /ingest
+  device: string;             // Kamera-BLE-MAC ohne Doppelpunkte, wie bei /ingest (1-64 Zeichen [A-Za-z0-9])
+  clientEpochMs: number;      // Telefonzeit der Messung (nach dem zweiten Lesen von …0004)
+  requestedIntervalMs: number | null;  // per 0x03 geschrieben; null = kein 0x03 (alte Firmware / kein Config-Cache)
+  settingsFormFactor: string | null;   // Bauform aus Study Settings (null = nicht gesetzt)
+  info: {                     // JSON aus …0004; null = Characteristic fehlt (alte Firmware) oder unlesbar
+    v: number;
+    fw: string;
+    formFactor: string;
+    intervalMs: number;
+    defaultMs: number;
+    minMs: number;
+    maxMs: number;
+    [extra: string]: unknown; // unbekannte Felder werden mitgespeichert, nicht abgelehnt
+  } | null;
+}
+```
+
+Antworten:
+
+| Status | Body | Wann |
+|---|---|---|
+| `201` | `{ "ok": true, "duplicate": false }` | neu gespeichert |
+| `200` | `{ "ok": true, "duplicate": true }` | gleiche `eventId` mit identischem Inhalt erneut gesendet (Retry) |
+| `400` | `{ "error": "<feld>: <grund>" }` | Validierung, z. B. `session must be a positive integer`, `info.intervalMs must be an integer`, `info must be an object or null` |
+| `401` | `{ "error": "unauthorized" }` | Token fehlt/ungültig/Admin |
+| `409` | `{ "error": "eventId already used with a different payload" }` | `eventId` wiederverwendet mit anderem Inhalt. App: verwerfen, nicht erneut senden |
+
+Die App behandelt `200`/`201`/`400`/`409` als erledigt (aus der Queue entfernen,
+`400`/`409` loggen) und wiederholt nur bei Netzwerkfehler und `5xx`.
+
+Speicherung (Tabelle `device_info_reports`, append-only, in Admin-Tabellen + CSV):
+`participant, event_id, session, device, client_epoch_ms, server_received_epoch_ms,
+requested_interval_ms, settings_form_factor, firmware_version, form_factor,
+interval_ms, default_ms, info_json`, `PRIMARY KEY (participant, event_id)`.
+`info_json` = das gesendete `info`-Objekt unverändert (oder NULL).
+
 ## 5. Overreliance
 
 `enabled: false` → keine Injection, `presented_* = genuine`,
@@ -359,26 +413,20 @@ CREATE TABLE activity_ratings (
   Zeilenzahlen vorher/nachher, `PRAGMA quick_check`, `PRAGMA foreign_key_check`,
   Stichprobe. Protokoll in den PR.
 
-## 8. Offene Fragen
+## 8. Entscheidungen
 
-Mit Martin geklärt (Pre-Review): Kurzlabel, Skalengrenzen, Icon-Allowlist,
+Mit Martin geklärt (WP0-Freigabe 17.10.): Kurzlabel, Skalengrenzen, Icon-Allowlist,
 `availableFrom: "HH:MM"`, Zeitzone in app-config, Hinweis-Validierung,
-Mindestintervall 5 s, Payloads, `/api/payout`, Ratings-Regeln, Cache, BLE-Ablauf.
+Mindestintervall 5 s, Payloads, `/api/payout`, Ratings-Regeln (400 für alte
+Rating-Felder), Cache, BLE-Ablauf, bei Bauform-Mismatch gilt Study Settings + Warnung.
 
-An **Felix** (über Alessa):
+Von **Felix** entschieden (17.10., alle wie vorgeschlagen):
 
-- **F1** Fallback auf `study.example.yaml`, wenn `study.yaml` fehlt: in Produktion
-  verbieten (Server startet nicht)? Vorschlag: ja, `deploy.sh` prüft die Datei.
-- **F2** Mindest-Capture-Intervall 5 s (hardware-getestet) statt 2 s. Nach deinem
-  Hardware-Test ggf. anpassen (eine Konstante in Firmware + Schema).
-- **F3** Kamera-Geräteinfo an den Server melden? Vorschlag siehe
-  `docs/ble-capture-config.md` Abschnitt 4: **ja**, als kleine append-only Tabelle.
-  Bis zu deiner Entscheidung loggt die App nur.
-- **F4** `capture.frameSize`/`jpegQuality` jetzt weglassen? Vorschlag: ja, erst wenn
-  die Firmware das günstig kann.
-- **F5** Segmentierung hat heute keine echten Parameter. Vorschlag: nur
-  `segmentation.mergeAcrossCaptureGaps` (Default `true`).
-- **F6** Der bisherige Settings-PIN steht im öffentlichen Repo und in der
-  Git-Historie. Für die nächste Studie in `study.yaml` einen neuen PIN setzen.
-- **F7** `endSessionAvailableAt` künftig in Studien-Zeitzone statt Telefon-Zeitzone
-  (für die Paper-Studie identisch). Ok?
+- **F1 entschieden:** Ohne `config/study.yaml` startet die Produktion nicht (`NODE_ENV=production`,
+  kein Fallback auf die Example). `deploy.sh` prüft und validiert die Datei.
+- **F2 entschieden:** Mindest-Capture-Intervall 5 s.
+- **F3 entschieden:** Die App meldet die Device-Info an den Server (4.8).
+- **F4 entschieden:** Auflösung und JPEG-Qualität bleiben fix, nicht konfigurierbar.
+- **F5 entschieden:** Segmentierung nur über `segmentation.mergeAcrossCaptureGaps`.
+- **F6 entschieden:** Für die nächste Studie wird ein neuer Settings-PIN in `study.yaml` gesetzt.
+- **F7 entschieden:** `endSessionAvailableAt` gilt in `study.timezone`, nicht in der Telefon-Zeitzone.

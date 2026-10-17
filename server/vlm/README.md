@@ -99,24 +99,33 @@ persisted future retry time.
 |---|---|---|
 | `KIT_API_KEY` | *(required)* | KIT SCC AI toolbox API key |
 | `KIT_BASE_URL` | `https://ki-toolbox.scc.kit.edu/api/v1` | OpenAI-compatible base URL |
-| `VLM_MODEL` | `azure.gpt-5.6-terra` | model name |
 | `RECORDINGS_DIR` | `../recordings` | recordings tree (matches the server's env) |
 | `RECORDINGS_DB` | `<RECORDINGS_DIR>/recordings.db` | the SQLite index |
 | `VLM_TIMEOUT` | `120` | per-request timeout (s; multi-image requests are bigger) |
-| `VLM_TEMPERATURE` | `0.0` | sampling temperature; deterministic by default for the probability-elicitation contract |
-| `VLM_REASONING_EFFORT` | `high` | model-specific reasoning effort, matching the Terra benchmark |
-| `VLM_MAX_COMPLETION_TOKENS` | `8192` | completion cap including reasoning; incomplete responses are rejected |
 | `VLM_MAX_ATTEMPTS` | `5` | total automatic endpoint attempts in one retry cycle |
 | `VLM_RETRY_DELAYS_S` | `30,120,300,600` | persisted delay after attempts 1–4 before the next attempt |
-| `VLM_CHUNK_MAX_FRAMES` | `20` | frames sent per chunk, evenly sampled across the window (a full window at the 15 s study interval) |
 | `POLL_INTERVAL_S` | `3.0` | sleep between polls when the queue is empty |
 | `BATCH_SIZE` | `8` | maximum chunks claimed during one concurrency refill |
 | `VLM_CONCURRENCY` | `8` | endpoint calls in flight at once (in-process thread pool) |
-| `DRM_TZ` | `Europe/Berlin` | study timezone for current-day-first ordering (match the server) |
+| `BLINKS_STUDY_CONFIG` | `<repo>/config/study.yaml` | study config; outside production falls back to `config/study.example.yaml` |
+
+### Study settings (study config, not env)
+
+Since BLINKS-tasks#4 everything study-related comes from the validated study
+config (`docs/study-config-contract.md`): `vlm.model`,
+`vlm.request.{temperature, reasoningEffort, maxCompletionTokens}` (paper:
+`azure.gpt-5.6-terra`, `0`, `high`, `8192`), `vlm.maxFramesPerWindow` (20),
+`vlm.prompts.*` (templates), `activities`, `categories`,
+`windowing.windowMinutes` (5) and `study.timezone` (Europe/Berlin). The old
+env vars `VLM_MODEL`, `VLM_TEMPERATURE`, `VLM_REASONING_EFFORT`,
+`VLM_MAX_COMPLETION_TOKENS`, `VLM_CHUNK_MAX_FRAMES` and `DRM_TZ` are ignored
+and reported at start-up. An invalid config stops the worker with exit code 2.
+`test_study_example_prompts.py` keeps the example byte-identical to the frozen
+paper prompts (`fixtures/golden-prompts.json`).
 
 ### Claim ordering (current-day-first)
 
-Chunks are claimed **today-first** (today in `DRM_TZ`) so an evening
+Chunks are claimed **today-first** (today in `study.timezone`) so an evening
 reconstruction is never stuck behind days of catch-up; within the backlog it's
 oldest-first, so the oldest still-incomplete day is what finishes next. If TZ
 data is unavailable it degrades to newest-first (still today-before-older).

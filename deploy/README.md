@@ -30,8 +30,13 @@ install Node 20+ at `/usr/bin/node`, npm, Python 3 with `venv`, Apache, certbot,
 and curl; obtain the Let's Encrypt certificate before the first scripted
 deploy. Also create the two gitignored production files:
 
-- `drm-web/.env.local` with both real LimeSurvey URLs and the payout URL.
+- `config/study.yaml` (mode 600): copy of `config/study.example.yaml` with the
+  real LimeSurvey links, payout URL and a new Study Settings PIN (see
+  `config/README.md`). The server and both workers refuse to start in
+  production without a valid file; there is no fallback to the example.
 - `server/vlm/.env` with a non-empty `KIT_API_KEY`.
+- `drm-web/.env.local` is optional now (only for overrides such as
+  `NEXT_PUBLIC_API_URL`); survey/payout links are no longer read from it.
 
 The deploy script installs and enables the tracked systemd units, required
 Apache modules, and both sites. The equivalent manual setup is:
@@ -51,6 +56,7 @@ blinks.win.kit.edu`); `blinks-le-ssl.conf` references the paths certbot
 manages and renewal is handled by `certbot.timer`.
 
 Secrets are not in this repo: `KIT_API_KEY` lives in `server/vlm/.env`
+(gitignored), the survey links and Study Settings PIN in `config/study.yaml`
 (gitignored), and participant credentials live in `server/data/auth.db`.
 
 ## Routine redeploy
@@ -72,9 +78,18 @@ Design points worth knowing:
   production still serving the previous version.
 - **Only a clean, tracked checkout is deployable.** Local tracked edits abort
   before building, and `deploy/deploy.sh` itself must have arrived through Git.
-- **`drm-web/.env.local` is checked first.** `NEXT_PUBLIC_*` is inlined at build
-  time, while the payout redirect reads `PAYOUT_URL` from the web service's
-  environment at runtime. A missing file or required URL aborts deployment.
+- **`config/study.yaml` is checked first and validated before any restart.**
+  Missing, tracked by git, or still containing `example.org`/`example.com`
+  placeholder links aborts the deploy; after the builds it is validated with the
+  server loader and the Python worker loader under production rules (exit 2 =
+  abort, nothing restarted). Transitional: as long as `drm-web/src` still reads
+  `NEXT_PUBLIC_*_SURVEY_URL`/`PAYOUT_URL`, those are still required in
+  `drm-web/.env.local`; afterwards leftovers only produce a warning.
+- **Config-aware health checks.** The push check expects the
+  `reminders.bedtime` values from the config; with
+  `privacy.faceBlur.enabled: false` a stopped `blinks-face-blur` is expected
+  (it finishes the pending backlog and exits 0; the unit uses
+  `Restart=on-failure`) and the deploy prints a privacy warning instead.
 - **Standalone assets are removed before copying.** `cp -r public .next/standalone/`
   onto an existing directory nests it as `public/public` rather than merging, so
   the script deletes `public` and `.next/static` in the standalone tree first.

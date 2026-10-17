@@ -35,22 +35,64 @@ Env knobs (all optional; prepend to the command, e.g. `DISABLE_PUSH=1 npm run de
 | `DATA_DIR`                | `server/data`               | `auth.db` (credentials, kept out of recordings)                                                           |
 | `AUTH_DB_PATH`            | `<DATA_DIR>/auth.db`        | override the auth DB path                                                                                 |
 | `WEB_URL`                 | `https://blinks.win.kit.edu` | DRM website URL put into push notifications                                                               |
-| `DRM_TZ`                  | `Europe/Berlin`             | study timezone for day keys + the gate                                                                    |
-| `DRM_AVAILABLE_FROM_HOUR` | `19`                        | hour today's reconstruction opens; **set `0` for testing**                                                |
-| `DRM_DEFAULT_BEDTIME`     | `22:00`                     | fallback-push bedtime for participants without a stored one                                               |
+| `BLINKS_STUDY_CONFIG`     | `config/study.yaml`         | study config path (absolute or relative to the cwd); see "Study config" below                             |
+| `NODE_ENV`                | (unset)                     | `production` = no fallback to `config/study.example.yaml`, the example is refused                         |
 | `DRM_DEV_MODE`            | (off)                       | `1` enables direct DRM dev pages and bypasses the evening + round-order gates; never enable for the study |
 | `DISABLE_PUSH`            | (off)                       | `1` turns the push scheduler off (use in dev/tests)                                                       |
 
-The push is a single **bedtime fallback**: at the participant's reported
-bedtime (app onboarding) minus 30 min, if they captured frames today and round
-2 is not submitted yet. Bedtimes before noon (after-midnight sleepers) clamp
-the reminder to 23:50.
+`DRM_TZ`, `DRM_AVAILABLE_FROM_HOUR`, `DRM_DEFAULT_BEDTIME`,
+`DRM_DAY_OVERRUN_HOURS` and `CHUNK_IDLE_CLOSE_MS` are gone: timezone, opening
+time, bedtime reminder, day overrun and windowing are study settings in the
+study config (`study.timezone`, `schedule.*`, `reminders.bedtime.*`,
+`windowing.*`).
 
-Typical dev run (gate open, no push spam):
+The push is a single **bedtime fallback**: at the participant's reported
+bedtime (app onboarding) minus `reminders.bedtime.leadMinutes` (paper: 30),
+if they captured frames today and round 2 is not submitted yet. Bedtimes
+before `afterMidnightCutoff` (12:00) clamp the reminder to `latestAt` (23:50).
+
+### Study config (BLINKS-tasks#4)
+
+Every study setting lives in one YAML file, validated at start-up by the
+server and both Python workers (`docs/study-config-contract.md`, how to set up
+a new study: `config/README.md`). Resolution: `BLINKS_STUDY_CONFIG` →
+`config/study.yaml` (gitignored) → `config/study.example.yaml` (only outside
+production, with a warning). An invalid file stops the process with exit code 2
+and `path.to.field: reason` lines.
 
 ```bash
-DRM_AVAILABLE_FROM_HOUR=0 DISABLE_PUSH=1 npm run dev
+cd server
+npm ci && npm run build
+
+# 1) paper default (config/study.example.yaml; no config/study.yaml present)
+DISABLE_PUSH=1 npm run dev
+#    -> log: "WARNING: using config/study.example.yaml ..." and
+#       "Study config: .../config/study.example.yaml (EXAMPLE)"
+#    The evening gate is 19:00. To open it earlier, use a copy:
+sed 's/reconstructionOpensAt: "19:00"/reconstructionOpensAt: "00:00"/' \
+  ../config/study.example.yaml > /tmp/study.local.yaml
+BLINKS_STUDY_CONFIG=/tmp/study.local.yaml DISABLE_PUSH=1 npm run dev
+
+# 2) a different study (config/study.test.yaml: 5 labels, 2 categories,
+#    3 rating items, 10-min window, gate 00:00, overreliance off, "[TEST]" texts)
+BLINKS_STUDY_CONFIG=../config/study.test.yaml DISABLE_PUSH=1 npm run dev
+
+# same with the compiled server
+BLINKS_STUDY_CONFIG=../config/study.test.yaml DISABLE_PUSH=1 node dist/server.js
+
+# validate a config without starting anything (exit 0 / exit 2)
+BLINKS_STUDY_CONFIG=../config/study.test.yaml node -e 'require("./dist/study-config")'
+
+# check what the clients get (token from POST /api/login)
+curl -s -H "Authorization: Bearer $TOKEN" localhost:3000/api/study-config
+curl -s -H "Authorization: Bearer $TOKEN" localhost:3000/api/app-config
+curl -si localhost:3000/api/payout | head -3
 ```
+
+The demo seed (`scripts/seed-demo-data.ts`) uses the paper vocabulary, so run
+it with the example config (or a copy), not with `study.test.yaml`. Use a
+separate `RECORDINGS_DIR`/`DATA_DIR` per config, because ratings and labels are
+stored with the keys of the config they were created with.
 
 ### Create / manage participants
 
@@ -101,6 +143,17 @@ npx tsx scripts/test-reconstruction-timing-migration.ts  # reconstructions -> re
 npm run test-auth-onboarding  # legacy migration + first-run state transitions
 npm run test-admin-data       # admin table/CSV/photo read model
 npm run test-push             # bedtime math + Expo ticket acceptance
+npm run test-study-config-schema   # schema, example, generated JSON Schema in sync
+npm run build && npm run test-study-config-runtime  # loader exit 2/F1, endpoints, ratings, device-info (study.test.yaml)
+npm run test-ratings-migration     # workload/recovery -> activity_ratings (counts, idempotent, rollback)
+# dry run of the migration on a COPY of a real DB (refuses paths outside /tmp, aggregated output only):
+#   mkdir -p /tmp/mig-test && cp <copy>.db /tmp/mig-test/work.db
+#   npm run check-ratings-migration-copy -- /tmp/mig-test/work.db [--rollback] && rm -rf /tmp/mig-test
+# Python (worker venv or any venv with requirements.txt):
+#   cd vlm && python -m unittest test_study_example_prompts test_vlm_contract test_vlm_retry
+#   cd face-blur && python -m unittest test_blur_config
+# Firmware host tests (g++):
+#   cd glasses-camera-firmware-pio && g++ -std=c++17 -o /tmp/ci tests/capture_interval_test.cpp && /tmp/ci
 
 # inspect/backfill probability columns on legacy demo rows only (also maps
 # old democtl free-text fixture labels to the current closed enum):
@@ -112,12 +165,16 @@ npm run backfill-demo-probabilities -- --apply --force
 # end-to-end smoke test (needs its own new throwaway dir + matching server):
 SMOKE_ROOT="$(mktemp -d /tmp/blinks-smoke.XXXXXX)"
 mkdir -p "$SMOKE_ROOT/recordings" "$SMOKE_ROOT/data"
+# paper config with the evening gate opened ("00:00")
+sed 's/reconstructionOpensAt: "19:00"/reconstructionOpensAt: "00:00"/' \
+  ../config/study.example.yaml > "$SMOKE_ROOT/study.smoke.yaml"
 DATA_DIR="$SMOKE_ROOT/data" RECORDINGS_DIR="$SMOKE_ROOT/recordings" \
   npx tsx scripts/create-user.ts smoketester password123
 DATA_DIR="$SMOKE_ROOT/data" RECORDINGS_DIR="$SMOKE_ROOT/recordings" \
   npx tsx scripts/create-user.ts smokesecond password123
 RECORDINGS_DIR="$SMOKE_ROOT/recordings" DATA_DIR="$SMOKE_ROOT/data" \
-  CAMERA_PORT=3100 DRM_AVAILABLE_FROM_HOUR=0 DISABLE_PUSH=1 node dist/server.js &   # (npm run build first)
+  BLINKS_STUDY_CONFIG="$SMOKE_ROOT/study.smoke.yaml" \
+  CAMERA_PORT=3100 DISABLE_PUSH=1 node dist/server.js &   # (npm run build first)
 SMOKE_BASE_URL=http://127.0.0.1:3100 RECORDINGS_DIR="$SMOKE_ROOT/recordings" \
   npx tsx scripts/smoke-test.ts
 ```
@@ -183,8 +240,10 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # once
 .venv/bin/python blur_worker.py --once     # process the current backlog, then exit
 ```
 
-Env: `FACE_THRESHOLD` (default `0.2`, lower = safer), `FACE_METHOD=mosaic|blur`,
-`POLL_INTERVAL_S` (default `2.0`), `RECORDINGS_DIR`.
+Detection parameters come from `privacy.faceBlur` in the study config
+(threshold 0.2, mosaic, ...); `enabled: false` makes the worker finish the
+pending backlog and exit 0. Env: `POLL_INTERVAL_S` (default `2.0`),
+`RECORDINGS_DIR`, `BLINKS_STUDY_CONFIG`.
 
 ---
 
@@ -195,7 +254,7 @@ chunk's label). A chunk becomes inferable once the server closed its window
 (`chunks.status='ready'`) AND every frame in it is through the face-blur
 worker. An assisted day stays "still being processed" in the web app until all
 its chunks are done — the server's idle sweep closes the day's last window
-~10 min after the final frame arrives (`CHUNK_IDLE_CLOSE_MS`).
+`windowing.idleCloseMinutes` (10) after the final frame arrives.
 
 ```bash
 cd server/vlm
@@ -207,8 +266,9 @@ cp .env.example .env        # then put the real KIT_API_KEY in .env (gitignored)
 ```
 
 Needs `KIT_API_KEY` in `.env` and the **KIT network / VPN** (endpoint is
-KIT-internal). Env: `VLM_MODEL` (default `kit.qwen3.5-397b-A17b`),
-`VLM_CHUNK_MAX_FRAMES` (`20`, evenly sampled per chunk), `VLM_MAX_ATTEMPTS`
+KIT-internal). Model, request parameters, prompts, vocabulary and frames per
+chunk (`vlm.maxFramesPerWindow`, 20) come from the study config. Env:
+`BLINKS_STUDY_CONFIG`, `VLM_MAX_ATTEMPTS`
 (`5` total), `VLM_RETRY_DELAYS_S` (`30,120,300,600` seconds),
 `VLM_CONCURRENCY` (`8` calls in flight), and `POLL_INTERVAL_S` (`3.0`). A
 completed call immediately refills its slot; timeouts are persisted and retried
@@ -329,11 +389,13 @@ point at the tunnel. The phone then works on eduroam (which blocks
 client-to-client traffic, so LAN mode cannot work there) or on mobile data.
 Keep `EXPO_PUBLIC_SERVER_URL` in `blinks-edge-app/.env.local` set to the same
 ngrok URL. If the ngrok URL cannot be read, the launcher falls back to LAN mode.
-The launcher defaults to
-`DRM_AVAILABLE_FROM_HOUR=0` and `DISABLE_PUSH=1`; either can still be overridden:
+The launcher defaults to `DISABLE_PUSH=1` and, unless `BLINKS_STUDY_CONFIG`
+is set, runs server and workers on a temp copy of `config/study.yaml` (or the
+paper example) with `schedule.reconstructionOpensAt: "00:00"`:
 
 ```bash
-DRM_AVAILABLE_FROM_HOUR=19 DISABLE_PUSH=0 ./dev-all.sh
+DEV_GATE_OPEN=0 DISABLE_PUSH=0 ./dev-all.sh                     # configured gate, push on
+BLINKS_STUDY_CONFIG=config/study.test.yaml ./dev-all.sh          # the test study
 ./dev-all.sh --check       # verify Node, dependencies, venvs, ngrok, and ports
 ```
 
@@ -345,7 +407,7 @@ Manual fallback (six terminals):
 
 ```bash
 # 1) server (gate open, push off)
-cd server && DRM_AVAILABLE_FROM_HOUR=0 DISABLE_PUSH=1 npm run dev
+cd server && BLINKS_STUDY_CONFIG=/tmp/study.local.yaml DISABLE_PUSH=1 npm run dev   # gate "00:00", see "Study config"
 
 # 2) single-origin proxy (API + Metro) and its public tunnel
 node dev-proxy.mjs               # http://localhost:8090
@@ -366,7 +428,8 @@ cd blinks-edge-app && EXPO_PACKAGER_PROXY_URL=https://<name>.ngrok-free.dev npm 
 
 Then `npm run create-user -- <user> <pw>`, record from the
 phone (or `npx tsx scripts/seed-demo-data.ts` for instant demo data), and open
-the web app in the evening (or with `DRM_AVAILABLE_FROM_HOUR=0`, any time).
+the web app in the evening (or any time with a config whose
+`reconstructionOpensAt` is `"00:00"`).
 
 ## Handy DB peeks (`server/recordings/recordings.db`)
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-BLINKS VLM scene-understanding worker (5-minute-chunk mode).
+BLINKS VLM scene-understanding worker (chunk mode; window = windowing.windowMinutes, paper: 5 min).
 
 Polls recordings.db for CHUNKS that are ready for inference and labels each
-whole chunk with one VLM call. A chunk is a clock-aligned 5-minute window of
+whole chunk with one VLM call. A chunk is a clock-aligned window (paper: 5 minutes) of
 frames, assembled by the Node server at ingestion:
 
     camera -> BLE -> phone -> WS -> server
@@ -27,7 +27,7 @@ Readiness gate (columns, not locks): a chunk is only claimed when
 so the VLM provably never sees an un-anonymized face. A chunk whose frames all
 failed the blur is marked 'failed' without an API call.
 
-Per chunk the model receives up to VLM_CHUNK_MAX_FRAMES face-anonymized frames
+Per chunk the model receives up to vlm.maxFramesPerWindow face-anonymized frames
 (evenly sampled across the window, chronological order) and returns full
 verbalized probability distributions:
   - activity probabilities over all 17 keys
@@ -54,23 +54,25 @@ Config (environment variables; a local .env next to this file is auto-loaded):
     KIT_API_KEY           required: KIT SCC AI toolbox API key
     KIT_BASE_URL          OpenAI-compatible base URL
                             (default: https://ki-toolbox.scc.kit.edu/api/v1)
-    VLM_MODEL             model name           (default: azure.gpt-5.6-terra)
     RECORDINGS_DIR        recordings tree      (default: ../recordings)
     RECORDINGS_DB         path to recordings.db (default: <RECORDINGS_DIR>/recordings.db)
     VLM_TIMEOUT           per-request timeout seconds (default: 120)
-    VLM_TEMPERATURE       sampling temperature        (default: 0.0)
-    VLM_REASONING_EFFORT  model reasoning effort      (default: high)
-    VLM_MAX_COMPLETION_TOKENS completion including reasoning (default: 8192)
     VLM_MAX_ATTEMPTS      total automatic attempts per retry cycle (default: 5)
     VLM_RETRY_DELAYS_S    comma-separated delays after attempts 1..N-1
                             (default: 30,120,300,600)
-    VLM_CHUNK_MAX_FRAMES  frames sent per chunk, evenly sampled (default: 20;
-                            covers a full window at the 15 s study interval)
     POLL_INTERVAL_S       sleep between polls when the queue is empty (default: 3.0)
     BATCH_SIZE            maximum chunks claimed in one refill (default: 8)
     VLM_CONCURRENCY       endpoint calls in flight at once (default: 8)
-    DRM_TZ                study timezone for current-day-first ordering
-                            (default: Europe/Berlin; match the server's DRM_TZ)
+    BLINKS_STUDY_CONFIG   study config path (default: <repo>/config/study.yaml;
+                            outside production falls back to study.example.yaml)
+
+Study settings (from the study config, see docs/study-config-contract.md):
+    vlm.model, vlm.request.{temperature, reasoningEffort, maxCompletionTokens},
+    vlm.maxFramesPerWindow, vlm.prompts.*, activities, categories,
+    windowing.windowMinutes, study.timezone. The former env vars VLM_MODEL,
+    VLM_TEMPERATURE, VLM_REASONING_EFFORT, VLM_MAX_COMPLETION_TOKENS,
+    VLM_CHUNK_MAX_FRAMES and DRM_TZ are ignored (logged at start-up).
+    An invalid config exits with code 2.
 
 CLI:
     python vlm_worker.py            # daemon: poll forever
@@ -117,6 +119,15 @@ from openai import OpenAI
 SCRIPT_DIR = Path(__file__).resolve().parent
 load_dotenv(SCRIPT_DIR / ".env")  # local dev convenience; systemd can inject env instead
 
+# Shared study-config loader (server/blinks_study_config.py). Everything
+# study-related (vocabulary, prompts, model + request, window, timezone) comes
+# from the validated study config; env vars below are infrastructure only.
+sys.path.insert(0, str(SCRIPT_DIR.parent))
+import blinks_study_config  # noqa: E402
+
+STUDY_CONFIG, STUDY_CONFIG_PATH = blinks_study_config.load_study_config_or_exit("[vlm] ")
+_VLM_CONFIG = STUDY_CONFIG["vlm"]
+
 # --- Config -----------------------------------------------------------------
 
 RECORDINGS_DIR = Path(
@@ -128,14 +139,12 @@ RECORDINGS_DB = Path(
 
 KIT_API_KEY = os.environ.get("KIT_API_KEY")
 KIT_BASE_URL = os.environ.get("KIT_BASE_URL", "https://ki-toolbox.scc.kit.edu/api/v1")
-VLM_MODEL = os.environ.get("VLM_MODEL", "azure.gpt-5.6-terra")
+VLM_MODEL = _VLM_CONFIG["model"]
 
 VLM_TIMEOUT = float(os.environ.get("VLM_TIMEOUT", "120"))
-VLM_TEMPERATURE = float(os.environ.get("VLM_TEMPERATURE", "0.0"))
-VLM_REASONING_EFFORT = os.environ.get("VLM_REASONING_EFFORT", "high")
-VLM_MAX_COMPLETION_TOKENS = max(
-    1, int(os.environ.get("VLM_MAX_COMPLETION_TOKENS", "8192"))
-)
+VLM_TEMPERATURE = float(_VLM_CONFIG["request"]["temperature"])
+VLM_REASONING_EFFORT = _VLM_CONFIG["request"]["reasoningEffort"]
+VLM_MAX_COMPLETION_TOKENS = int(_VLM_CONFIG["request"]["maxCompletionTokens"])
 VLM_MAX_ATTEMPTS = max(
     1,
     int(os.environ.get("VLM_MAX_ATTEMPTS", os.environ.get("VLM_MAX_RETRIES", "5"))),
@@ -147,15 +156,26 @@ VLM_RETRY_DELAYS_S = tuple(
 )
 if not VLM_RETRY_DELAYS_S:
     VLM_RETRY_DELAYS_S = (30.0,)
-VLM_CHUNK_MAX_FRAMES = max(1, int(os.environ.get("VLM_CHUNK_MAX_FRAMES", "20")))
+VLM_CHUNK_MAX_FRAMES = int(_VLM_CONFIG["maxFramesPerWindow"])
 POLL_INTERVAL_S = float(os.environ.get("POLL_INTERVAL_S", "3.0"))
 VLM_CONCURRENCY = max(1, int(os.environ.get("VLM_CONCURRENCY", "8")))
-# Study timezone, matching the server's DRM_TZ, so "today" agrees with the
-# reconstruction gate. Drives current-day-first claim ordering.
-DRM_TZ = os.environ.get("DRM_TZ", "Europe/Berlin")
+# Study timezone (study.timezone, same as the server), so "today" agrees with
+# the reconstruction gate. Drives current-day-first claim ordering.
+DRM_TZ = STUDY_CONFIG["study"]["timezone"]
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "8"))
 
-CHUNK_WINDOW_MS = 5 * 60 * 1000  # keep in sync with server/src/db.ts
+CHUNK_WINDOW_MS = STUDY_CONFIG["windowing"]["windowMinutes"] * 60 * 1000
+
+# Former study env vars. They are ignored now; warn so a stale .env or
+# systemd Environment= line cannot silently suggest it still applies.
+RETIRED_STUDY_ENV_VARS = (
+    "VLM_MODEL",
+    "VLM_TEMPERATURE",
+    "VLM_REASONING_EFFORT",
+    "VLM_MAX_COMPLETION_TOKENS",
+    "VLM_CHUNK_MAX_FRAMES",
+    "DRM_TZ",
+)
 
 
 @dataclass(frozen=True)
@@ -173,137 +193,26 @@ class InFlightAttempt:
     row: sqlite3.Row
     attempt_id: int
 
-# --- Activity vocabulary -----------------------------------------------------
-# Closed, visually grounded activity enum. Keep the keys synchronized with
-# server/src/activity-vocabulary.ts and drm-web/src/lib/activity-vocabulary.ts.
-# Intent belongs only in the independent work|break|other category.
+# --- Activity vocabulary + prompts (study config) ---------------------------
+# Closed, visually grounded activity enum and the independent category enum,
+# both from the study config (activities[].key / categories[].key, same list
+# as the server API and drm-web). Off-enum output fails validation and is
+# retried. Prompts are rendered from vlm.prompts (contract section 3).
 ACTIVITY_DEFINITIONS = {
-    "computer_or_monitor_use": (
-        "Attention directed to a computer, laptop, tablet used as a workstation, "
-        "or monitor, with visible keyboard, mouse, touch, or screen interaction."
-    ),
-    "watching_video": (
-        "A television or video interface is visibly the sustained focus, with "
-        "little active input. Do not infer this from posture alone."
-    ),
-    "paper_reading_writing": (
-        "Reading a book or printed document, or handwriting on paper with a pen "
-        "or pencil, with no screen as the focus."
-    ),
-    "handheld_device_use": (
-        "A phone or other handheld device is held and visibly occupies attention."
-    ),
-    "remote_meeting": (
-        "A video-conferencing interface or remote participants are visibly present "
-        "on a screen. Do not infer a meeting from a headset alone."
-    ),
-    "phone_call": (
-        "A phone is held to the ear, a visible call interface is active, or a "
-        "headset is used without another visually dominant task."
-    ),
-    "in_person_interaction": (
-        "Another person is physically present and repeatedly oriented toward or "
-        "interacting with the wearer."
-    ),
-    "tools_or_materials": (
-        "Hands manipulate tools, equipment, components, or materials, unless a "
-        "more specific food, cleaning, assistance, or personal-care label applies."
-    ),
-    "eating_drinking": "Food or drink is visibly being consumed.",
-    "food_preparation": (
-        "Food or drink is being prepared, assembled, cooked, or served."
-    ),
-    "cleaning_household": (
-        "Visible cleaning, tidying, laundry, dishes, or household maintenance."
-    ),
-    "assisting_person_animal": (
-        "Visible physical assistance or attentive handling of another person or animal."
-    ),
-    "personal_care": "Visible washing, grooming, dressing, or other personal care.",
-    "walking_or_movement": (
-        "Walking, cycling, exercise-like motion, or another sustained body movement."
-    ),
-    "no_task_engagement": (
-        "No specific task, object interaction, or social interaction is visibly evident."
-    ),
-    "other": (
-        "The scene is legible, but the visible activity is outside this vocabulary."
-    ),
-    "unclear": (
-        "The frames are too dark, obscured, blurred, sparse, or otherwise "
-        "uninformative to determine the activity."
-    ),
+    activity["key"]: activity["vlmDefinition"] for activity in STUDY_CONFIG["activities"]
 }
 ACTIVITY_VOCABULARY = tuple(ACTIVITY_DEFINITIONS)
+VLM_CATEGORIES = tuple(category["key"] for category in STUDY_CONFIG["categories"])
 
-# The three-way DRM category. Off-enum output fails validation and is retried.
-VLM_CATEGORIES = ("work", "break", "other")
-
-SYSTEM_PROMPT = (
-    "You analyze short sequences of frames from a body-worn (first-person) "
-    "camera for a research study on knowledge work. The frames are given in "
-    "chronological order and together span about five minutes. Faces in the "
-    "images are intentionally pixelated for privacy; describe the scene and "
-    "activity, never attempt to identify people. Judge the sequence as a "
-    "whole: classify the DOMINANT activity of the window, not any single frame. "
-    "Use incremental probability elicitation: first determine the most likely "
-    "label, then assess its confidence, then distribute probability across every "
-    "allowed label. Do this independently for activity and category. Do not reveal "
-    "your reasoning or output chosen-label fields; the server derives each label "
-    "from the corresponding distribution. Activity describes visible behavior "
-    "only. Purpose and restorative intent belong exclusively in category."
-)
+SYSTEM_PROMPT = blinks_study_config.render_system_prompt(STUDY_CONFIG)
 
 
 def _build_user_prompt(
     occupation: str | None, work_description: str | None, frame_count: int
 ) -> str:
     """The per-participant user prompt (occupation context varies per participant)."""
-    definitions = "\n".join(
-        f'- "{key}": {definition}'
-        for key, definition in ACTIVITY_DEFINITIONS.items()
-    )
-    occupation = (occupation or "").strip()
-    work_description = (work_description or "").strip()
-    if occupation:
-        occupation_context = f"The camera wearer's occupation: {occupation}."
-        if work_description:
-            occupation_context += f" Description of their work: {work_description}."
-    else:
-        occupation_context = "The camera wearer's occupation is unknown."
-    return (
-        f"{occupation_context}\n\n"
-        f"You see {frame_count} frames in chronological order spanning a "
-        "5-minute window of the wearer's day. Judge the window as a whole and "
-        "return the requested structured classification.\n\n"
-        "Activity definitions:\n"
-        f"{definitions}\n\n"
-        "Follow these steps internally for activity:\n"
-        "1. Determine the single most likely activity key using the definitions.\n"
-        "2. Assess confidence in that choice.\n"
-        "3. Return the full probability distribution over all 17 activity keys.\n"
-        "Choose the most specific visibly supported activity. A specific label "
-        "such as remote_meeting, phone_call, eating_drinking, or food_preparation "
-        "takes precedence over a broader device or material-handling label. Base "
-        "dominance on what is most consistently visible across the sequence. Do "
-        "not infer activity from posture, location, clothing, or occupation alone.\n\n"
-        "Follow the same steps independently for category: determine the most "
-        "likely category, assess confidence, then return the full probability "
-        'distribution over ["work", "break", "other"]. '
-        '"work" = the wearer\'s own occupation work (their occupation and work '
-        "description above provide the context for what counts as work). "
-        '"break" = an intentional restorative pause ("erholsame Pause": coffee, '
-        "resting, a deliberate walk, socializing to recover). "
-        '"other" = neither work nor restorative (chores, personal administration, '
-        "travel, or other non-restorative activity).\n"
-        '  "activity_probabilities": one numeric probability from 0 to 1 for '
-        "every activity key above.\n"
-        '  "category_probabilities": one numeric probability from 0 to 1 for '
-        "each category.\n"
-        "Each distribution must sum to 1. Use at least two decimal places of "
-        "precision where useful rather than limiting scores to tenths.\n"
-        "Return only the JSON object required by the response schema, with no "
-        "reasoning, selected-label fields, or additional text."
+    return blinks_study_config.render_user_prompt(
+        STUDY_CONFIG, occupation, work_description, frame_count
     )
 
 
@@ -904,6 +813,14 @@ def run(once: bool, max_chunks: int | None) -> None:
 
     _log(f"db={RECORDINGS_DB}")
     _log(f"recordings={RECORDINGS_DIR}")
+    _log(f"study config={STUDY_CONFIG_PATH} ({STUDY_CONFIG['study']['name']})")
+    stale = [name for name in RETIRED_STUDY_ENV_VARS if os.environ.get(name)]
+    if stale:
+        _log(
+            "NOTE: ignoring retired env var(s) "
+            + ", ".join(stale)
+            + " (now in the study config)"
+        )
     _log(f"model={VLM_MODEL} via {KIT_BASE_URL}")
     _log(
         f"temperature={VLM_TEMPERATURE:g}, reasoning={VLM_REASONING_EFFORT}, "
