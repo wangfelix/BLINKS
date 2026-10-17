@@ -1,4 +1,4 @@
-"""Study config loader for the Python workers (BLINKS-tasks#4).
+"""Study config loader for the Python workers .
 
 Shared by server/vlm/vlm_worker.py and server/face-blur/blur_worker.py, so
 both validate the SAME file the Node server validates

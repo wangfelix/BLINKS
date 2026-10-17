@@ -1,5 +1,5 @@
 // ===========================================================================
-// Study configuration schema (WP0 draft, BLINKS-tasks#3/#4).
+// Study configuration schema (contract: docs/study-config-contract.md).
 //
 // SINGLE SOURCE OF TRUTH for the shape of config/study.yaml. The JSON Schema
 // consumed by the Python workers (config/study-config.schema.json) is
@@ -45,7 +45,7 @@ const HttpsUrl = z
   .regex(/^https:\/\/\S+$/, "must be an absolute https:// URL");
 
 // --- Prompt placeholders -------------------------------------------------------
-// Fixed list (WP0). Templates are rendered by ONE single-pass replacement of
+// Fixed list. Templates are rendered by ONE single-pass replacement of
 // `{{name}}`; inserted values are never re-scanned, so a participant-entered
 // occupation containing "{{" cannot inject a placeholder. Any other `{{...}}`
 // is a validation error.

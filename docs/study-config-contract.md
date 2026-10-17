@@ -1,9 +1,9 @@
-# Study-Config: Vertrag (WP0-Entwurf)
+# Study-Config: Vertrag
 
-Status: **Freigegeben** (Martin, 17.10. 19:38; Entscheidungen Felix F1–F7 siehe Abschnitt 8). Implementierung läuft (WP1).
-Vorher: Entwurf zur Review durch Martin (BLINKS-tasks#3, BE-Teil #4), Pre-Review von Martin
-(https://github.com/wangfelix/BLINKS-tasks/issues/3#issuecomment-6237693031) eingearbeitet.
-Erst nach Freigabe in #3 wird implementiert. Felix' Vorgaben: eine zentrale
+Status: **Freigegeben** (Martin, 17.10. 19:38; Entscheidungen Felix F1–F7 siehe Abschnitt 8). Implementiert im Branch `BE/study-config`.
+Vorher: Entwurf zur Review durch Martin (Study-Config-Rollout, BE-Teil), Pre-Review von Martin
+eingearbeitet.
+Implementiert wurde erst nach Martins Freigabe. Felix' Vorgaben: eine zentrale
 YAML-Datei, **keine** Versionierung/Hashing/DB-Snapshot, Validierung beim
 Start, Prompts und Overreliance-Werte gehen nie an Clients.
 
@@ -453,7 +453,7 @@ CREATE TABLE activity_ratings (
 
 ## 8. Entscheidungen
 
-Mit Martin geklärt (WP0-Freigabe 17.10.): Kurzlabel, Skalengrenzen, Icon-Allowlist,
+Mit Martin geklärt (Freigabe 17.10.): Kurzlabel, Skalengrenzen, Icon-Allowlist,
 `availableFrom: "HH:MM"`, Zeitzone in app-config, Hinweis-Validierung,
 Mindestintervall 5 s, Payloads, `/api/payout`, Ratings-Regeln (400 für alte
 Rating-Felder), Cache, BLE-Ablauf, bei Bauform-Mismatch gilt Study Settings + Warnung.

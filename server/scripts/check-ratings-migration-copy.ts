@@ -1,4 +1,4 @@
-// Dry run of the WP1 schema migration on a COPY of a real recordings.db.
+// Dry run of the study-config schema migration on a COPY of a real recordings.db.
 // Prints aggregated numbers only (no participant data). Refuses to run
 // outside the OS temp dir so it can never touch a live database.
 //
@@ -49,7 +49,7 @@ const tableCounts = (db: Database.Database): Record<string, number> =>
   );
 
 const before = open();
-assert.ok(hasColumn(before, "activities", "workload_rating"), "copy is not a pre-WP1 database");
+assert.ok(hasColumn(before, "activities", "workload_rating"), "copy is not a pre-migration database");
 const legacy = before
   .prepare(`SELECT id, workload_rating AS w, recovery_rating AS r FROM activities ORDER BY id`)
   .all() as Legacy[];

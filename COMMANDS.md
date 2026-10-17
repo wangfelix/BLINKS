@@ -51,7 +51,7 @@ bedtime (app onboarding) minus `reminders.bedtime.leadMinutes` (paper: 30),
 if they captured frames today and round 2 is not submitted yet. Bedtimes
 before `afterMidnightCutoff` (12:00) clamp the reminder to `latestAt` (23:50).
 
-### Study config (BLINKS-tasks#4)
+### Study config
 
 Every study setting lives in one YAML file, validated at start-up by the
 server and both Python workers (`docs/study-config-contract.md`, how to set up

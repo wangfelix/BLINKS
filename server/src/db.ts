@@ -462,7 +462,7 @@ function migrateDropColumn(table: string, column: string): void {
   }
 }
 
-// --- Generic experience ratings (BLINKS-tasks#4, contract section 7) --------
+// --- Generic experience ratings (study config, contract section 7) --------
 // One row per answered item; unanswered = no row. item_key is validated by the
 // server against experienceItems[] in the study config, not by the DB (the
 // config is deliberately not stored in the DB).
@@ -494,7 +494,7 @@ export interface RatingsMigrationReport {
 
 /**
  * Test hooks: throw inside a migration transaction (rollback tests).
- * The two WP1 migrations run in separate transactions (the large DRM
+ * The two study-config migrations run in separate transactions (the large DRM
  * migration sits between them in initDb). Each is idempotent and rolls back
  * on its own; a failure in the ratings migration leaves the already
  * committed form-factor rebuild in place, which changes no values and is

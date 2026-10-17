@@ -111,7 +111,7 @@ persisted future retry time.
 
 ### Study settings (study config, not env)
 
-Since BLINKS-tasks#4 everything study-related comes from the validated study
+Since the study config rollout everything study-related comes from the validated study
 config (`docs/study-config-contract.md`): `vlm.model`,
 `vlm.request.{temperature, reasoningEffort, maxCompletionTokens}` (paper:
 `azure.gpt-5.6-terra`, `0`, `high`, `8192`), `vlm.maxFramesPerWindow` (20),
