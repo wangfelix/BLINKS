@@ -1,6 +1,7 @@
 "use client";
 
 import type { CategoryLabel } from "@/lib/api-types";
+import { CATEGORY_ITEMS as CATEGORY_VOCABULARY } from "@/lib/category-vocabulary";
 import {
   Select,
   SelectContent,
@@ -16,15 +17,20 @@ import {
 } from "lucide-react";
 import { mergeClassNames } from "@/lib/utils";
 
+const CATEGORY_ICONS: Record<CategoryLabel, LucideIcon> = {
+  work: BriefcaseIcon,
+  break: PauseIcon,
+  other: EllipsisIcon,
+};
+
 const CATEGORY_ITEMS: {
   icon: LucideIcon;
   label: string;
   value: CategoryLabel;
-}[] = [
-  { icon: BriefcaseIcon, label: "Work", value: "work" },
-  { icon: PauseIcon, label: "Break", value: "break" },
-  { icon: EllipsisIcon, label: "Other", value: "other" },
-];
+}[] = CATEGORY_VOCABULARY.map((item) => ({
+  ...item,
+  icon: CATEGORY_ICONS[item.value],
+}));
 
 /**
  * Category semantics (study definition):

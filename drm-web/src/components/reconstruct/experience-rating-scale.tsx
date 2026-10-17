@@ -14,19 +14,35 @@ export type RatedCategory = "work" | "break";
 // Item wording fixed by Michael (mail 2026-07-19) — keep verbatim.
 const SCALE_COPY: Record<
   RatedCategory,
-  { question: string; lowAnchor: string; highAnchor: string }
+  {
+    question: string;
+    lowAnchor: string;
+    highAnchor: string;
+    /** Prefix of the submitted-view summary, e.g. "Mental demand 4/7". */
+    summaryLabel: string;
+  }
 > = {
   work: {
     question: "How mentally demanding was this activity?",
     lowAnchor: "Not at all",
     highAnchor: "Very much",
+    summaryLabel: "Mental demand",
   },
   break: {
     question: "How mentally recovering was this activity?",
     lowAnchor: "Not at all",
     highAnchor: "Very much",
+    summaryLabel: "Recovery",
   },
 };
+
+const SCALE_MAX = RATING_VALUES[RATING_VALUES.length - 1];
+
+/** "Mental demand 4/7" / "Recovery 2/7" for the submitted view. */
+export const experienceRatingSummaryLabel = (
+  category: RatedCategory,
+  rating: ExperienceRating,
+): string => `${SCALE_COPY[category].summaryLabel} ${rating}/${SCALE_MAX}`;
 
 /**
  * 7-point Likert scale shown under an activity's label/category row. Work
@@ -55,7 +71,7 @@ export const ExperienceRatingScale = ({
       type="button"
       role="radio"
       aria-checked={value === rating}
-      aria-label={`${rating} of 7`}
+      aria-label={`${rating} of ${SCALE_MAX}`}
       onClick={() => onChange(rating)}
       className={mergeClassNames(
         "size-8 rounded-full border text-sm tabular-nums transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",

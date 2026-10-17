@@ -35,6 +35,9 @@ export interface EditableActivity {
 
 export const FIVE_MINUTE_MS = 5 * 60 * 1000;
 
+/** Preview images shown per activity card (assisted editor + read-only list). */
+export const THUMBNAILS_PER_ACTIVITY = 5;
+
 let localIdCounter = 0;
 export const makeLocalId = (): string => {
   localIdCounter += 1;

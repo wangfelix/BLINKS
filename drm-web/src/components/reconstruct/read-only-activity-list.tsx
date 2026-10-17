@@ -8,25 +8,22 @@ import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
-import { sampleEvenly } from "@/components/reconstruct/editor-types";
+import {
+  sampleEvenly,
+  THUMBNAILS_PER_ACTIVITY,
+} from "@/components/reconstruct/editor-types";
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
 import { activityDisplayLabel } from "@/lib/activity-vocabulary";
-
-const THUMBNAIL_COUNT = 5;
-
-const CATEGORY_DISPLAY: Record<string, string> = {
-  work: "Work",
-  break: "Break",
-  other: "Other",
-};
+import { categoryDisplayLabel } from "@/lib/category-vocabulary";
+import { experienceRatingSummaryLabel } from "@/components/reconstruct/experience-rating-scale";
 
 /** "Mental demand 4/7" / "Recovery 2/7" for the submitted view. */
 const experienceRatingSummary = (activity: Activity): string | null => {
   if (activity.categoryLabel === "work" && activity.workloadRating !== null) {
-    return `Mental demand ${activity.workloadRating}/7`;
+    return experienceRatingSummaryLabel("work", activity.workloadRating);
   }
   if (activity.categoryLabel === "break" && activity.recoveryRating !== null) {
-    return `Recovery ${activity.recoveryRating}/7`;
+    return experienceRatingSummaryLabel("break", activity.recoveryRating);
   }
   return null;
 };
@@ -52,7 +49,7 @@ const ReadOnlyActivityCard = ({
   frames: Frame[] | null;
 }) => {
   const activityFrames = framesForActivity(activity, frames);
-  const thumbnails = sampleEvenly(activityFrames, THUMBNAIL_COUNT);
+  const thumbnails = sampleEvenly(activityFrames, THUMBNAILS_PER_ACTIVITY);
   const hasLivePhotos = activityFrames.some(
     (frame) => frame.deletedAt === null,
   );
@@ -73,7 +70,7 @@ const ReadOnlyActivityCard = ({
         )}
         {activity.categoryLabel !== null && (
           <Badge variant="secondary">
-            {CATEGORY_DISPLAY[activity.categoryLabel] ?? activity.categoryLabel}
+            {categoryDisplayLabel(activity.categoryLabel)}
           </Badge>
         )}
       </Row>

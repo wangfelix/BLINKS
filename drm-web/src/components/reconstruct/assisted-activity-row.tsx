@@ -23,11 +23,10 @@ import {
 } from "@/components/reconstruct/experience-rating-scale";
 import {
   sampleEvenly,
+  THUMBNAILS_PER_ACTIVITY,
   type EditableActivity,
 } from "@/components/reconstruct/editor-types";
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
-
-const THUMBNAIL_COUNT = 5;
 
 export type MergeHighlightPhase = "holding" | "fading";
 
@@ -97,7 +96,7 @@ export const AssistedActivityRow = ({
     [dayFrames, endMs, startMs],
   );
   const thumbnails = useMemo(
-    () => sampleEvenly(framesInSpan, THUMBNAIL_COUNT),
+    () => sampleEvenly(framesInSpan, THUMBNAILS_PER_ACTIVITY),
     [framesInSpan],
   );
   const hasLivePhotos = useMemo(
