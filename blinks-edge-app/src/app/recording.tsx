@@ -15,7 +15,6 @@ import { EndSessionConfirmationModal } from "@/capture/components/end-session-co
 import { RecordingMetadataCard } from "@/capture/components/recording-metadata-card";
 import { RecordingStatusPill } from "@/capture/components/recording-status-pill";
 import { useRecordingScreenModel } from "@/capture/model/use-recording-screen-model";
-import { END_SESSION_AVAILABLE_LABEL } from "@/capture/utils/end-session-availability";
 
 const RecordingScreen = () => {
   const insets = useSafeAreaInsets();
@@ -29,6 +28,8 @@ const RecordingScreen = () => {
     framesLabel,
     lastFrameLabel,
     isEndSessionAvailable,
+    endAvailabilityLabel,
+    endAvailableAtLabel,
     isEndConfirmationVisible,
     isEnding,
     togglePause,
@@ -114,7 +115,7 @@ const RecordingScreen = () => {
                   ? isTestSession
                     ? "End test session"
                     : "End session"
-                  : `End session, available from ${END_SESSION_AVAILABLE_LABEL}`
+                  : `End session, available from ${endAvailableAtLabel}`
               }
               accessibilityState={{ disabled: !isEndSessionAvailable }}
               style={({ pressed }) => [
@@ -133,7 +134,7 @@ const RecordingScreen = () => {
                 color="rgba(255,255,255,0.75)"
                 style={styles.endAvailabilityLabel}
               >
-                Available from {END_SESSION_AVAILABLE_LABEL}
+                {endAvailabilityLabel}
               </AppText>
             )}
           </View>

@@ -12,8 +12,12 @@ import {
   useRecordingSession,
 } from "@/capture/model/use-recording-session";
 import { UploaderStatus } from "@/capture/relay/frame-uploader";
-import { isStudySessionEndAvailable } from "@/capture/utils/end-session-availability";
+import {
+  endSessionAvailableFromLabel,
+  isStudySessionEndAvailable,
+} from "@/capture/utils/end-session-availability";
 import { sessionKeys } from "@/sessions/query-options/session-queries";
+import { useAppConfig } from "@/study/model/use-app-config";
 
 const cameraStatusLabels: Record<CameraLinkStatus, string> = {
   idle: "Not connected",
@@ -34,6 +38,7 @@ export const useRecordingScreenModel = () => {
   const queryClient = useQueryClient();
   const { session, pauseSession, resumeSession, endSession } =
     useRecordingSession();
+  const { config } = useAppConfig();
 
   // ---- STATE ----
 
@@ -64,7 +69,12 @@ export const useRecordingScreenModel = () => {
       : `${session.framesUploaded} sent`;
   const isEndSessionAvailable =
     isTestSession ||
-    isStudySessionEndAvailable(Date.now(), session.sessionId);
+    isStudySessionEndAvailable(Date.now(), session.sessionId, config);
+  // Only shown while ending is unavailable, which needs a loaded config.
+  const endAvailabilityLabel = config
+    ? endSessionAvailableFromLabel(config)
+    : "";
+  const endAvailableAtLabel = config?.schedule.endSessionAvailableAt ?? "";
 
   // ---- ACTIONS ----
 
@@ -119,6 +129,8 @@ export const useRecordingScreenModel = () => {
     lastFrameLabel,
     framesReceived: session.framesReceived,
     isEndSessionAvailable,
+    endAvailabilityLabel,
+    endAvailableAtLabel,
     isEndConfirmationVisible,
     isEnding,
     togglePause,

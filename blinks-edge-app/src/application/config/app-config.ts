@@ -4,14 +4,10 @@
 // EXPO_PUBLIC_SERVER_URL=http://10.0.0.5:3000 npx expo start --dev-client
 const serverUrl =
   process.env.EXPO_PUBLIC_SERVER_URL ?? "https://blinks.win.kit.edu";
-const configuredStudySettingsPin =
-  process.env.EXPO_PUBLIC_STUDY_SETTINGS_PIN?.trim() ?? "";
-const studySettingsPin = /^\d{4,8}$/.test(configuredStudySettingsPin)
-  ? configuredStudySettingsPin
-  : "2626";
+// Study values (incl. the Study Settings PIN) are not configured here: they
+// come from GET /api/app-config at runtime, see src/study/model/app-config-store.ts.
 
 export const appConfig = {
   serverUrl,
   webSocketUrl: serverUrl.replace(/^http/, "ws"),
-  studySettingsPin,
 } as const;
