@@ -81,7 +81,7 @@ class BlurConfigTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn("privacy.faceBlur.method", result.stderr)
 
-    def test_disabled_processes_backlog_once_then_exits_0(self) -> None:
+    def test_disabled_processes_backlog_once_then_exits_3_or_0(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cfg = Path(tmp) / "noblur.yaml"
             cfg.write_text(
@@ -98,9 +98,18 @@ class BlurConfigTest(unittest.TestCase):
                 "import sys, blur_worker as b; sys.argv=['blur_worker.py']; b.main()",
                 {"RECORDINGS_DIR": str(recordings), "POLL_INTERVAL_S": "0.01"},
             )
-            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            # daemon mode: EXIT_DISABLED, which the systemd unit does not restart
+            self.assertEqual(result.returncode, 3, result.stderr + result.stdout)
             self.assertIn("NOTICE: privacy.faceBlur.enabled=false", result.stdout)
-            self.assertIn("face blur disabled: exiting (0)", result.stdout)
+            self.assertIn("sent to the VLM endpoint", result.stdout)
+            self.assertIn("face blur disabled: exiting (3)", result.stdout)
+            once = run_worker(
+                cfg,
+                "import sys, blur_worker as b; sys.argv=['blur_worker.py', '--once']; b.main()",
+                {"RECORDINGS_DIR": str(recordings), "POLL_INTERVAL_S": "0.01"},
+            )
+            self.assertEqual(once.returncode, 0, once.stderr + once.stdout)
+            self.assertIn("face blur disabled: exiting (0)", once.stdout)
 
     def test_retired_env_vars_are_reported(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

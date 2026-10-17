@@ -80,7 +80,8 @@ Design points worth knowing:
   before building, and `deploy/deploy.sh` itself must have arrived through Git.
 - **`config/study.yaml` is checked first and validated before any restart.**
   Missing, tracked by git, or still containing `example.org`/`example.com`
-  placeholder links aborts the deploy; after the builds it is validated with the
+  placeholder links or a placeholder/retired Study Settings PIN aborts the
+  deploy; a mode other than owner-only (e.g. 640/644) prints a warning; after the builds it is validated with the
   server loader and the Python worker loader under production rules (exit 2 =
   abort, nothing restarted). Transitional: as long as `drm-web/src` still reads
   `NEXT_PUBLIC_*_SURVEY_URL`/`PAYOUT_URL`, those are still required in
@@ -88,8 +89,10 @@ Design points worth knowing:
 - **Config-aware health checks.** The push check expects the
   `reminders.bedtime` values from the config; with
   `privacy.faceBlur.enabled: false` a stopped `blinks-face-blur` is expected
-  (it finishes the pending backlog and exits 0; the unit uses
-  `Restart=on-failure`) and the deploy prints a privacy warning instead.
+  (it finishes the pending backlog and exits 3; the unit uses
+  `Restart=always` with `SuccessExitStatus=3`/`RestartPreventExitStatus=3`, so
+  only that deliberate stop is not restarted) and the deploy prints a privacy
+  warning instead.
 - **Standalone assets are removed before copying.** `cp -r public .next/standalone/`
   onto an existing directory nests it as `public/public` rather than merging, so
   the script deletes `public` and `.next/static` in the standalone tree first.
@@ -103,11 +106,54 @@ Design points worth knowing:
   `/root/BLINKS-backups/<UTC timestamp>-<git SHA>-<random>/` before startup
   migrations.
 - **Push behavior is deployment-checked.** The server push regression test runs
-  during the build, and `/health` must report an enabled scheduler with a
-  30-minute lead before the deploy succeeds.
+  during the build, and `/health` must report an enabled scheduler with the
+  `reminders.bedtime.leadMinutes` from `config/study.yaml` (paper: 30) before
+  the deploy succeeds.
 
-To roll back, check out the previous commit and run it again; the script prints
-the deployed SHA at the start of every run.
+## Rollback
+
+The script prints the checked-out SHA before the pull and the deployed SHA at
+the start of every run.
+
+**Code-only rollback** (no startup schema migration between the two commits):
+
+```bash
+cd /root/BLINKS && git checkout <previous-sha> && deploy/deploy.sh
+```
+
+**Rollback across a schema migration needs a database restore.** The server
+migrates `recordings.db` on its first start, and older code cannot read the
+new schema. Example: the `activity_ratings` migration (BLINKS-tasks#4) drops
+`workload_rating`/`recovery_rating`; the pre-migration code then stops in
+`initDb` with `no such column: a.workload_rating`. Every rating, frame and
+round written after the deploy is lost by the restore, so keep a copy of the
+current database for manual recovery.
+
+```bash
+cd /root/BLINKS
+systemctl stop blinks blinks-face-blur blinks-vlm blinks-web
+# 1. keep the current state (contains data written since the deploy)
+KEEP=/root/BLINKS-backups/pre-rollback-$(date -u +%Y%m%dT%H%M%SZ)
+install -d -m 700 "$KEEP"
+cp -p server/recordings/recordings.db* server/data/auth.db* "$KEEP"/
+# 2. the snapshot written by the deploy you are undoing; the SHA in the name
+#    is the commit that was deployed, taken before its first start (= before
+#    its migrations)
+ls -d /root/BLINKS-backups/*-<deployed-sha>-*/
+SNAP=/root/BLINKS-backups/<stamp>-<deployed-sha>-<random>
+# 3. restore and drop the WAL/SHM files of the migrated database
+rm -f server/recordings/recordings.db-wal server/recordings/recordings.db-shm
+install -m 600 "$SNAP/recordings.db" server/recordings/recordings.db
+#    auth.db only if that deploy changed the auth schema:
+#    rm -f server/data/auth.db-wal server/data/auth.db-shm
+#    install -m 600 "$SNAP/auth.db" server/data/auth.db
+# 4. deploy the old code (it starts on the restored schema)
+git checkout <previous-sha> && deploy/deploy.sh
+```
+
+Never copy a snapshot over a database whose server is still running, and never
+leave the old `-wal`/`-shm` files next to a restored database: SQLite would try
+to replay them onto it.
 
 ## Verify
 

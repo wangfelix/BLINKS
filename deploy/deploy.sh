@@ -74,6 +74,7 @@ TRACKED_CHANGES="$(git status --porcelain --untracked-files=no)"
 [ -z "$TRACKED_CHANGES" ] \
   || die "tracked checkout changes exist; commit, stash, or revert them before deployment"
 
+PREVIOUS_SHA="$(git rev-parse --short HEAD)"
 if [ "$DO_PULL" -eq 1 ]; then
   log "git pull"
   git pull --ff-only
@@ -84,8 +85,15 @@ TRACKED_CHANGES="$(git status --porcelain --untracked-files=no)"
   || die "git pull left tracked checkout changes; refusing a mixed deployment"
 
 BEFORE_SHA="$(git rev-parse --short HEAD)"
-log "deploying $BEFORE_SHA ($(git log -1 --format=%s))"
-echo "    roll back with: git checkout <previous-sha> && $0"
+log "deploying $BEFORE_SHA ($(git log -1 --format=%s)); checkout was at $PREVIOUS_SHA"
+# A plain code rollback is NOT enough across a startup schema migration: e.g.
+# the activity_ratings migration (BLINKS-tasks#4) drops workload_rating /
+# recovery_rating, and older code then fails in initDb. Full procedure in
+# deploy/README.md ("Rollback"): stop the services, restore recordings.db (and
+# auth.db if needed) from the snapshot this run writes below, delete the
+# -wal/-shm files, then check out and deploy the old commit.
+echo "    rollback: see deploy/README.md#rollback (stop services, restore DB snapshot"
+echo "    from $BACKUP_ROOT/<stamp>-$BEFORE_SHA-*/, delete -wal/-shm, deploy the old commit)"
 
 # Study config (BLINKS-tasks#4): every study setting, the survey/payout links
 # and the Study Settings PIN live in the gitignored config/study.yaml. The
@@ -99,11 +107,25 @@ STUDY_CONFIG="$REPO/config/study.yaml"
        links and a new PIN (see config/README.md), then chmod 600 config/study.yaml."
 git ls-files --error-unmatch config/study.yaml >/dev/null 2>&1 \
   && die "config/study.yaml is tracked by git — it holds the PIN and survey links; untrack it"
+# Holds the Study Settings PIN and the payout/survey links: owner-only. The
+# services run as root, so group read (640) is never needed.
 STUDY_CONFIG_MODE="$(stat -c %a "$STUDY_CONFIG")"
-[ "${STUDY_CONFIG_MODE: -1}" = "0" ] \
-  || warn "config/study.yaml is world-readable (mode $STUDY_CONFIG_MODE); chmod 600 recommended"
+[ "$((8#$STUDY_CONFIG_MODE & 8#077))" -eq 0 ] \
+  || warn "config/study.yaml is readable by group/others (mode $STUDY_CONFIG_MODE); chmod 600 config/study.yaml"
 grep -qE 'example\.(org|com)' "$STUDY_CONFIG" \
   && die "config/study.yaml still contains example.org/example.com placeholder links"
+# Placeholder PIN from study.example.yaml or the retired pre-config PIN (by
+# SHA-256, not in clear text). The loaders enforce the same rule in production
+# (review of PR #1, m2); this early check fails before any build.
+study_pin() { sed -nE 's/^[[:space:]]*studySettingsPin:[[:space:]]*["'"'"']?([0-9]+)["'"'"']?.*/\1/p' "$1" | head -1; }
+STUDY_PIN="$(study_pin "$STUDY_CONFIG")"
+[ -n "$STUDY_PIN" ] || die "config/study.yaml has no app.studySettingsPin"
+[ "$STUDY_PIN" != "$(study_pin "$REPO/config/study.example.yaml")" ] \
+  || die "config/study.yaml still uses the placeholder Study Settings PIN from study.example.yaml"
+RETIRED_PIN_SHA256="305800b71062b49b350208327a02ec378199b4cf35e60eeb971611bef4928394"
+[ "$(printf '%s' "$STUDY_PIN" | sha256sum | cut -d' ' -f1)" != "$RETIRED_PIN_SHA256" ] \
+  || die "config/study.yaml uses the retired Study Settings PIN (public in git history); set a new one"
+unset STUDY_PIN
 
 # Transitional: as long as drm-web still builds the survey links from env
 # (before it reads GET /api/study-config), keep requiring them in .env.local.
