@@ -98,6 +98,26 @@ test("loader m2: production refuses placeholder links and PINs (copy of the exam
   assert.strictEqual(runLoader({ BLINKS_STUDY_CONFIG: old, BLINKS_ENV: "production" }).status, 0, "BLINKS_ENV is Python-only");
 });
 
+test("loader: rate 0 behaves like enabled false (notice must be null, 1 category ok)", () => {
+  const example = fs.readFileSync(EXAMPLE, "utf8");
+  const rateZero = example.replace("  rate: 0.1\n", "  rate: 0\n");
+  assert.notStrictEqual(rateZero, example);
+  const withNotice = runLoader({ BLINKS_STUDY_CONFIG: writeConfig("rate0-notice.yaml", rateZero) });
+  assert.strictEqual(withNotice.status, 2);
+  assert.match(
+    withNotice.stderr,
+    /texts\.rounds\.assistedReminderIncorrectLabelsNotice: must be null when overreliance\.enabled is false or overreliance\.rate is 0/,
+  );
+  const noNotice = rateZero.replace(/assistedReminderIncorrectLabelsNotice: ".*"/, "assistedReminderIncorrectLabelsNotice: null");
+  assert.strictEqual(runLoader({ BLINKS_STUDY_CONFIG: writeConfig("rate0.yaml", noNotice) }).status, 0);
+  const start = noNotice.indexOf("\ncategories:\n");
+  const end = noNotice.indexOf("\nexperienceItems:", start);
+  const firstItem = noNotice.slice(start, end).split(/\n  - /)[1];
+  const single = noNotice.slice(0, start) + "\ncategories:\n  - " + firstItem + noNotice.slice(end);
+  const singleResult = runLoader({ BLINKS_STUDY_CONFIG: writeConfig("rate0-one-category.yaml", single) });
+  assert.ok(!/overreliance\.enabled: needs at least 2 categories/.test(singleResult.stderr), singleResult.stderr);
+});
+
 test("loader m1: overreliance on with a single category exits 2", () => {
   const source = fs.readFileSync(EXAMPLE, "utf8");
   const start = source.indexOf("\ncategories:\n");

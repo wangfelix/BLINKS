@@ -51,11 +51,10 @@ Check at least:
   the app sends the interval to the camera on every connect.
 - `schedule.reconstructionOpensAt` / `endSessionAvailableAt` (study time zone)
 - `vlm.model`, `vlm.prompts` (placeholders: see the contract)
-- `overreliance.enabled` / `rate`: needs at least 2 categories when enabled.
-  `rate: 0` disables only the rate-based selection; with
-  `fallbackToTopWhenNoneAboveThreshold: true` one label per day is still
-  injected when no activity reaches `minConfidence`. To inject nothing, set
-  `enabled: false`.
+- `overreliance.enabled` / `rate`: needs at least 2 categories when it
+  injects. `rate: 0` means never inject (no fallback label either), exactly
+  like `enabled: false`; in both cases
+  `texts.rounds.assistedReminderIncorrectLabelsNotice` must be `null`.
 - `privacy.faceBlur.enabled`: see "Face blur off" below before switching it off.
 - `surveys.*` and `texts.*` links: real URLs. `deploy.sh` refuses
   `example.org` / `example.com` links.

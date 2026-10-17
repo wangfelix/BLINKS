@@ -221,7 +221,7 @@ const OverrelianceSection = zod_1.z
     .object({
     /** false = never inject (is_incorrect_annotation_injected stays 0). */
     enabled: zod_1.z.boolean(),
-    /** Share of valid VLM-labelled activities to falsify, rounded up. */
+    /** Share of valid VLM-labelled activities to falsify, rounded up. 0 = never (no fallback). */
     rate: zod_1.z.number().min(0).max(1),
     /** Only activities with mean confidence >= this are candidates. */
     minConfidence: zod_1.z.number().min(0).max(1),
@@ -522,18 +522,19 @@ const studyConfigCrossCheckIssues = (config) => {
     }
     // [py] A deliberately wrong category needs an alternative (review m1:
     // crypto.randomInt(0) threw for a single-category study).
-    if (config.overreliance.enabled && config.categories.length < 2) {
+    const injects = config.overreliance.enabled && config.overreliance.rate > 0;
+    if (injects && config.categories.length < 2) {
         issues.push({
             path: "overreliance.enabled",
             message: "needs at least 2 categories (a wrong label needs an alternative)",
         });
     }
     // Never tell participants that labels are deliberately wrong when they are not.
-    if (!config.overreliance.enabled &&
-        config.texts.rounds.assistedReminderIncorrectLabelsNotice !== null) {
+    // rate 0 injects nothing, exactly like enabled: false.
+    if (!injects && config.texts.rounds.assistedReminderIncorrectLabelsNotice !== null) {
         issues.push({
             path: "texts.rounds.assistedReminderIncorrectLabelsNotice",
-            message: "must be null when overreliance.enabled is false",
+            message: "must be null when overreliance.enabled is false or overreliance.rate is 0",
         });
     }
     // bedtime clamp must be coherent
