@@ -44,3 +44,20 @@ export const submitRecordingEvent = ({
 
 export const fetchRecordingState = () =>
   apiClient.get<RecordingStateResponse>("/api/recording/state");
+
+// POST /api/recording/device-info (docs/study-config-contract.md, 4.8).
+export interface DeviceInfoReportRequest {
+  eventId: string;
+  session: number;
+  device: string;
+  clientEpochMs: number;
+  requestedIntervalMs: number | null;
+  settingsFormFactor: string | null;
+  info: Record<string, unknown> | null;
+}
+
+export const submitDeviceInfoReport = (report: DeviceInfoReportRequest) =>
+  apiClient.post<{ ok: true; duplicate: boolean }>(
+    "/api/recording/device-info",
+    report,
+  );

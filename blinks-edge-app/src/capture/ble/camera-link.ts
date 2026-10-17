@@ -65,6 +65,21 @@ interface CameraLinkEvents {
   onFrame: (frame: AssembledFrame, deviceId: string) => void;
   onStatusChange: (status: CameraLinkStatus) => void;
   onDeviceIdentified: (deviceId: string) => void;
+  // Result of the capture-interval handshake (BLE doc section 3, step 4),
+  // reported to the server as device info (contract 4.8).
+  onCaptureConfigReport?: (
+    report: CaptureConfigReport,
+    deviceId: string,
+  ) => void;
+}
+
+export interface CaptureConfigReport {
+  measuredAtMs: number;
+  /** Written via 0x03; null = no 0x03 (old firmware or no config cache). */
+  requestedIntervalMs: number | null;
+  settingsFormFactor: string | null;
+  /** Parsed 0004 JSON; null = characteristic missing or unreadable. */
+  info: CameraDeviceInfo | null;
 }
 
 // BLE central for the BLINKS camera: scans by name (the 128-bit service UUID
@@ -369,6 +384,7 @@ export class CameraLink {
           supportsInterval: false,
           warning: null,
         });
+        this.report(device, null, null);
         return;
       }
       this.supportsInterval = true;
@@ -395,6 +411,7 @@ export class CameraLink {
       // Never loaded the config (or no form factor yet): no 0x03, the camera
       // records with its firmware default.
       console.info("No cached capture interval; camera keeps its default.");
+      this.report(device, null, cameraCaptureConfigStore.getState().deviceInfo);
       return;
     }
     this.appliedIntervalKey = `${formFactor}:${intervalMs}`;
@@ -408,7 +425,8 @@ export class CameraLink {
       this.appliedIntervalKey = null;
       throw error;
     }
-    const after = await this.readDeviceInfo(device);
+    const after = await this.readDeviceInfo(device).catch(() => null);
+    this.report(device, intervalMs, after);
     if (!after) return;
     const formFactors = appState.config?.devices.formFactors ?? [];
     const warning = cameraIntervalWarning(
@@ -445,6 +463,26 @@ export class CameraLink {
     void this.writeCaptureInterval(device).catch((error) =>
       console.warn("BLE capture interval could not be rewritten:", error),
     );
+  }
+
+  private report(
+    device: Device,
+    requestedIntervalMs: number | null,
+    info: CameraDeviceInfo | null,
+  ): void {
+    try {
+      this.events.onCaptureConfigReport?.(
+        {
+          measuredAtMs: Date.now(),
+          requestedIntervalMs,
+          settingsFormFactor: appConfigStore.getState().cameraFormFactor,
+          info,
+        },
+        device.id.replace(/:/g, ""),
+      );
+    } catch (error) {
+      console.warn("Device-info report failed:", error);
+    }
   }
 
   private async readDeviceInfo(

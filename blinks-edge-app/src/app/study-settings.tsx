@@ -19,6 +19,7 @@ import { colors, radius, spacing } from "@/application/theme/theme";
 import { useStudySettingsModel } from "@/study-settings/model/use-study-settings-model";
 import { IMAGE_ROTATIONS } from "@/study-settings/types/image-rotation";
 import type { ImageRotation } from "@/study-settings/types/image-rotation";
+import { isStudySettingsPinCorrect } from "@/study/utils/study-settings-pin";
 
 const rotationLabel = (rotation: ImageRotation): string =>
   rotation === 0 ? "None" : `${rotation}°`;
@@ -49,7 +50,7 @@ const StudySettingsScreen = () => {
   } = useStudySettingsModel();
 
   const unlock = () => {
-    if (studySettingsPin !== null && pin === studySettingsPin) {
+    if (isStudySettingsPinCorrect(studySettingsPin, pin)) {
       setPinError(null);
       setIsUnlocked(true);
       return;

@@ -3,7 +3,11 @@ import {
   RecordingEventType,
   RecordingStateResponse,
 } from "@/capture/api/capture-api";
-import { CameraLink, CameraLinkStatus } from "@/capture/ble/camera-link";
+import {
+  CameraLink,
+  CameraLinkStatus,
+  type CaptureConfigReport,
+} from "@/capture/ble/camera-link";
 import { AssembledFrame } from "@/capture/ble/frame-assembler";
 import { rotateJpeg } from "@/capture/image/rotate-jpeg";
 import { FrameUploader, UploaderStatus } from "@/capture/relay/frame-uploader";
@@ -17,6 +21,7 @@ import {
   StoredActiveRecording,
   storeActiveRecording,
 } from "@/capture/storage/active-recording-storage";
+import { deviceInfoQueue } from "@/capture/storage/device-info-queue";
 import {
   flushPendingRecordingEvents,
   getNextQueuedSequenceNumber,
@@ -296,6 +301,7 @@ class RecordingSessionStore {
     }
     if (generation !== this.restoreGeneration) return;
     await flushPendingRecordingEvents();
+    void deviceInfoQueue.flush();
     if (generation !== this.restoreGeneration) return;
 
     let serverState: RecordingStateResponse;
@@ -426,9 +432,27 @@ class RecordingSessionStore {
       onStatusChange: (cameraStatus) => this.setState({ cameraStatus }),
       onDeviceIdentified: (deviceId) => this.ensureUploader(deviceId),
       onFrame: (frame) => this.handleFrame(frame),
+      onCaptureConfigReport: (report, deviceId) =>
+        this.reportDeviceInfo(report, deviceId),
     });
     await this.cameraLink.setPaused(paused);
     this.cameraLink.start();
+  }
+
+  // Contract 4.8: main session only (test recordings create no DB rows),
+  // best-effort and never awaited by the capture path.
+  private reportDeviceInfo(report: CaptureConfigReport, deviceId: string): void {
+    const session = this.state.sessionId;
+    if (this.state.kind !== "study" || session === null) return;
+    void deviceInfoQueue.enqueue({
+      eventId: `${session}-${deviceId}-${report.measuredAtMs}`,
+      session,
+      device: deviceId,
+      clientEpochMs: report.measuredAtMs,
+      requestedIntervalMs: report.requestedIntervalMs,
+      settingsFormFactor: report.settingsFormFactor,
+      info: report.info ? { ...report.info } : null,
+    });
   }
 
   private async stopCaptureRuntime(): Promise<void> {
