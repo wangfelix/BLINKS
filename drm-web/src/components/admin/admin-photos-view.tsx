@@ -15,6 +15,7 @@ import {
   adminFrameImageSrc,
   getAdminPhotoFilters,
   getAdminPhotos,
+  getAdminStudyConfig,
   type AdminPhoto,
 } from "@/lib/admin-api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -46,11 +47,14 @@ import {
 
 const PAGE_SIZE = 96;
 const countFormat = new Intl.NumberFormat("en");
-const dateTimeFormat = new Intl.DateTimeFormat("en-GB", {
-  dateStyle: "medium",
-  timeStyle: "medium",
-  timeZone: "Europe/Berlin",
-});
+// Capture times are shown in the configured study timezone (study.timezone),
+// the same zone the server derives study days with.
+const dateTimeFormatFor = (timeZone: string) =>
+  new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "medium",
+    timeZone,
+  });
 
 const frameKey = (frame: AdminPhoto) =>
   `${frame.participant}:${frame.device}:${frame.session}:${frame.frameIndex}`;
@@ -62,6 +66,20 @@ export const AdminPhotosView = () => {
   const [selectedSession, setSelectedSession] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [selectedPhoto, setSelectedPhoto] = useState<AdminPhoto | null>(null);
+
+  const studyConfigQuery = useQuery({
+    queryKey: ["admin", "study-config"],
+    queryFn: getAdminStudyConfig,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const studyTimeZone = studyConfigQuery.data?.study.timezone;
+  const dateTimeFormat = useMemo(() => {
+    if (studyTimeZone === undefined) {
+      // Not loaded yet (or failed): no guessed zone, just a placeholder.
+      return { format: (): string => "…" };
+    }
+    return dateTimeFormatFor(studyTimeZone);
+  }, [studyTimeZone]);
 
   const filtersQuery = useQuery({
     queryKey: ["admin", "photo-filters"],
