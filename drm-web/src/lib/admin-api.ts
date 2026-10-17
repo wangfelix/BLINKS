@@ -1,4 +1,5 @@
 import { API_BASE, ApiError } from "@/lib/api-client";
+import type { StudyConfigResponse } from "@/lib/api-types";
 
 export const ADMIN_TABLES = [
   "participants",
@@ -6,6 +7,7 @@ export const ADMIN_TABLES = [
   "chunks",
   "activity_lists",
   "activities",
+  "activity_ratings",
 ] as const;
 export type AdminTableName = (typeof ADMIN_TABLES)[number];
 export type AdminCellValue = string | number | null;
@@ -149,6 +151,10 @@ export const adminLogin = (username: string, password: string) =>
 
 export const getAdminStatus = () =>
   adminFetch<AdminStatusResponse>("/api/admin/status");
+
+/** Study config as seen by an admin token (surveys are null). */
+export const getAdminStudyConfig = () =>
+  adminFetch<StudyConfigResponse>("/api/study-config");
 
 export const getAdminOverview = () =>
   adminFetch<AdminOverviewResponse>("/api/admin/overview");

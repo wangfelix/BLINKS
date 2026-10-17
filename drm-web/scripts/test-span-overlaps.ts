@@ -1,5 +1,5 @@
 // Unit test for resolveSpanOverlaps (the "Adjust times" neighbor rule).
-// Run from drm-web/:  ../server/node_modules/.bin/tsx scripts/test-span-overlaps.ts
+// Run from drm-web/:  npx tsx scripts/test-span-overlaps.ts
 
 import {
   claimActivitySpan,
@@ -8,6 +8,9 @@ import {
   type EditableActivity,
 } from "../src/components/reconstruct/editor-types";
 import type { Frame } from "../src/lib/api-types";
+import { installDefaultStudyConfig } from "./fixtures/study-config";
+
+installDefaultStudyConfig();
 
 const makeRow = (
   localId: string,
@@ -22,8 +25,7 @@ const makeRow = (
   source: "vlm",
   proposalActivityId: null,
   isIncorrectAnnotationInjected: false,
-  workloadRating: null,
-  recoveryRating: null,
+  ratings: { mental_demand: null, mental_recovery: null },
 });
 
 const span = (row: EditableActivity) => `${row.startMs}-${row.endMs}`;

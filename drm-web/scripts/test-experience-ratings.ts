@@ -1,20 +1,23 @@
 // Unit test for the experience-rating submit gate: a missing rating blocks
 // readiness via hasAllExperienceRatings but adds NO row message (the scale
 // highlights itself in place).
-// Run from drm-web/:  ../server/node_modules/.bin/tsx scripts/test-experience-ratings.ts
+// Run from drm-web/:  npx tsx scripts/test-experience-ratings.ts
 
-import type { CategoryLabel, ExperienceRating } from "../src/lib/api-types";
+import type { CategoryLabel } from "../src/lib/api-types";
 import {
   computeRowIssues,
   hasAllExperienceRatings,
   type EditableActivity,
 } from "../src/components/reconstruct/editor-types";
+import { installDefaultStudyConfig } from "./fixtures/study-config";
+
+installDefaultStudyConfig();
 
 const makeRow = (
   localId: string,
   categoryLabel: CategoryLabel | null,
-  workloadRating: ExperienceRating | null = null,
-  recoveryRating: ExperienceRating | null = null,
+  workloadRating: number | null = null,
+  recoveryRating: number | null = null,
 ): EditableActivity => ({
   localId,
   startMs: 0,
@@ -24,8 +27,7 @@ const makeRow = (
   source: "user",
   proposalActivityId: null,
   isIncorrectAnnotationInjected: false,
-  workloadRating,
-  recoveryRating,
+  ratings: { mental_demand: workloadRating, mental_recovery: recoveryRating },
 });
 
 let failures = 0;

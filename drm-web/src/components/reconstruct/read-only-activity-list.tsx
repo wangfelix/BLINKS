@@ -8,24 +8,25 @@ import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
-import {
-  sampleEvenly,
-  THUMBNAILS_PER_ACTIVITY,
-} from "@/components/reconstruct/editor-types";
+import { sampleEvenly } from "@/components/reconstruct/editor-types";
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
 import { activityDisplayLabel } from "@/lib/activity-vocabulary";
 import { categoryDisplayLabel } from "@/lib/category-vocabulary";
+import {
+  experienceItemsForCategory,
+  thumbnailsPerActivity,
+} from "@/lib/study-config-store";
 import { experienceRatingSummaryLabel } from "@/components/reconstruct/experience-rating-scale";
 
 /** "Mental demand 4/7" / "Recovery 2/7" for the submitted view. */
 const experienceRatingSummary = (activity: Activity): string | null => {
-  if (activity.categoryLabel === "work" && activity.workloadRating !== null) {
-    return experienceRatingSummaryLabel("work", activity.workloadRating);
-  }
-  if (activity.categoryLabel === "break" && activity.recoveryRating !== null) {
-    return experienceRatingSummaryLabel("break", activity.recoveryRating);
-  }
-  return null;
+  const summaries = experienceItemsForCategory(activity.categoryLabel).flatMap(
+    (item) => {
+      const value = activity.ratings[item.key] ?? null;
+      return value === null ? [] : [experienceRatingSummaryLabel(item, value)];
+    },
+  );
+  return summaries.length === 0 ? null : summaries.join(" · ");
 };
 
 /** Frames within the activity's time span. */
@@ -49,7 +50,7 @@ const ReadOnlyActivityCard = ({
   frames: Frame[] | null;
 }) => {
   const activityFrames = framesForActivity(activity, frames);
-  const thumbnails = sampleEvenly(activityFrames, THUMBNAILS_PER_ACTIVITY);
+  const thumbnails = sampleEvenly(activityFrames, thumbnailsPerActivity());
   const hasLivePhotos = activityFrames.some(
     (frame) => frame.deletedAt === null,
   );

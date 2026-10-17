@@ -2,11 +2,8 @@
 
 import { Trash2Icon } from "lucide-react";
 
-import type {
-  ActivityLabel,
-  CategoryLabel,
-  ExperienceRating,
-} from "@/lib/api-types";
+import type { ActivityLabel, CategoryLabel } from "@/lib/api-types";
+import { experienceItemsForCategory } from "@/lib/study-config-store";
 import { formatTimeOfDay } from "@/lib/time";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,10 +12,7 @@ import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
 import { CategorySelect } from "@/components/reconstruct/category-select";
 import { ActivitySelect } from "@/components/reconstruct/activity-select";
-import {
-  ExperienceRatingScale,
-  type RatedCategory,
-} from "@/components/reconstruct/experience-rating-scale";
+import { ExperienceRatingScale } from "@/components/reconstruct/experience-rating-scale";
 import type { EditableActivity } from "@/components/reconstruct/editor-types";
 
 /**
@@ -44,10 +38,7 @@ export const SelfActivityRow = ({
   onChangeEndTime: (timeOfDay: string) => void;
   onChangeLabel: (rawLabel: ActivityLabel) => void;
   onChangeCategory: (category: CategoryLabel) => void;
-  onChangeExperienceRating: (
-    category: RatedCategory,
-    rating: ExperienceRating,
-  ) => void;
+  onChangeExperienceRating: (itemKey: string, rating: number) => void;
   onDelete: () => void;
 }) => {
   const startValue =
@@ -59,14 +50,7 @@ export const SelfActivityRow = ({
   const isTimeSpanIncomplete =
     highlightIssues && (activity.startMs === null || activity.endMs === null);
   const showIssueMessage = highlightIssues && issue !== null;
-  const ratedCategory: RatedCategory | null =
-    activity.categoryLabel === "work" || activity.categoryLabel === "break"
-      ? activity.categoryLabel
-      : null;
-  const experienceRating =
-    ratedCategory === "work"
-      ? activity.workloadRating
-      : activity.recoveryRating;
+  const ratedItems = experienceItemsForCategory(activity.categoryLabel);
 
   return (
     <Column gap="md" className="rounded-xl border bg-card p-4 shadow-xs">
@@ -122,14 +106,18 @@ export const SelfActivityRow = ({
         </Button>
       </Row>
 
-      {ratedCategory !== null && (
-        <ExperienceRatingScale
-          category={ratedCategory}
-          value={experienceRating}
-          onChange={(rating) => onChangeExperienceRating(ratedCategory, rating)}
-          invalid={highlightIssues && experienceRating === null}
-        />
-      )}
+      {ratedItems.map((item) => {
+        const value = activity.ratings[item.key] ?? null;
+        return (
+          <ExperienceRatingScale
+            key={item.key}
+            item={item}
+            value={value}
+            onChange={(rating) => onChangeExperienceRating(item.key, rating)}
+            invalid={highlightIssues && item.requiredOnSubmit && value === null}
+          />
+        );
+      })}
 
       {showIssueMessage && <Text variant="destructive">{issue}</Text>}
     </Column>

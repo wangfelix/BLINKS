@@ -1,13 +1,16 @@
 // Focused checks for merging two adjacent assisted activities. The 5-minute
 // segmentation splits a continuous stretch whenever the VLM's argmax wobbles,
 // so rejoining rows is the most common assisted-round correction.
-// Run from drm-web/:  ../server/node_modules/.bin/tsx scripts/test-activity-merge.ts
+// Run from drm-web/:  npx tsx scripts/test-activity-merge.ts
 
 import {
   activitiesInviteMerge,
   mergeWithNextActivity,
   type EditableActivity,
 } from "../src/components/reconstruct/editor-types";
+import { installDefaultStudyConfig } from "./fixtures/study-config";
+
+installDefaultStudyConfig();
 
 let failures = 0;
 const check = (name: string, actual: unknown, expected: unknown) => {
@@ -40,8 +43,7 @@ const row = (
   source: "vlm",
   proposalActivityId: Number(localId.replace(/\D/g, "")) || 1,
   isIncorrectAnnotationInjected: false,
-  workloadRating: 4,
-  recoveryRating: null,
+  ratings: { mental_demand: 4, mental_recovery: null },
   ...overrides,
 });
 
@@ -70,7 +72,7 @@ check(
   {
     rawLabel: mergedIdentical.rows[0].rawLabel,
     categoryLabel: mergedIdentical.rows[0].categoryLabel,
-    workloadRating: mergedIdentical.rows[0].workloadRating,
+    workloadRating: mergedIdentical.rows[0].ratings.mental_demand,
   },
   {
     rawLabel: "computer_or_monitor_use",
@@ -122,7 +124,10 @@ check(
 const differingCategory = mergeWithNextActivity(
   [
     row("a1", 0, 30),
-    row("a2", 30, 60, { categoryLabel: "break", workloadRating: null, recoveryRating: 6 }),
+    row("a2", 30, 60, {
+      categoryLabel: "break",
+      ratings: { mental_demand: null, mental_recovery: 6 },
+    }),
   ],
   "a1",
 );
@@ -130,15 +135,13 @@ check(
   "a differing category clears the category and both ratings",
   {
     categoryLabel: differingCategory.rows[0].categoryLabel,
-    workloadRating: differingCategory.rows[0].workloadRating,
-    recoveryRating: differingCategory.rows[0].recoveryRating,
+    ratings: differingCategory.rows[0].ratings,
     clearedCategory: differingCategory.clearedCategory,
     clearedRating: differingCategory.clearedRating,
   },
   {
     categoryLabel: null,
-    workloadRating: null,
-    recoveryRating: null,
+    ratings: { mental_demand: null, mental_recovery: null },
     clearedCategory: true,
     clearedRating: true,
   },
@@ -150,8 +153,14 @@ check(
 // survive into the merged row and become an answer nobody gave.
 const staleRatings = mergeWithNextActivity(
   [
-    row("a1", 0, 30, { categoryLabel: "work", workloadRating: 5, recoveryRating: 3 }),
-    row("a2", 30, 60, { categoryLabel: "break", workloadRating: 5, recoveryRating: 3 }),
+    row("a1", 0, 30, {
+      categoryLabel: "work",
+      ratings: { mental_demand: 5, mental_recovery: 3 },
+    }),
+    row("a2", 30, 60, {
+      categoryLabel: "break",
+      ratings: { mental_demand: 5, mental_recovery: 3 },
+    }),
   ],
   "a1",
 );
@@ -159,22 +168,26 @@ check(
   "a cleared category drops both ratings even when both rows matched on them",
   {
     categoryLabel: staleRatings.rows[0].categoryLabel,
-    workloadRating: staleRatings.rows[0].workloadRating,
-    recoveryRating: staleRatings.rows[0].recoveryRating,
+    ratings: staleRatings.rows[0].ratings,
     clearedRating: staleRatings.clearedRating,
   },
   {
     categoryLabel: null,
-    workloadRating: null,
-    recoveryRating: null,
+    ratings: { mental_demand: null, mental_recovery: null },
     clearedRating: true,
   },
 );
 
 const staleOffCategory = mergeWithNextActivity(
   [
-    row("a1", 0, 30, { categoryLabel: "work", workloadRating: 5, recoveryRating: 3 }),
-    row("a2", 30, 60, { categoryLabel: "work", workloadRating: 5, recoveryRating: 3 }),
+    row("a1", 0, 30, {
+      categoryLabel: "work",
+      ratings: { mental_demand: 5, mental_recovery: 3 },
+    }),
+    row("a2", 30, 60, {
+      categoryLabel: "work",
+      ratings: { mental_demand: 5, mental_recovery: 3 },
+    }),
   ],
   "a1",
 );
@@ -182,14 +195,12 @@ check(
   "a surviving category keeps only its own rating and drops the other field",
   {
     categoryLabel: staleOffCategory.rows[0].categoryLabel,
-    workloadRating: staleOffCategory.rows[0].workloadRating,
-    recoveryRating: staleOffCategory.rows[0].recoveryRating,
+    ratings: staleOffCategory.rows[0].ratings,
     clearedRating: staleOffCategory.clearedRating,
   },
   {
     categoryLabel: "work",
-    workloadRating: 5,
-    recoveryRating: null,
+    ratings: { mental_demand: 5, mental_recovery: null },
     // Nothing to re-answer: the work rating survived and nothing reads recovery.
     clearedRating: false,
   },
@@ -197,25 +208,39 @@ check(
 
 const otherCategory = mergeWithNextActivity(
   [
-    row("a1", 0, 30, { categoryLabel: "other", workloadRating: null, recoveryRating: null }),
-    row("a2", 30, 60, { categoryLabel: "other", workloadRating: null, recoveryRating: null }),
+    row("a1", 0, 30, {
+      categoryLabel: "other",
+      ratings: { mental_demand: null, mental_recovery: null },
+    }),
+    row("a2", 30, 60, {
+      categoryLabel: "other",
+      ratings: { mental_demand: null, mental_recovery: null },
+    }),
   ],
   "a1",
 );
 check(
   "an 'other' activity is never rated, so nothing is announced",
   {
-    workloadRating: otherCategory.rows[0].workloadRating,
-    recoveryRating: otherCategory.rows[0].recoveryRating,
+    ratings: otherCategory.rows[0].ratings,
     clearedRating: otherCategory.clearedRating,
   },
-  { workloadRating: null, recoveryRating: null, clearedRating: false },
+  {
+    ratings: { mental_demand: null, mental_recovery: null },
+    clearedRating: false,
+  },
 );
 
 const breakPair = mergeWithNextActivity(
   [
-    row("a1", 0, 30, { categoryLabel: "break", workloadRating: null, recoveryRating: 6 }),
-    row("a2", 30, 60, { categoryLabel: "break", workloadRating: null, recoveryRating: 6 }),
+    row("a1", 0, 30, {
+      categoryLabel: "break",
+      ratings: { mental_demand: null, mental_recovery: 6 },
+    }),
+    row("a2", 30, 60, {
+      categoryLabel: "break",
+      ratings: { mental_demand: null, mental_recovery: 6 },
+    }),
   ],
   "a1",
 );
@@ -223,14 +248,17 @@ check(
   "two agreeing break activities keep their recovery rating",
   {
     categoryLabel: breakPair.rows[0].categoryLabel,
-    recoveryRating: breakPair.rows[0].recoveryRating,
+    recoveryRating: breakPair.rows[0].ratings.mental_recovery,
     clearedRating: breakPair.clearedRating,
   },
   { categoryLabel: "break", recoveryRating: 6, clearedRating: false },
 );
 
 const differingRating = mergeWithNextActivity(
-  [row("a1", 0, 30), row("a2", 30, 60, { workloadRating: 7 })],
+  [
+    row("a1", 0, 30),
+    row("a2", 30, 60, { ratings: { mental_demand: 7, mental_recovery: null } }),
+  ],
   "a1",
 );
 check(
@@ -238,7 +266,7 @@ check(
   {
     rawLabel: differingRating.rows[0].rawLabel,
     categoryLabel: differingRating.rows[0].categoryLabel,
-    workloadRating: differingRating.rows[0].workloadRating,
+    workloadRating: differingRating.rows[0].ratings.mental_demand,
     clearedRating: differingRating.clearedRating,
   },
   {
@@ -251,8 +279,16 @@ check(
 
 const bothBlank = mergeWithNextActivity(
   [
-    row("a1", 0, 30, { rawLabel: null, categoryLabel: null, workloadRating: null }),
-    row("a2", 30, 60, { rawLabel: null, categoryLabel: null, workloadRating: null }),
+    row("a1", 0, 30, {
+      rawLabel: null,
+      categoryLabel: null,
+      ratings: { mental_demand: null, mental_recovery: null },
+    }),
+    row("a2", 30, 60, {
+      rawLabel: null,
+      categoryLabel: null,
+      ratings: { mental_demand: null, mental_recovery: null },
+    }),
   ],
   "a1",
 );
@@ -349,7 +385,7 @@ check(
   "differing ratings still invite a merge — only activity and type decide",
   activitiesInviteMerge(
     row("a1", 0, 30),
-    row("a2", 30, 60, { workloadRating: 7 }),
+    row("a2", 30, 60, { ratings: { mental_demand: 7, mental_recovery: null } }),
   ),
   true,
 );

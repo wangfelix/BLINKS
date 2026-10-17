@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { StudyConfigGate } from "@/components/study-config-gate";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -106,7 +107,7 @@ const SurveyContent = () => {
                 </a>
                 {questionnaireOpened ? (
                   <a
-                    href="/payout"
+                    href="/api/payout"
                     target="_blank"
                     rel="noopener noreferrer"
                     className={buttonVariants({
@@ -186,7 +187,11 @@ const SurveyContent = () => {
 const SurveyPage = () => {
   const ready = useRequireAuth();
   if (!ready) return null;
-  return <SurveyContent />;
+  return (
+    <StudyConfigGate>
+      <SurveyContent />
+    </StudyConfigGate>
+  );
 };
 
 export default SurveyPage;
