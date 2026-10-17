@@ -47,12 +47,20 @@ Check at least:
   the app sends the interval to the camera on every connect.
 - `schedule.reconstructionOpensAt` / `endSessionAvailableAt` (study time zone)
 - `vlm.model`, `vlm.prompts` (placeholders: see the contract)
-- `overreliance.enabled` / `rate`; `privacy.faceBlur.enabled`
+- `overreliance.enabled` / `rate`: needs at least 2 categories when enabled.
+  `rate: 0` disables only the rate-based selection; with
+  `fallbackToTopWhenNoneAboveThreshold: true` one label per day is still
+  injected when no activity reaches `minConfidence`. To inject nothing, set
+  `enabled: false`.
+- `privacy.faceBlur.enabled`: see "Face blur off" below before switching it off.
 - `surveys.*` and `texts.*` links: real URLs. `deploy.sh` refuses
   `example.org` / `example.com` links.
-- `app.studySettingsPin`: a new PIN per study. The file is not public, but it
+- `app.studySettingsPin`: a new PIN per study. In production the loaders
+  (server and both workers) and `deploy.sh` refuse the placeholder PIN from
+  `study.example.yaml` and the retired pre-config PIN, as well as
+  `example.org`/`example.com` survey/payout links. The file is not public, but it
   is not a secret store either: keep it readable only by the service user
-  (`chmod 640`).
+  (`chmod 600`; `deploy.sh` warns about any group/other bits).
 
 Validate before deploying:
 

@@ -22,6 +22,7 @@ Only default: privacy.faceBlur.enabled = True (set explicitly here).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -106,7 +107,14 @@ def _json_path(error: jsonschema.ValidationError) -> str:
 
 
 def _cross_check_issues(config: dict[str, Any]) -> list[tuple[str, str]]:
-    """The cross-checks marked [py] in the contract (section 1)."""
+    """The cross-checks marked [py] in the contract (section 1).
+
+    Deliberately a SUBSET of studyConfigCrossCheckIssues in
+    server/src/study-config/schema.ts: only rules the workers depend on. The
+    full set (appliesTo, bedtime, notice rule, ...) is enforced by the server
+    loader, which deploy.sh runs before any restart; a config that passes here
+    but not there never reaches production.
+    """
     issues: list[tuple[str, str]] = []
 
     def unique(items: list[dict], path: str) -> None:
@@ -141,6 +149,9 @@ def _cross_check_issues(config: dict[str, Any]) -> list[tuple[str, str]]:
                     f"(allowed: {', '.join(allowed) if allowed else 'none'})",
                 ))
 
+    if config["overreliance"]["enabled"] and len(config["categories"]) < 2:
+        issues.append(("overreliance.enabled", "needs at least 2 categories (a wrong label needs an alternative)"))
+
     try:
         ZoneInfo(config["study"]["timezone"])
     except (ZoneInfoNotFoundError, ValueError):
@@ -170,11 +181,54 @@ def load_study_config_file(config_path: Path | str) -> dict[str, Any]:
     return parse_study_config(Path(config_path).read_text(encoding="utf-8"), config_path)
 
 
+# Production-only content rules (review of PR #1, m2), same as
+# productionConfigIssues in server/src/study-config/load.ts: placeholder PIN or
+# links from study.example.yaml, or the retired pre-config PIN (compared by
+# SHA-256 so it is not written in clear text again).
+RETIRED_PIN_SHA256: tuple[str, ...] = (
+    "305800b71062b49b350208327a02ec378199b4cf35e60eeb971611bef4928394",
+)
+_PLACEHOLDER_HOST = re.compile(r"^(?:[a-z0-9-]+\.)*example\.(?:org|com)$", re.IGNORECASE)
+
+
+def _example_pin() -> str | None:
+    try:
+        raw = yaml.safe_load(EXAMPLE_CONFIG_PATH.read_text(encoding="utf-8"))
+        pin = raw["app"]["studySettingsPin"]
+        return pin if isinstance(pin, str) else None
+    except Exception:  # noqa: BLE001 - missing/odd example file: fall back to "0000"
+        return None
+
+
+def production_config_issues(config: dict[str, Any]) -> list[tuple[str, str]]:
+    from urllib.parse import urlsplit
+
+    issues: list[tuple[str, str]] = []
+    pin = config["app"]["studySettingsPin"]
+    if pin == (_example_pin() or "0000"):
+        issues.append(("app.studySettingsPin", "is the placeholder PIN from study.example.yaml; set a new PIN for this study"))
+    if hashlib.sha256(pin.encode("utf-8")).hexdigest() in RETIRED_PIN_SHA256:
+        issues.append(("app.studySettingsPin", "is a retired PIN (public in the git history); set a new PIN for this study"))
+    surveys = config["surveys"]
+    for field, url in (
+        ("surveys.onboarding.url", surveys["onboarding"]["url"]),
+        ("surveys.final.url", surveys["final"]["url"]),
+        ("surveys.payoutUrl", surveys.get("payoutUrl")),
+    ):
+        if isinstance(url, str) and _PLACEHOLDER_HOST.match(urlsplit(url).hostname or ""):
+            issues.append((field, "is a placeholder example.org/example.com link"))
+    return issues
+
+
 def load_study_config_or_exit(log_prefix: str = "") -> tuple[dict[str, Any], Path]:
     """Load once at worker start. Prints FATAL and exits 2 on any problem."""
     try:
         config_path, using_example = resolve_config_path()
         config = load_study_config_file(config_path)
+        if is_production():
+            issues = production_config_issues(config)
+            if issues:
+                raise StudyConfigError(config_path, issues)
     except StudyConfigError as exc:
         print(f"{log_prefix}FATAL: {exc}", file=sys.stderr, flush=True)
         sys.exit(2)

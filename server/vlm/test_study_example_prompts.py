@@ -155,10 +155,59 @@ class LoaderTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("file not found (BLINKS_STUDY_CONFIG)", result.stderr)
 
+    def production_ready(self, name: str, source: str) -> Path:
+        # study.test.yaml uses example.org links on purpose (refused in production)
+        import re
+
+        path = Path(self.tmp) / name
+        path.write_text(re.sub(r"https://([a-z.]*)example\.org", r"https://\1blinks-test.invalid", source), encoding="utf-8")
+        return path
+
     def test_valid_config_in_production(self) -> None:
-        result = self.run_loader({"BLINKS_STUDY_CONFIG": str(TEST_CONFIG_PATH), "NODE_ENV": "production"})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("LOADED", result.stdout)
+        cfg = self.production_ready("prod.yaml", TEST_CONFIG_PATH.read_text(encoding="utf-8"))
+        for env_name in ("NODE_ENV", "BLINKS_ENV"):
+            result = self.run_loader({"BLINKS_STUDY_CONFIG": str(cfg), env_name: "production"})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("LOADED", result.stdout)
+
+    def test_production_refuses_placeholders_and_retired_pin(self) -> None:
+        import hashlib
+
+        links = self.run_loader({"BLINKS_STUDY_CONFIG": str(TEST_CONFIG_PATH), "BLINKS_ENV": "production"})
+        self.assertEqual(links.returncode, 2)
+        self.assertIn("surveys.payoutUrl: is a placeholder example.org", links.stderr)
+
+        copy = Path(self.tmp) / "study.yaml"
+        copy.write_text(EXAMPLE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+        copied = self.run_loader({"BLINKS_STUDY_CONFIG": str(copy), "BLINKS_ENV": "production"})
+        self.assertEqual(copied.returncode, 2)
+        self.assertIn("app.studySettingsPin: is the placeholder PIN", copied.stderr)
+        self.assertEqual(self.run_loader({"BLINKS_STUDY_CONFIG": str(copy)}).returncode, 0)
+
+        # the retired PIN, found by its hash (not written here in clear text)
+        retired = next(
+            pin for pin in (f"{n:04d}" for n in range(10_000))
+            if hashlib.sha256(pin.encode()).hexdigest() in blinks_study_config.RETIRED_PIN_SHA256
+        )
+        old = self.production_ready(
+            "retired.yaml",
+            TEST_CONFIG_PATH.read_text(encoding="utf-8").replace('studySettingsPin: "123456"', f'studySettingsPin: "{retired}"'),
+        )
+        result = self.run_loader({"BLINKS_STUDY_CONFIG": str(old), "NODE_ENV": "production"})
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("app.studySettingsPin: is a retired PIN", result.stderr)
+        self.assertNotIn(retired, result.stderr)
+
+    def test_overreliance_needs_two_categories(self) -> None:
+        source = EXAMPLE_PATH.read_text(encoding="utf-8")
+        start = source.index("\ncategories:\n")
+        end = source.index("\nexperienceItems:", start)
+        first_item = source[start:end].split("\n  - ")[1]
+        single = Path(self.tmp) / "one.yaml"
+        single.write_text(source[:start] + "\ncategories:\n  - " + first_item + source[end:], encoding="utf-8")
+        result = self.run_loader({"BLINKS_STUDY_CONFIG": str(single)})
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("overreliance.enabled: needs at least 2 categories", result.stderr)
 
     def setUp(self) -> None:
         import tempfile

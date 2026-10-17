@@ -539,6 +539,15 @@ export const studyConfigCrossCheckIssues = (
     issues.push({ path: "study.timezone", message: "unknown IANA timezone" });
   }
 
+  // [py] A deliberately wrong category needs an alternative (review m1:
+  // crypto.randomInt(0) threw for a single-category study).
+  if (config.overreliance.enabled && config.categories.length < 2) {
+    issues.push({
+      path: "overreliance.enabled",
+      message: "needs at least 2 categories (a wrong label needs an alternative)",
+    });
+  }
+
   // Never tell participants that labels are deliberately wrong when they are not.
   if (
     !config.overreliance.enabled &&

@@ -53,6 +53,13 @@ Dateien in diesem Branch:
 - `overreliance.enabled: false` ⇒ `texts.rounds.assistedReminderIncorrectLabelsNotice` muss `null` sein
   (sonst würde Teilnehmenden etwas Falsches gesagt)
 - `reminders.bedtime.afterMidnightCutoff <= latestAt`
+- `[py]` `overreliance.enabled: true` ⇒ mindestens 2 Kategorien (Review PR #1, m1)
+
+**Nur in Produktion** (Server-Loader, Python-Loader und `deploy.sh`, Review PR #1, m2):
+`app.studySettingsPin` darf weder der Platzhalter-PIN aus `study.example.yaml` noch der
+alte PIN aus der Zeit vor der Config sein (Vergleich per SHA-256). Survey- und Payout-Links
+mit `example.org`/`example.com` werden abgelehnt. Damit fällt auch eine 1:1-Kopie des
+Examples unter anderem Namen auf.
 - `categories[].icon` nur aus der Allowlist `briefcase, pause, ellipsis, coffee, users, house, book-open, heart, circle` (Shape, zod-Enum). Das Mapping auf lucide-react baut Martin im Web
 
 ## 2. Struktur (Kurzüberblick)

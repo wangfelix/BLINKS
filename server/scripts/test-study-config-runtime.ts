@@ -45,10 +45,69 @@ const runLoader = (env: Record<string, string | undefined>) => {
   );
 };
 
+// study.test.yaml uses example.org links on purpose; production refuses
+// those (m2), so the production cases run on a copy with neutral links.
+const productionReady = (source: string): string =>
+  source.replace(/https:\/\/([a-z.]*)example\.org/g, "https://$1blinks-test.invalid");
+const writeConfig = (name: string, source: string): string => {
+  const file = path.join(tmp, name);
+  fs.writeFileSync(file, source);
+  return file;
+};
+const testSource = fs.readFileSync(TEST_CONFIG, "utf8");
+
 test("loader: valid explicit config loads (exit 0)", () => {
-  const result = runLoader({ BLINKS_STUDY_CONFIG: TEST_CONFIG, NODE_ENV: "production" });
+  const plain = runLoader({ BLINKS_STUDY_CONFIG: TEST_CONFIG });
+  assert.strictEqual(plain.status, 0, plain.stderr);
+  const result = runLoader({
+    BLINKS_STUDY_CONFIG: writeConfig("prod-ok.yaml", productionReady(testSource)),
+    NODE_ENV: "production",
+  });
   assert.strictEqual(result.status, 0, result.stderr);
   assert.match(result.stdout, /LOADED/);
+});
+
+test("loader m2: production refuses placeholder links and PINs (copy of the example)", () => {
+  const links = runLoader({ BLINKS_STUDY_CONFIG: TEST_CONFIG, NODE_ENV: "production" });
+  assert.strictEqual(links.status, 2);
+  assert.match(links.stderr, /surveys\.payoutUrl: is a placeholder example\.org/);
+  assert.match(links.stderr, /surveys\.onboarding\.url: is a placeholder/);
+
+  // 1:1 copy of the example under another name
+  const copy = writeConfig("study.yaml", fs.readFileSync(EXAMPLE, "utf8"));
+  const copied = runLoader({ BLINKS_STUDY_CONFIG: copy, NODE_ENV: "production" });
+  assert.strictEqual(copied.status, 2);
+  assert.match(copied.stderr, /app\.studySettingsPin: is the placeholder PIN/);
+  assert.strictEqual(runLoader({ BLINKS_STUDY_CONFIG: copy }).status, 0, "allowed outside production");
+
+  // the retired PIN, found by its hash (not written here in clear text)
+  const { RETIRED_PIN_SHA256 } = require("../src/study-config/load");
+  const crypto = require("crypto");
+  const retired = Array.from({ length: 10_000 }, (_, n) => String(n).padStart(4, "0")).find(
+    (pin) => crypto.createHash("sha256").update(pin).digest("hex") === RETIRED_PIN_SHA256[0],
+  );
+  assert.ok(retired, "retired PIN hash is a 4-digit PIN");
+  const old = writeConfig(
+    "retired.yaml",
+    productionReady(testSource).replace('studySettingsPin: "123456"', `studySettingsPin: "${retired}"`),
+  );
+  const oldResult = runLoader({ BLINKS_STUDY_CONFIG: old, NODE_ENV: "production" });
+  assert.strictEqual(oldResult.status, 2);
+  assert.match(oldResult.stderr, /app\.studySettingsPin: is a retired PIN/);
+  assert.ok(!oldResult.stderr.includes(retired!), "the PIN is not echoed");
+  assert.strictEqual(runLoader({ BLINKS_STUDY_CONFIG: old, BLINKS_ENV: "production" }).status, 0, "BLINKS_ENV is Python-only");
+});
+
+test("loader m1: overreliance on with a single category exits 2", () => {
+  const source = fs.readFileSync(EXAMPLE, "utf8");
+  const start = source.indexOf("\ncategories:\n");
+  const end = source.indexOf("\nexperienceItems:", start);
+  const block = source.slice(start, end);
+  const firstItem = block.split(/\n  - /)[1];
+  const single = source.slice(0, start) + "\ncategories:\n  - " + firstItem + source.slice(end);
+  const result = runLoader({ BLINKS_STUDY_CONFIG: writeConfig("one-category.yaml", single) });
+  assert.strictEqual(result.status, 2, result.stdout);
+  assert.match(result.stderr, /overreliance\.enabled: needs at least 2 categories/);
 });
 
 test("loader: invalid config exits 2 with path: reason", () => {
