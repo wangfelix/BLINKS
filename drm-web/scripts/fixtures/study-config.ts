@@ -3,8 +3,10 @@
 // defaultStudyConfig() maps config/study.example.yaml (the paper study) to the
 // GET /api/study-config payload (docs/study-config-contract.md, 4.1), so the
 // tests run against exactly the values the server serves by default.
-// alternativeStudyConfig() is an independent study (5 labels, 2 categories,
-// 3 items, 10-minute window) that must work without code changes.
+// testStudyConfig() does the same for config/study.test.yaml (the local test
+// study the E2E run uses). alternativeStudyConfig() is an independent study
+// (5 labels, 2 categories, 3 items, 10-minute window) that must work without
+// code changes.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -14,15 +16,8 @@ import type { StudyConfigResponse } from "../../src/lib/api-types";
 import { installStudyConfig } from "../../src/lib/study-config-store";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- raw YAML document */
-export const defaultStudyConfig = (): StudyConfigResponse => {
-  const file = path.join(
-    __dirname,
-    "..",
-    "..",
-    "..",
-    "config",
-    "study.example.yaml",
-  );
+const studyConfigFromYaml = (fileName: string): StudyConfigResponse => {
+  const file = path.join(__dirname, "..", "..", "..", "config", fileName);
   const yaml = parse(readFileSync(file, "utf8")) as any;
   return {
     study: { timezone: yaml.study.timezone },
@@ -58,6 +53,12 @@ export const defaultStudyConfig = (): StudyConfigResponse => {
   };
 };
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+export const defaultStudyConfig = (): StudyConfigResponse =>
+  studyConfigFromYaml("study.example.yaml");
+
+export const testStudyConfig = (): StudyConfigResponse =>
+  studyConfigFromYaml("study.test.yaml");
 
 export const alternativeStudyConfig = (): StudyConfigResponse => ({
   ...defaultStudyConfig(),

@@ -1,4 +1,4 @@
-// Focused checks for merging two adjacent assisted activities. The 5-minute
+// Focused checks for merging two adjacent assisted activities. The per-window
 // segmentation splits a continuous stretch whenever the VLM's argmax wobbles,
 // so rejoining rows is the most common assisted-round correction.
 // Run from drm-web/:  npx tsx scripts/test-activity-merge.ts
