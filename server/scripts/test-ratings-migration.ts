@@ -1,7 +1,7 @@
 // Migration test: activities.workload_rating/recovery_rating ->
-// activity_ratings (BLINKS-tasks#4, contract section 7), plus the removal of
-// the camera_form_factor CHECK. Starts from the exact pre-WP1 schema
-// (fixtures/recordings-schema-pre-wp1.sql) with synthetic rows.
+// activity_ratings (study config, contract section 7), plus the removal of
+// the camera_form_factor CHECK. Starts from the exact pre-migration schema
+// (fixtures/recordings-schema-pre-study-config.sql) with synthetic rows.
 //
 //   npx tsx scripts/test-ratings-migration.ts
 
@@ -22,7 +22,7 @@ import {
 } from "../src/db";
 
 const SCHEMA = fs.readFileSync(
-  path.join(__dirname, "fixtures", "recordings-schema-pre-wp1.sql"),
+  path.join(__dirname, "fixtures", "recordings-schema-pre-study-config.sql"),
   "utf8",
 );
 const day = "2026-07-25";

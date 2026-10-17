@@ -136,7 +136,7 @@ check; actual battery recording sleep and overnight runtime remain to be measure
 
 NimBLE-Arduino 2.5.1 needed no special handling under `arduino, espidf`.
 
-**Capture interval `0x03` and device info `…0004`** (BLINKS-tasks#4,
+**Capture interval `0x03` and device info `…0004`** (study config rollout,
 `docs/ble-capture-config.md`): the shared logic lives in
 `capture_interval_config.h` (identical copies in `camera-firmware/` and
 `glasses-camera-firmware/`) and is host-tested:

@@ -87,15 +87,17 @@ TRACKED_CHANGES="$(git status --porcelain --untracked-files=no)"
 BEFORE_SHA="$(git rev-parse --short HEAD)"
 log "deploying $BEFORE_SHA ($(git log -1 --format=%s)); checkout was at $PREVIOUS_SHA"
 # A plain code rollback is NOT enough across a startup schema migration: e.g.
-# the activity_ratings migration (BLINKS-tasks#4) drops workload_rating /
+# the activity_ratings migration (study config rollout) drops workload_rating /
 # recovery_rating, and older code then fails in initDb. Full procedure in
 # deploy/README.md ("Rollback"): stop the services, restore recordings.db (and
-# auth.db if needed) from the snapshot this run writes below, delete the
+# auth.db if needed) from the OLDEST snapshot of the first deploy that ran the
+# migration (verify its schema with pragma_table_info first), delete the
 # -wal/-shm files, then check out and deploy the old commit.
-echo "    rollback: see deploy/README.md#rollback (stop services, restore DB snapshot"
-echo "    from $BACKUP_ROOT/<stamp>-$BEFORE_SHA-*/, delete -wal/-shm, deploy the old commit)"
+echo "    rollback: see deploy/README.md#rollback (stop services, restore the oldest"
+echo "    pre-migration snapshot from $BACKUP_ROOT/, check its schema, delete -wal/-shm,"
+echo "    deploy the old commit)"
 
-# Study config (BLINKS-tasks#4): every study setting, the survey/payout links
+# Study config: every study setting, the survey/payout links
 # and the Study Settings PIN live in the gitignored config/study.yaml. The
 # server and both workers refuse to start without a valid file in production
 # (no fallback to study.example.yaml), so check it before building anything.
@@ -328,7 +330,9 @@ FAILED=0
 for svc in "${SERVICES[@]}"; do
   if [ "$svc" = "blinks-face-blur" ] && [ "$FACE_BLUR_ENABLED" != "true" ]; then
     # privacy.faceBlur.enabled=false: the worker anonymizes any remaining
-    # pending backlog once and then exits 0 (Restart=on-failure keeps it down).
+    # pending backlog once and then exits 3 (EXIT_DISABLED); the unit has
+    # Restart=always with SuccessExitStatus=3/RestartPreventExitStatus=3, so
+    # it stays down only for that deliberate stop.
     printf '    \033[1;33mdisabled\033[0m %s (privacy.faceBlur.enabled=false)\n' "$svc"
     continue
   fi

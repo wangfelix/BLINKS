@@ -1,4 +1,4 @@
-// Runtime tests for the study config (BLINKS-tasks#4, WP1):
+// Runtime tests for the study config (study config rollout):
 //   - loader: exit 2 on invalid/missing files, F1 production rules
 //   - client projections + ratings rules against BOTH configs (pure)
 //   - HTTP: /api/study-config, /api/app-config, /api/payout,

@@ -1,7 +1,7 @@
-# BLE: Capture-Intervall setzen (`0x03`) + Device-Info (`…0004`) — WP0-Entwurf
+# BLE: Capture-Intervall setzen (`0x03`) + Device-Info (`…0004`) — Spezifikation
 
-Status: **Freigegeben** (Martin, 17.10.), vorher Entwurf (BLINKS-tasks#3/#4), Pre-Review
-(https://github.com/wangfelix/BLINKS-tasks/issues/3#issuecomment-6237693031) eingearbeitet.
+Status: **Freigegeben** (Martin, 17.10.), vorher Entwurf zum Study-Config-Rollout,
+Pre-Review von Martin eingearbeitet.
 Gilt für beide Firmwares (`camera-firmware/` = Necklace, `glasses-camera-firmware/`
 = Glasses, der PIO-Build inkludiert die Glasses-`.ino`) und die App
 (`blinks-edge-app/src/capture/ble/`). Byte-Layout, Keys und Grenzen sind auf
@@ -126,7 +126,7 @@ Verschlüsselung beschreibbar. Das galt schon für Pause/Resume (`0x01`/`0x02`),
 `0x03` kann jetzt aber auch jedes Gerät in Funkreichweite das Intervall ändern:
 5 s leert den Akku schneller, 600 s heißt weniger Fotos und damit Datenverlust.
 
-Bewusst nicht behoben (Follow-up, kein Teil von WP1):
+Bewusst nicht behoben (Follow-up, kein Teil des Study-Config-Rollouts):
 
 - Die Firmware klemmt auf 5000–600000 ms und fällt bei jedem Disconnect auf den
   Default zurück. Die App setzt das Studienintervall bei jedem Connect neu.

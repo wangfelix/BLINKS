@@ -123,7 +123,7 @@ cd /root/BLINKS && git checkout <previous-sha> && deploy/deploy.sh
 
 **Rollback across a schema migration needs a database restore.** The server
 migrates `recordings.db` on its first start, and older code cannot read the
-new schema. Example: the `activity_ratings` migration (BLINKS-tasks#4) drops
+new schema. Example: the `activity_ratings` migration (study config rollout) drops
 `workload_rating`/`recovery_rating`; the pre-migration code then stops in
 `initDb` with `no such column: a.workload_rating`. Every rating, frame and
 round written after the deploy is lost by the restore, so keep a copy of the
@@ -136,18 +136,31 @@ systemctl stop blinks blinks-face-blur blinks-vlm blinks-web
 KEEP=/root/BLINKS-backups/pre-rollback-$(date -u +%Y%m%dT%H%M%SZ)
 install -d -m 700 "$KEEP"
 cp -p server/recordings/recordings.db* server/data/auth.db* "$KEEP"/
-# 2. the snapshot written by the deploy you are undoing; the SHA in the name
-#    is the commit that was deployed, taken before its first start (= before
-#    its migrations)
-ls -d /root/BLINKS-backups/*-<deployed-sha>-*/
-SNAP=/root/BLINKS-backups/<stamp>-<deployed-sha>-<random>
-# 3. restore and drop the WAL/SHM files of the migrated database
+# 2. pick the right snapshot: the OLDEST one written by the FIRST deploy of a
+#    commit that contains the migration. Each snapshot is taken before the
+#    restart of that run, so only the first deploy's snapshot still has the
+#    old schema. Every later snapshot (the same commit deployed again, e.g.
+#    after a failed health check, or newer commits deployed afterwards) is
+#    already migrated, and the old code fails on it again.
+#    Names are <UTC stamp>-<deployed sha>-<random>, so ls sorts by time:
+ls -d /root/BLINKS-backups/*/
+SNAP=/root/BLINKS-backups/<stamp>-<sha>-<random>   # oldest one with the old schema
+# 3. verify the snapshot still has the pre-migration schema BEFORE restoring.
+#    For the activity_ratings migration: both legacy rating columns present
+#    (must print 2) and no activity_ratings table (must print 0).
+sqlite3 "$SNAP/recordings.db" \
+  "SELECT COUNT(*) FROM pragma_table_info('activities') WHERE name IN ('workload_rating', 'recovery_rating')"
+sqlite3 "$SNAP/recordings.db" \
+  "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'activity_ratings'"
+#    Wrong result: take the next older snapshot. None left: there is no
+#    pre-migration copy, do not roll back the code.
+# 4. restore and drop the WAL/SHM files of the migrated database
 rm -f server/recordings/recordings.db-wal server/recordings/recordings.db-shm
 install -m 600 "$SNAP/recordings.db" server/recordings/recordings.db
 #    auth.db only if that deploy changed the auth schema:
 #    rm -f server/data/auth.db-wal server/data/auth.db-shm
 #    install -m 600 "$SNAP/auth.db" server/data/auth.db
-# 4. deploy the old code (it starts on the restored schema)
+# 5. deploy the old code (it starts on the restored schema)
 git checkout <previous-sha> && deploy/deploy.sh
 ```
 

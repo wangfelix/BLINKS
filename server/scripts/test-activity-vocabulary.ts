@@ -1,4 +1,4 @@
-// Contract test for the activity enum. Since WP1 (BLINKS-tasks#4) the single
+// Contract test for the activity enum. Since the study config rollout the single
 // source is activities[] in the study config: the server API and the Python
 // VLM worker both read it. drm-web still carries a copy of the paper list
 // until it reads GET /api/study-config.

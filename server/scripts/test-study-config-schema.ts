@@ -1,4 +1,4 @@
-// WP0 tests for the study-config schema (BLINKS-tasks#4).
+// Tests for the study-config schema.
 //   npx tsx scripts/test-study-config-schema.ts
 //
 // 1. config/study-config.schema.json is fresh (generated from the zod schema).
@@ -125,7 +125,7 @@ test("example = today's server constants", () => {
   assert.equal(example.privacy.faceBlur.enabled, true);
 
   // Paper-study values that used to be hardcoded in push.ts / blur_worker.py
-  // (both read the config since WP1, so the values are frozen here).
+  // (both read the study config, so the values are frozen here).
   assert.deepEqual(example.reminders.bedtime, {
     enabled: true,
     leadMinutes: 30,
@@ -161,7 +161,7 @@ test("example = today's server constants", () => {
 // at runtime now (FE/study-config). Default-config pixel identity is covered by
 // the FE E2E run, the app fallback texts by blinks-edge-app/scripts/test-study-config.ts.
 test("example = frozen paper push texts", () => {
-  // push.ts reads texts.push since WP1; frozen paper-study wording:
+  // push.ts reads texts.push from the study config; frozen paper-study wording:
   assert.equal(example.texts.push.bedtimeTitle, "Before you go to bed");
   assert.equal(
     example.texts.push.bedtimeBody,

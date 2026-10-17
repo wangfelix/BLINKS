@@ -37,6 +37,18 @@ sys.path.insert(0, str(HERE.parent))
 import blinks_study_config  # noqa: E402
 
 
+
+# allowed_window_minutes() per zone; keep identical to WINDOW_PARITY in
+# server/scripts/test-window-alignment.ts so TS and Python cannot drift apart.
+WINDOW_PARITY = {
+    "Europe/Berlin": [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60],
+    "UTC": [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60],
+    "Asia/Kolkata": [1, 2, 3, 5, 6, 10, 15, 30],
+    "Asia/Kathmandu": [1, 3, 5, 15],
+    "Australia/Lord_Howe": [1, 2, 3, 5, 6, 10, 15, 30],
+    "America/St_Johns": [1, 2, 3, 5, 6, 10, 15, 30],
+}
+
 class StudyExampleGoldenTest(unittest.TestCase):
     def test_worker_loaded_the_example(self) -> None:
         self.assertEqual(Path(vlm_worker.STUDY_CONFIG_PATH), EXAMPLE_PATH)
@@ -217,6 +229,9 @@ class LoaderTest(unittest.TestCase):
         self.assertEqual(", ".join(map(str, blinks_study_config.allowed_window_minutes("Europe/Berlin"))), berlin)
         self.assertEqual(blinks_study_config.allowed_window_minutes("Asia/Kolkata"), [1, 2, 3, 5, 6, 10, 15, 30])
         self.assertEqual(blinks_study_config.time_zone_offsets_minutes("Europe/Berlin"), [60, 120])
+        # Same table as server/scripts/test-window-alignment.ts (TS/Python parity).
+        for zone, allowed in WINDOW_PARITY.items():
+            self.assertEqual(blinks_study_config.allowed_window_minutes(zone), allowed, zone)
         for window in (7, 45, 90, 120):
             message = self.window_issue(window)
             self.assertIsNotNone(message, window)

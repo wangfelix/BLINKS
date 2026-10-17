@@ -44,10 +44,25 @@ const windowIssue = (source: string): string | null => {
 
 const BERLIN_ALLOWED = "1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60";
 
+// allowedWindowMinutes() per zone; keep identical to WINDOW_PARITY in
+// server/vlm/test_study_example_prompts.py so TS and Python cannot drift apart.
+const WINDOW_PARITY: Record<string, number[]> = {
+  "Europe/Berlin": [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60],
+  UTC: [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60],
+  "Asia/Kolkata": [1, 2, 3, 5, 6, 10, 15, 30],
+  "Asia/Kathmandu": [1, 3, 5, 15],
+  "Australia/Lord_Howe": [1, 2, 3, 5, 6, 10, 15, 30],
+  "America/St_Johns": [1, 2, 3, 5, 6, 10, 15, 30],
+};
+
 test("allowed values per time zone", () => {
   assert.deepStrictEqual(allowedWindowMinutes("Europe/Berlin").join(", "), BERLIN_ALLOWED);
   assert.deepStrictEqual(allowedWindowMinutes("UTC").join(", "), BERLIN_ALLOWED);
   assert.deepStrictEqual(allowedWindowMinutes("Asia/Kolkata"), [1, 2, 3, 5, 6, 10, 15, 30]);
+  // Same table as WINDOW_PARITY in server/vlm/test_study_example_prompts.py.
+  for (const [zone, allowed] of Object.entries(WINDOW_PARITY)) {
+    assert.deepStrictEqual(allowedWindowMinutes(zone), allowed, zone);
+  }
   assert.deepStrictEqual(timeZoneOffsetsMinutes("Europe/Berlin"), [60, 120]);
   assert.deepStrictEqual(timeZoneOffsetsMinutes("Asia/Kolkata"), [330]);
 });

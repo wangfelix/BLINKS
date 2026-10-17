@@ -1,6 +1,6 @@
 "use strict";
 // ===========================================================================
-// Study config loader (BLINKS-tasks#4, contract: docs/study-config-contract.md).
+// Study config loader (contract: docs/study-config-contract.md).
 //
 // Resolution:
 //   1. env BLINKS_STUDY_CONFIG (absolute, or relative to the working dir).
