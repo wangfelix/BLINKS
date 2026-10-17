@@ -4,7 +4,7 @@
 // 1. config/study-config.schema.json is fresh (generated from the zod schema).
 // 2. config/study.example.yaml validates (shape + cross-field checks).
 // 3. The example equals today's hard-coded paper study wherever the value
-//    lives in TypeScript (server constants, drm-web labels/texts, app texts).
+//    still lives in TypeScript or firmware (server constants, push texts).
 //    The prompt golden test lives in server/vlm/test_study_example_prompts.py.
 // 4. Representative invalid configs fail with `path: reason`.
 
@@ -24,7 +24,6 @@ import {
   studyConfigCrossCheckIssues,
   type StudyConfig,
 } from "../src/study-config/schema";
-import { ACTIVITY_ITEMS } from "../../drm-web/src/lib/activity-vocabulary";
 import {
   renderStudyConfigJsonSchema,
   STUDY_CONFIG_SCHEMA_PATH,
@@ -135,88 +134,15 @@ test("example = today's server constants", () => {
   );
 });
 
-test("example = today's drm-web labels and texts", () => {
-  assert.deepEqual(
-    example.activities.map((a) => ({ value: a.key, label: a.displayLabel })),
-    ACTIVITY_ITEMS,
-  );
-
-  const sources: Record<string, string> = {
-    categories: readRepoFile(
-      "drm-web/src/components/reconstruct/category-select.tsx",
-    ),
-    legend: readRepoFile(
-      "drm-web/src/components/reconstruct/category-legend-card.tsx",
-    ),
-    rating: readRepoFile(
-      "drm-web/src/components/reconstruct/experience-rating-scale.tsx",
-    ),
-    intro: readRepoFile(
-      "drm-web/src/components/reconstruct/reconstruction-intro.tsx",
-    ),
-    reminder: readRepoFile(
-      "drm-web/src/components/reconstruct/assisted-round-reminder.tsx",
-    ),
-    editor: readRepoFile("drm-web/src/components/reconstruct/round-editor.tsx"),
-    progress: readRepoFile("drm-web/src/components/study-progress.tsx"),
-    notification: readRepoFile(
-      "blinks-edge-app/src/capture/service/foreground-service.ts",
-    ),
-    recording: readRepoFile("blinks-edge-app/src/app/recording.tsx"),
-    onboarding: readRepoFile("blinks-edge-app/src/app/onboarding.tsx"),
-    summary: readRepoFile(
-      "drm-web/src/components/reconstruct/read-only-activity-list.tsx",
-    ),
-  };
-  // JSX wraps long texts across lines; compare whitespace-collapsed.
-  const collapse = (text: string): string => text.replace(/\s+/g, " ");
-  const expectIn = (source: keyof typeof sources, text: string): void => {
-    assert.ok(
-      collapse(sources[source]).includes(collapse(text)),
-      `"${text}" not found in ${source}`,
-    );
-  };
-
-  for (const category of example.categories) {
-    expectIn("categories", `label: "${category.displayLabel}", value: "${category.key}"`);
-    expectIn("legend", category.description);
-  }
-  for (const item of example.experienceItems) {
-    expectIn("rating", item.question);
-    expectIn("rating", item.scale.lowAnchor);
-    expectIn("rating", item.scale.highAnchor);
-    expectIn("summary", `\`${item.shortLabel} \${`);
-  }
-  const { rounds, progress, push, app } = example.texts;
-  expectIn("intro", rounds.selfIntroTitle);
-  expectIn("intro", rounds.selfIntroDescription);
-  expectIn("intro", rounds.assistedIntroTitle);
-  expectIn("intro", rounds.assistedIntroDescription);
-  expectIn("reminder", rounds.assistedReminderTitle);
-  expectIn("reminder", rounds.assistedReminderBody);
-  expectIn("reminder", rounds.assistedReminderIncorrectLabelsNotice!);
-  expectIn("editor", rounds.selfEditorHint);
-  expectIn("editor", rounds.assistedEditorHint);
-  expectIn("editor", rounds.selfEmptyStateHint);
-  expectIn("progress", progress.selfRound);
-  expectIn("progress", progress.assistedRound);
+// The former drm-web/app parity checks are gone: both clients read the config
+// at runtime now (FE/study-config). Default-config pixel identity is covered by
+// the FE E2E run, the app fallback texts by blinks-edge-app/scripts/test-study-config.ts.
+test("example = frozen paper push texts", () => {
   // push.ts reads texts.push since WP1; frozen paper-study wording:
-  assert.equal(push.bedtimeTitle, "Before you go to bed");
+  assert.equal(example.texts.push.bedtimeTitle, "Before you go to bed");
   assert.equal(
-    push.bedtimeBody,
+    example.texts.push.bedtimeBody,
     "Please open the study website and reconstruct today before going to sleep.",
-  );
-  expectIn("notification", app.recordingNotificationTitle);
-  expectIn("notification", app.recordingNotificationBody);
-  expectIn("notification", app.testRecordingNotificationTitle);
-  expectIn("notification", app.testRecordingNotificationBody);
-  for (const text of Object.values(app.onboarding)) expectIn("onboarding", text);
-  expectIn(
-    "recording",
-    app.endSessionAvailableFrom.replace(
-      "{{time}}",
-      example.schedule.endSessionAvailableAt,
-    ),
   );
 });
 
