@@ -19,7 +19,7 @@ camera → BLE → phone → WS → server   (writes JPEG + frames.face_status='
 ```
 
 - **Detector:** CenterFace (the ONNX model bundled with [`deface`](https://github.com/ORB-HD/deface)), run through OpenCV's DNN module on CPU (~30 ms/frame). Tuned for **recall over precision**: a missed face is a privacy breach, a false positive merely pixelates a doorknob.
-- **Obscuring:** mosaic/pixelate by default (`FACE_METHOD=blur` for gaussian blur).
+- **Obscuring:** mosaic/pixelate by default (`privacy.faceBlur.method: blur` for gaussian blur).
 - **In place:** the blurred JPEG atomically **overwrites the original** (temp file + `os.replace`). No unblurred copy is kept.
 - **Serving gate:** the server only lists and serves frames whose `face_status='done'` (see `server/src/db.ts` and `server/src/server.ts`), so even in the brief window before this worker runs, an unblurred frame is never exposed.
 
@@ -58,13 +58,24 @@ existing backlog automatically (every pre-existing row defaults to
 |---|---|---|
 | `RECORDINGS_DIR` | `../recordings` | recordings tree (matches the server's env) |
 | `RECORDINGS_DB` | `<RECORDINGS_DIR>/recordings.db` | the SQLite index |
-| `FACE_THRESHOLD` | `0.2` | CenterFace confidence; **lower = more faces blurred = safer**. Matches deface's default. |
-| `FACE_METHOD` | `mosaic` | `mosaic` (pixelate) or `blur` (gaussian) |
-| `FACE_BLOCKS` | `8` | mosaic granularity; smaller = coarser |
-| `FACE_BLUR_KSIZE` | `0` | gaussian kernel for `method=blur` (0 = auto-scale to face size) |
-| `FACE_MARGIN` | `0.12` | fraction each detected box is expanded (catches forehead/ears/chin) |
 | `POLL_INTERVAL_S` | `2.0` | sleep between polls when the queue is empty |
 | `BATCH_SIZE` | `50` | rows fetched per poll |
+| `BLINKS_STUDY_CONFIG` | `<repo>/config/study.yaml` | study config (see below) |
+
+### Study settings (`privacy.faceBlur` in the study config)
+
+| Key | Paper value | Meaning |
+|---|---|---|
+| `enabled` | `true` | `false`: the server stores new frames as already anonymized (`face_method='disabled'`); this worker anonymizes the remaining `pending` backlog once and exits 3 (`--once`: 0) with a notice. Unblurred frames are served and sent to the VLM endpoint; after re-enabling, requeue them with `npm run requeue-unblurred-frames -- --apply` (`config/README.md`). **Privacy impact, needs ethics/GDPR basis.** |
+| `threshold` | `0.2` | CenterFace confidence; **lower = more faces blurred = safer**. Matches deface's default. |
+| `method` | `mosaic` | `mosaic` (pixelate) or `blur` (gaussian) |
+| `blocks` | `8` | mosaic granularity; smaller = coarser |
+| `blurKernel` | `0` | gaussian kernel for `method=blur` (0 = auto-scale to face size) |
+| `margin` | `0.12` | fraction each detected box is expanded (catches forehead/ears/chin) |
+
+The former env vars `FACE_THRESHOLD`, `FACE_METHOD`, `FACE_BLOCKS`,
+`FACE_BLUR_KSIZE`, `FACE_MARGIN` are ignored (reported at start-up). An invalid
+config stops the worker with exit code 2.
 
 `face_method` is recorded per frame (e.g. `mosaic:centerface@0.2`) so every
 anonymized frame stays traceable for the paper's methods section.

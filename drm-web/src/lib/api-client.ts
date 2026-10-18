@@ -21,6 +21,7 @@ import type {
   ProfileResponse,
   RoundResponse,
   StudyCompletionMutationResponse,
+  StudyConfigResponse,
   StudyStateResponse,
   StudyStatusResponse,
   SubmitResponse,
@@ -194,6 +195,10 @@ export const completeOnboarding = () =>
   });
 
 export const getProfile = () => apiFetch<ProfileResponse>("/api/profile");
+
+/** Participant-facing study config (docs/study-config-documentation.md, 4.1). */
+export const fetchStudyConfig = () =>
+  apiFetch<StudyConfigResponse>("/api/study-config");
 
 export const getStudyStatus = () =>
   apiFetch<StudyStatusResponse>("/api/study/status");

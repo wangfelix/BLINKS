@@ -1,0 +1,195 @@
+{
+  "_comment": "Frozen from the pre-config vlm_worker.py (commit 93b511d). Golden reference: config/study.example.yaml must render exactly these strings. Do not edit.",
+  "system": "You analyze short sequences of frames from a body-worn (first-person) camera for a research study on knowledge work. The frames are given in chronological order and together span about five minutes. Faces in the images are intentionally pixelated for privacy; describe the scene and activity, never attempt to identify people. Judge the sequence as a whole: classify the DOMINANT activity of the window, not any single frame. Use incremental probability elicitation: first determine the most likely label, then assess its confidence, then distribute probability across every allowed label. Do this independently for activity and category. Do not reveal your reasoning or output chosen-label fields; the server derives each label from the corresponding distribution. Activity describes visible behavior only. Purpose and restorative intent belong exclusively in category.",
+  "user": [
+    {
+      "occupation": "Software engineer",
+      "work_description": "Builds backend services",
+      "frame_count": 20,
+      "prompt": "The camera wearer's occupation: Software engineer. Description of their work: Builds backend services.\n\nYou see 20 frames in chronological order spanning a 5-minute window of the wearer's day. Judge the window as a whole and return the requested structured classification.\n\nActivity definitions:\n- \"computer_or_monitor_use\": Attention directed to a computer, laptop, tablet used as a workstation, or monitor, with visible keyboard, mouse, touch, or screen interaction.\n- \"watching_video\": A television or video interface is visibly the sustained focus, with little active input. Do not infer this from posture alone.\n- \"paper_reading_writing\": Reading a book or printed document, or handwriting on paper with a pen or pencil, with no screen as the focus.\n- \"handheld_device_use\": A phone or other handheld device is held and visibly occupies attention.\n- \"remote_meeting\": A video-conferencing interface or remote participants are visibly present on a screen. Do not infer a meeting from a headset alone.\n- \"phone_call\": A phone is held to the ear, a visible call interface is active, or a headset is used without another visually dominant task.\n- \"in_person_interaction\": Another person is physically present and repeatedly oriented toward or interacting with the wearer.\n- \"tools_or_materials\": Hands manipulate tools, equipment, components, or materials, unless a more specific food, cleaning, assistance, or personal-care label applies.\n- \"eating_drinking\": Food or drink is visibly being consumed.\n- \"food_preparation\": Food or drink is being prepared, assembled, cooked, or served.\n- \"cleaning_household\": Visible cleaning, tidying, laundry, dishes, or household maintenance.\n- \"assisting_person_animal\": Visible physical assistance or attentive handling of another person or animal.\n- \"personal_care\": Visible washing, grooming, dressing, or other personal care.\n- \"walking_or_movement\": Walking, cycling, exercise-like motion, or another sustained body movement.\n- \"no_task_engagement\": No specific task, object interaction, or social interaction is visibly evident.\n- \"other\": The scene is legible, but the visible activity is outside this vocabulary.\n- \"unclear\": The frames are too dark, obscured, blurred, sparse, or otherwise uninformative to determine the activity.\n\nFollow these steps internally for activity:\n1. Determine the single most likely activity key using the definitions.\n2. Assess confidence in that choice.\n3. Return the full probability distribution over all 17 activity keys.\nChoose the most specific visibly supported activity. A specific label such as remote_meeting, phone_call, eating_drinking, or food_preparation takes precedence over a broader device or material-handling label. Base dominance on what is most consistently visible across the sequence. Do not infer activity from posture, location, clothing, or occupation alone.\n\nFollow the same steps independently for category: determine the most likely category, assess confidence, then return the full probability distribution over [\"work\", \"break\", \"other\"]. \"work\" = the wearer's own occupation work (their occupation and work description above provide the context for what counts as work). \"break\" = an intentional restorative pause (\"erholsame Pause\": coffee, resting, a deliberate walk, socializing to recover). \"other\" = neither work nor restorative (chores, personal administration, travel, or other non-restorative activity).\n  \"activity_probabilities\": one numeric probability from 0 to 1 for every activity key above.\n  \"category_probabilities\": one numeric probability from 0 to 1 for each category.\nEach distribution must sum to 1. Use at least two decimal places of precision where useful rather than limiting scores to tenths.\nReturn only the JSON object required by the response schema, with no reasoning, selected-label fields, or additional text."
+    },
+    {
+      "occupation": "Software engineer",
+      "work_description": "",
+      "frame_count": 20,
+      "prompt": "The camera wearer's occupation: Software engineer.\n\nYou see 20 frames in chronological order spanning a 5-minute window of the wearer's day. Judge the window as a whole and return the requested structured classification.\n\nActivity definitions:\n- \"computer_or_monitor_use\": Attention directed to a computer, laptop, tablet used as a workstation, or monitor, with visible keyboard, mouse, touch, or screen interaction.\n- \"watching_video\": A television or video interface is visibly the sustained focus, with little active input. Do not infer this from posture alone.\n- \"paper_reading_writing\": Reading a book or printed document, or handwriting on paper with a pen or pencil, with no screen as the focus.\n- \"handheld_device_use\": A phone or other handheld device is held and visibly occupies attention.\n- \"remote_meeting\": A video-conferencing interface or remote participants are visibly present on a screen. Do not infer a meeting from a headset alone.\n- \"phone_call\": A phone is held to the ear, a visible call interface is active, or a headset is used without another visually dominant task.\n- \"in_person_interaction\": Another person is physically present and repeatedly oriented toward or interacting with the wearer.\n- \"tools_or_materials\": Hands manipulate tools, equipment, components, or materials, unless a more specific food, cleaning, assistance, or personal-care label applies.\n- \"eating_drinking\": Food or drink is visibly being consumed.\n- \"food_preparation\": Food or drink is being prepared, assembled, cooked, or served.\n- \"cleaning_household\": Visible cleaning, tidying, laundry, dishes, or household maintenance.\n- \"assisting_person_animal\": Visible physical assistance or attentive handling of another person or animal.\n- \"personal_care\": Visible washing, grooming, dressing, or other personal care.\n- \"walking_or_movement\": Walking, cycling, exercise-like motion, or another sustained body movement.\n- \"no_task_engagement\": No specific task, object interaction, or social interaction is visibly evident.\n- \"other\": The scene is legible, but the visible activity is outside this vocabulary.\n- \"unclear\": The frames are too dark, obscured, blurred, sparse, or otherwise uninformative to determine the activity.\n\nFollow these steps internally for activity:\n1. Determine the single most likely activity key using the definitions.\n2. Assess confidence in that choice.\n3. Return the full probability distribution over all 17 activity keys.\nChoose the most specific visibly supported activity. A specific label such as remote_meeting, phone_call, eating_drinking, or food_preparation takes precedence over a broader device or material-handling label. Base dominance on what is most consistently visible across the sequence. Do not infer activity from posture, location, clothing, or occupation alone.\n\nFollow the same steps independently for category: determine the most likely category, assess confidence, then return the full probability distribution over [\"work\", \"break\", \"other\"]. \"work\" = the wearer's own occupation work (their occupation and work description above provide the context for what counts as work). \"break\" = an intentional restorative pause (\"erholsame Pause\": coffee, resting, a deliberate walk, socializing to recover). \"other\" = neither work nor restorative (chores, personal administration, travel, or other non-restorative activity).\n  \"activity_probabilities\": one numeric probability from 0 to 1 for every activity key above.\n  \"category_probabilities\": one numeric probability from 0 to 1 for each category.\nEach distribution must sum to 1. Use at least two decimal places of precision where useful rather than limiting scores to tenths.\nReturn only the JSON object required by the response schema, with no reasoning, selected-label fields, or additional text."
+    },
+    {
+      "occupation": "  PhD student  ",
+      "work_description": null,
+      "frame_count": 7,
+      "prompt": "The camera wearer's occupation: PhD student.\n\nYou see 7 frames in chronological order spanning a 5-minute window of the wearer's day. Judge the window as a whole and return the requested structured classification.\n\nActivity definitions:\n- \"computer_or_monitor_use\": Attention directed to a computer, laptop, tablet used as a workstation, or monitor, with visible keyboard, mouse, touch, or screen interaction.\n- \"watching_video\": A television or video interface is visibly the sustained focus, with little active input. Do not infer this from posture alone.\n- \"paper_reading_writing\": Reading a book or printed document, or handwriting on paper with a pen or pencil, with no screen as the focus.\n- \"handheld_device_use\": A phone or other handheld device is held and visibly occupies attention.\n- \"remote_meeting\": A video-conferencing interface or remote participants are visibly present on a screen. Do not infer a meeting from a headset alone.\n- \"phone_call\": A phone is held to the ear, a visible call interface is active, or a headset is used without another visually dominant task.\n- \"in_person_interaction\": Another person is physically present and repeatedly oriented toward or interacting with the wearer.\n- \"tools_or_materials\": Hands manipulate tools, equipment, components, or materials, unless a more specific food, cleaning, assistance, or personal-care label applies.\n- \"eating_drinking\": Food or drink is visibly being consumed.\n- \"food_preparation\": Food or drink is being prepared, assembled, cooked, or served.\n- \"cleaning_household\": Visible cleaning, tidying, laundry, dishes, or household maintenance.\n- \"assisting_person_animal\": Visible physical assistance or attentive handling of another person or animal.\n- \"personal_care\": Visible washing, grooming, dressing, or other personal care.\n- \"walking_or_movement\": Walking, cycling, exercise-like motion, or another sustained body movement.\n- \"no_task_engagement\": No specific task, object interaction, or social interaction is visibly evident.\n- \"other\": The scene is legible, but the visible activity is outside this vocabulary.\n- \"unclear\": The frames are too dark, obscured, blurred, sparse, or otherwise uninformative to determine the activity.\n\nFollow these steps internally for activity:\n1. Determine the single most likely activity key using the definitions.\n2. Assess confidence in that choice.\n3. Return the full probability distribution over all 17 activity keys.\nChoose the most specific visibly supported activity. A specific label such as remote_meeting, phone_call, eating_drinking, or food_preparation takes precedence over a broader device or material-handling label. Base dominance on what is most consistently visible across the sequence. Do not infer activity from posture, location, clothing, or occupation alone.\n\nFollow the same steps independently for category: determine the most likely category, assess confidence, then return the full probability distribution over [\"work\", \"break\", \"other\"]. \"work\" = the wearer's own occupation work (their occupation and work description above provide the context for what counts as work). \"break\" = an intentional restorative pause (\"erholsame Pause\": coffee, resting, a deliberate walk, socializing to recover). \"other\" = neither work nor restorative (chores, personal administration, travel, or other non-restorative activity).\n  \"activity_probabilities\": one numeric probability from 0 to 1 for every activity key above.\n  \"category_probabilities\": one numeric probability from 0 to 1 for each category.\nEach distribution must sum to 1. Use at least two decimal places of precision where useful rather than limiting scores to tenths.\nReturn only the JSON object required by the response schema, with no reasoning, selected-label fields, or additional text."
+    },
+    {
+      "occupation": null,
+      "work_description": "ignored without occupation",
+      "frame_count": 1,
+      "prompt": "The camera wearer's occupation is unknown.\n\nYou see 1 frames in chronological order spanning a 5-minute window of the wearer's day. Judge the window as a whole and return the requested structured classification.\n\nActivity definitions:\n- \"computer_or_monitor_use\": Attention directed to a computer, laptop, tablet used as a workstation, or monitor, with visible keyboard, mouse, touch, or screen interaction.\n- \"watching_video\": A television or video interface is visibly the sustained focus, with little active input. Do not infer this from posture alone.\n- \"paper_reading_writing\": Reading a book or printed document, or handwriting on paper with a pen or pencil, with no screen as the focus.\n- \"handheld_device_use\": A phone or other handheld device is held and visibly occupies attention.\n- \"remote_meeting\": A video-conferencing interface or remote participants are visibly present on a screen. Do not infer a meeting from a headset alone.\n- \"phone_call\": A phone is held to the ear, a visible call interface is active, or a headset is used without another visually dominant task.\n- \"in_person_interaction\": Another person is physically present and repeatedly oriented toward or interacting with the wearer.\n- \"tools_or_materials\": Hands manipulate tools, equipment, components, or materials, unless a more specific food, cleaning, assistance, or personal-care label applies.\n- \"eating_drinking\": Food or drink is visibly being consumed.\n- \"food_preparation\": Food or drink is being prepared, assembled, cooked, or served.\n- \"cleaning_household\": Visible cleaning, tidying, laundry, dishes, or household maintenance.\n- \"assisting_person_animal\": Visible physical assistance or attentive handling of another person or animal.\n- \"personal_care\": Visible washing, grooming, dressing, or other personal care.\n- \"walking_or_movement\": Walking, cycling, exercise-like motion, or another sustained body movement.\n- \"no_task_engagement\": No specific task, object interaction, or social interaction is visibly evident.\n- \"other\": The scene is legible, but the visible activity is outside this vocabulary.\n- \"unclear\": The frames are too dark, obscured, blurred, sparse, or otherwise uninformative to determine the activity.\n\nFollow these steps internally for activity:\n1. Determine the single most likely activity key using the definitions.\n2. Assess confidence in that choice.\n3. Return the full probability distribution over all 17 activity keys.\nChoose the most specific visibly supported activity. A specific label such as remote_meeting, phone_call, eating_drinking, or food_preparation takes precedence over a broader device or material-handling label. Base dominance on what is most consistently visible across the sequence. Do not infer activity from posture, location, clothing, or occupation alone.\n\nFollow the same steps independently for category: determine the most likely category, assess confidence, then return the full probability distribution over [\"work\", \"break\", \"other\"]. \"work\" = the wearer's own occupation work (their occupation and work description above provide the context for what counts as work). \"break\" = an intentional restorative pause (\"erholsame Pause\": coffee, resting, a deliberate walk, socializing to recover). \"other\" = neither work nor restorative (chores, personal administration, travel, or other non-restorative activity).\n  \"activity_probabilities\": one numeric probability from 0 to 1 for every activity key above.\n  \"category_probabilities\": one numeric probability from 0 to 1 for each category.\nEach distribution must sum to 1. Use at least two decimal places of precision where useful rather than limiting scores to tenths.\nReturn only the JSON object required by the response schema, with no reasoning, selected-label fields, or additional text."
+    },
+    {
+      "occupation": "",
+      "work_description": "",
+      "frame_count": 13,
+      "prompt": "The camera wearer's occupation is unknown.\n\nYou see 13 frames in chronological order spanning a 5-minute window of the wearer's day. Judge the window as a whole and return the requested structured classification.\n\nActivity definitions:\n- \"computer_or_monitor_use\": Attention directed to a computer, laptop, tablet used as a workstation, or monitor, with visible keyboard, mouse, touch, or screen interaction.\n- \"watching_video\": A television or video interface is visibly the sustained focus, with little active input. Do not infer this from posture alone.\n- \"paper_reading_writing\": Reading a book or printed document, or handwriting on paper with a pen or pencil, with no screen as the focus.\n- \"handheld_device_use\": A phone or other handheld device is held and visibly occupies attention.\n- \"remote_meeting\": A video-conferencing interface or remote participants are visibly present on a screen. Do not infer a meeting from a headset alone.\n- \"phone_call\": A phone is held to the ear, a visible call interface is active, or a headset is used without another visually dominant task.\n- \"in_person_interaction\": Another person is physically present and repeatedly oriented toward or interacting with the wearer.\n- \"tools_or_materials\": Hands manipulate tools, equipment, components, or materials, unless a more specific food, cleaning, assistance, or personal-care label applies.\n- \"eating_drinking\": Food or drink is visibly being consumed.\n- \"food_preparation\": Food or drink is being prepared, assembled, cooked, or served.\n- \"cleaning_household\": Visible cleaning, tidying, laundry, dishes, or household maintenance.\n- \"assisting_person_animal\": Visible physical assistance or attentive handling of another person or animal.\n- \"personal_care\": Visible washing, grooming, dressing, or other personal care.\n- \"walking_or_movement\": Walking, cycling, exercise-like motion, or another sustained body movement.\n- \"no_task_engagement\": No specific task, object interaction, or social interaction is visibly evident.\n- \"other\": The scene is legible, but the visible activity is outside this vocabulary.\n- \"unclear\": The frames are too dark, obscured, blurred, sparse, or otherwise uninformative to determine the activity.\n\nFollow these steps internally for activity:\n1. Determine the single most likely activity key using the definitions.\n2. Assess confidence in that choice.\n3. Return the full probability distribution over all 17 activity keys.\nChoose the most specific visibly supported activity. A specific label such as remote_meeting, phone_call, eating_drinking, or food_preparation takes precedence over a broader device or material-handling label. Base dominance on what is most consistently visible across the sequence. Do not infer activity from posture, location, clothing, or occupation alone.\n\nFollow the same steps independently for category: determine the most likely category, assess confidence, then return the full probability distribution over [\"work\", \"break\", \"other\"]. \"work\" = the wearer's own occupation work (their occupation and work description above provide the context for what counts as work). \"break\" = an intentional restorative pause (\"erholsame Pause\": coffee, resting, a deliberate walk, socializing to recover). \"other\" = neither work nor restorative (chores, personal administration, travel, or other non-restorative activity).\n  \"activity_probabilities\": one numeric probability from 0 to 1 for every activity key above.\n  \"category_probabilities\": one numeric probability from 0 to 1 for each category.\nEach distribution must sum to 1. Use at least two decimal places of precision where useful rather than limiting scores to tenths.\nReturn only the JSON object required by the response schema, with no reasoning, selected-label fields, or additional text."
+    },
+    {
+      "occupation": "Uses {{frame_count}} literally",
+      "work_description": "and {{occupation}}",
+      "frame_count": 3,
+      "prompt": "The camera wearer's occupation: Uses {{frame_count}} literally. Description of their work: and {{occupation}}.\n\nYou see 3 frames in chronological order spanning a 5-minute window of the wearer's day. Judge the window as a whole and return the requested structured classification.\n\nActivity definitions:\n- \"computer_or_monitor_use\": Attention directed to a computer, laptop, tablet used as a workstation, or monitor, with visible keyboard, mouse, touch, or screen interaction.\n- \"watching_video\": A television or video interface is visibly the sustained focus, with little active input. Do not infer this from posture alone.\n- \"paper_reading_writing\": Reading a book or printed document, or handwriting on paper with a pen or pencil, with no screen as the focus.\n- \"handheld_device_use\": A phone or other handheld device is held and visibly occupies attention.\n- \"remote_meeting\": A video-conferencing interface or remote participants are visibly present on a screen. Do not infer a meeting from a headset alone.\n- \"phone_call\": A phone is held to the ear, a visible call interface is active, or a headset is used without another visually dominant task.\n- \"in_person_interaction\": Another person is physically present and repeatedly oriented toward or interacting with the wearer.\n- \"tools_or_materials\": Hands manipulate tools, equipment, components, or materials, unless a more specific food, cleaning, assistance, or personal-care label applies.\n- \"eating_drinking\": Food or drink is visibly being consumed.\n- \"food_preparation\": Food or drink is being prepared, assembled, cooked, or served.\n- \"cleaning_household\": Visible cleaning, tidying, laundry, dishes, or household maintenance.\n- \"assisting_person_animal\": Visible physical assistance or attentive handling of another person or animal.\n- \"personal_care\": Visible washing, grooming, dressing, or other personal care.\n- \"walking_or_movement\": Walking, cycling, exercise-like motion, or another sustained body movement.\n- \"no_task_engagement\": No specific task, object interaction, or social interaction is visibly evident.\n- \"other\": The scene is legible, but the visible activity is outside this vocabulary.\n- \"unclear\": The frames are too dark, obscured, blurred, sparse, or otherwise uninformative to determine the activity.\n\nFollow these steps internally for activity:\n1. Determine the single most likely activity key using the definitions.\n2. Assess confidence in that choice.\n3. Return the full probability distribution over all 17 activity keys.\nChoose the most specific visibly supported activity. A specific label such as remote_meeting, phone_call, eating_drinking, or food_preparation takes precedence over a broader device or material-handling label. Base dominance on what is most consistently visible across the sequence. Do not infer activity from posture, location, clothing, or occupation alone.\n\nFollow the same steps independently for category: determine the most likely category, assess confidence, then return the full probability distribution over [\"work\", \"break\", \"other\"]. \"work\" = the wearer's own occupation work (their occupation and work description above provide the context for what counts as work). \"break\" = an intentional restorative pause (\"erholsame Pause\": coffee, resting, a deliberate walk, socializing to recover). \"other\" = neither work nor restorative (chores, personal administration, travel, or other non-restorative activity).\n  \"activity_probabilities\": one numeric probability from 0 to 1 for every activity key above.\n  \"category_probabilities\": one numeric probability from 0 to 1 for each category.\nEach distribution must sum to 1. Use at least two decimal places of precision where useful rather than limiting scores to tenths.\nReturn only the JSON object required by the response schema, with no reasoning, selected-label fields, or additional text."
+    }
+  ],
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+      "name": "vlm_chunk_classification",
+      "strict": true,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "activity_probabilities": {
+            "type": "object",
+            "properties": {
+              "computer_or_monitor_use": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "watching_video": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "paper_reading_writing": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "handheld_device_use": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "remote_meeting": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "phone_call": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "in_person_interaction": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "tools_or_materials": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "eating_drinking": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "food_preparation": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "cleaning_household": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "assisting_person_animal": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "personal_care": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "walking_or_movement": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "no_task_engagement": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "other": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "unclear": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "computer_or_monitor_use",
+              "watching_video",
+              "paper_reading_writing",
+              "handheld_device_use",
+              "remote_meeting",
+              "phone_call",
+              "in_person_interaction",
+              "tools_or_materials",
+              "eating_drinking",
+              "food_preparation",
+              "cleaning_household",
+              "assisting_person_animal",
+              "personal_care",
+              "walking_or_movement",
+              "no_task_engagement",
+              "other",
+              "unclear"
+            ],
+            "additionalProperties": false
+          },
+          "category_probabilities": {
+            "type": "object",
+            "properties": {
+              "work": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "break": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "other": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "work",
+              "break",
+              "other"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "activity_probabilities",
+          "category_probabilities"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}

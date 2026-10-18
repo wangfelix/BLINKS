@@ -83,7 +83,7 @@ loosened to close the gap. **None of them has been measured yet.**
 * **`CAPTURE_INTERVAL_MS` is 30 s**, not 15 s. The server chunks frames into
   clock-aligned 5-minute windows regardless of rate, so nothing server-side
   changes — this simply yields ~10 frames per VLM chunk instead of ~20, and
-  `VLM_CHUNK_MAX_FRAMES` (20) is a cap rather than a requirement. **This is a
+  `vlm.maxFramesPerWindow` (20) is a cap rather than a requirement. **This is a
   known, accepted asymmetry:** the VLM labels for glasses participants rest on
   roughly half the visual evidence of bodycam participants', which belongs in
   the methods write-up.

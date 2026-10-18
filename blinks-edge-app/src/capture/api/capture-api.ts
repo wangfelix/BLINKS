@@ -44,3 +44,22 @@ export const submitRecordingEvent = ({
 
 export const fetchRecordingState = () =>
   apiClient.get<RecordingStateResponse>("/api/recording/state");
+
+// POST /api/recording/device-info (docs/study-config-documentation.md, 4.8).
+export interface DeviceInfoReportRequest {
+  eventId: string;
+  session: number;
+  device: string;
+  clientEpochMs: number;
+  requestedIntervalMs: number | null;
+  settingsFormFactor: string | null;
+  info: Record<string, unknown> | null;
+}
+
+// 201 stored, 200 duplicate or (stored: false) above the server's
+// per-participant cap: all final, the queue drops the report.
+export const submitDeviceInfoReport = (report: DeviceInfoReportRequest) =>
+  apiClient.post<{ ok: true; duplicate: boolean; stored?: boolean }>(
+    "/api/recording/device-info",
+    report,
+  );

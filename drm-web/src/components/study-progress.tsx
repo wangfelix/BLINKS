@@ -5,6 +5,7 @@ import { CheckIcon, LockIcon } from "lucide-react";
 
 import type { RoundState } from "@/lib/api-types";
 import { getStudyState } from "@/lib/api-client";
+import { getStudyConfig } from "@/lib/study-config-store";
 import { Skeleton } from "@/components/ui/skeleton";
 import { mergeClassNames } from "@/lib/utils";
 
@@ -27,9 +28,9 @@ const firstUnsubmittedRound = (
   return null;
 };
 
-const roundLabel = (roundState: RoundState): string => {
-  if (roundState.round === 1) return "DRM From memory";
-  return "DRM With photos";
+const roundLabel = (round: 1 | 2): string => {
+  const texts = getStudyConfig().texts.progress;
+  return round === 1 ? texts.selfRound : texts.assistedRound;
 };
 
 const roundStepState = (
@@ -150,12 +151,12 @@ export const StudyProgress = ({
         steps={[
           {
             number: 1,
-            label: "DRM From memory",
+            label: roundLabel(1),
             state: activeRoundOverride === 1 ? "active" : "completed",
           },
           {
             number: 2,
-            label: "DRM With photos",
+            label: roundLabel(2),
             state: activeRoundOverride === 2 ? "active" : "locked",
           },
           { number: 3, label: "Surveys", state: "pending" },
@@ -172,14 +173,14 @@ export const StudyProgress = ({
       const steps: DisplayStep[] = [
         {
           number: 1,
-          label: roundLabel(round1),
+          label: roundLabel(1),
           state: isSurveysPage
             ? "completed"
             : roundStepState(round1, activeRound),
         },
         {
           number: 2,
-          label: roundLabel(round2),
+          label: roundLabel(2),
           state: isSurveysPage
             ? "completed"
             : roundStepState(round2, activeRound),

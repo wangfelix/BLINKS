@@ -28,6 +28,8 @@ const RecordingScreen = () => {
     framesLabel,
     lastFrameLabel,
     isEndSessionAvailable,
+    endAvailabilityLabel,
+    endAvailableAtLabel,
     isEndConfirmationVisible,
     isEnding,
     togglePause,
@@ -113,7 +115,7 @@ const RecordingScreen = () => {
                   ? isTestSession
                     ? "End test session"
                     : "End session"
-                  : "End session, available from 19:00"
+                  : `End session, available from ${endAvailableAtLabel}`
               }
               accessibilityState={{ disabled: !isEndSessionAvailable }}
               style={({ pressed }) => [
@@ -132,7 +134,7 @@ const RecordingScreen = () => {
                 color="rgba(255,255,255,0.75)"
                 style={styles.endAvailabilityLabel}
               >
-                Available from 19:00
+                {endAvailabilityLabel}
               </AppText>
             )}
           </View>

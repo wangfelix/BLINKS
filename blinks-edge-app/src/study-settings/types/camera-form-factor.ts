@@ -1,3 +1,3 @@
-export const CAMERA_FORM_FACTORS = ["necklace", "glasses"] as const;
-
-export type CameraFormFactor = (typeof CAMERA_FORM_FACTORS)[number];
+// Keys come from devices.formFactors in the study config (GET /api/app-config),
+// e.g. "necklace" | "glasses" in config/study.example.yaml.
+export type CameraFormFactor = string;

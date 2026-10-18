@@ -1,28 +1,50 @@
 // Time helpers for the study timezone.
 //
-// A "study day" is a local calendar date (YYYY-MM-DD) in the study timezone
-// (Europe/Berlin unless overridden). The server derives day keys with the same
-// rule (DRM_TZ env); keep NEXT_PUBLIC_DRM_TZ in sync with the server's DRM_TZ.
+// A "study day" is a local calendar date (YYYY-MM-DD) in the study timezone.
+// Timezone and display locale come from the study config (`study.timezone`,
+// `ui.locale`), the same values the server derives day keys with.
 
-export const STUDY_TIMEZONE = process.env.NEXT_PUBLIC_DRM_TZ ?? "Europe/Berlin";
+import { getStudyConfig } from "@/lib/study-config-store";
 
-const timeOfDayFormatter = new Intl.DateTimeFormat("en-GB", {
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-  timeZone: STUDY_TIMEZONE,
-});
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
 
-const dayLabelFormatter = new Intl.DateTimeFormat("en-GB", {
-  weekday: "short",
-  day: "numeric",
-  month: "short",
-  timeZone: STUDY_TIMEZONE,
-});
+/** Memoized formatter for the current study timezone (+ locale). */
+const studyFormatter = (
+  name: string,
+  locale: string | null,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat => {
+  const config = getStudyConfig();
+  const resolvedLocale = locale ?? config.ui.locale;
+  const key = `${name}|${resolvedLocale}|${config.study.timezone}`;
+  let formatter = formatterCache.get(key);
+  if (formatter === undefined) {
+    formatter = new Intl.DateTimeFormat(resolvedLocale, {
+      ...options,
+      timeZone: config.study.timezone,
+    });
+    formatterCache.set(key, formatter);
+  }
+  return formatter;
+};
+
+const timeOfDayFormatter = () =>
+  studyFormatter("time-of-day", null, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+const dayLabelFormatter = () =>
+  studyFormatter("day-label", null, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 
 /** Epoch ms -> "HH:MM" wall-clock time in the study timezone. */
 export const formatTimeOfDay = (epochMs: number): string =>
-  timeOfDayFormatter.format(new Date(epochMs));
+  timeOfDayFormatter().format(new Date(epochMs));
 
 /** "HH:MM–HH:MM" span label in the study timezone. */
 export const formatTimeSpan = (startMs: number, endMs: number): string =>
@@ -33,27 +55,24 @@ export const formatDayLabel = (dayKey: string): string => {
   const [year, month, dayOfMonth] = dayKey.split("-").map(Number);
   // Noon UTC is the same calendar date in any European timezone.
   const noonUtc = new Date(Date.UTC(year, month - 1, dayOfMonth, 12));
-  return dayLabelFormatter.format(noonUtc);
+  return dayLabelFormatter().format(noonUtc);
 };
 
-/** Format an availability gate hour, e.g. 19 -> "19:00". */
-export const formatHour = (hour: number): string =>
-  `${String(hour).padStart(2, "0")}:00`;
-
-const wallClockPartsFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: STUDY_TIMEZONE,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hour12: false,
-});
+// Locale-independent parts parser (fixed "en-US"), only the zone varies.
+const wallClockPartsFormatter = () =>
+  studyFormatter("wall-clock-parts", "en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
 
 /** Offset (ms) of the study timezone from UTC at a given instant. */
 const timezoneOffsetMsAt = (epochMs: number): number => {
-  const parts = wallClockPartsFormatter.formatToParts(new Date(epochMs));
+  const parts = wallClockPartsFormatter().formatToParts(new Date(epochMs));
   const partValue = (type: Intl.DateTimeFormatPartTypes): number => {
     const part = parts.find((candidate) => candidate.type === type);
     return part ? Number(part.value) : 0;

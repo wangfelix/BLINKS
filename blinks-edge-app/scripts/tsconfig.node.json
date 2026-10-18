@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "paths": {
+      "@/*": ["./src/*"],
+      "expo-secure-store": ["./scripts/stubs/expo-secure-store.ts"],
+      "expo-file-system": ["./scripts/stubs/expo-file-system.ts"],
+      "react-native-ble-plx": ["./scripts/stubs/react-native-ble-plx.ts"]
+    }
+  },
+  "include": ["./**/*.ts"]
+}

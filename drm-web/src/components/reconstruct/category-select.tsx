@@ -1,6 +1,7 @@
 "use client";
 
-import type { CategoryLabel } from "@/lib/api-types";
+import type { CategoryIcon, CategoryLabel } from "@/lib/api-types";
+import { categoryItems } from "@/lib/category-vocabulary";
 import {
   Select,
   SelectContent,
@@ -9,29 +10,35 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  BookOpenIcon,
   BriefcaseIcon,
+  CircleIcon,
+  CoffeeIcon,
   EllipsisIcon,
+  HeartIcon,
+  HouseIcon,
   PauseIcon,
+  UsersIcon,
   type LucideIcon,
 } from "lucide-react";
 import { mergeClassNames } from "@/lib/utils";
 
-const CATEGORY_ITEMS: {
-  icon: LucideIcon;
-  label: string;
-  value: CategoryLabel;
-}[] = [
-  { icon: BriefcaseIcon, label: "Work", value: "work" },
-  { icon: PauseIcon, label: "Break", value: "break" },
-  { icon: EllipsisIcon, label: "Other", value: "other" },
-];
+/** lucide-react component for each icon name of the config allowlist. */
+const CATEGORY_ICONS: Record<CategoryIcon, LucideIcon> = {
+  briefcase: BriefcaseIcon,
+  pause: PauseIcon,
+  ellipsis: EllipsisIcon,
+  coffee: CoffeeIcon,
+  users: UsersIcon,
+  house: HouseIcon,
+  "book-open": BookOpenIcon,
+  heart: HeartIcon,
+  circle: CircleIcon,
+};
 
 /**
- * Category semantics (study definition):
- * work  = the participant's own occupational work
- * break = an intentional, restorative pause (coffee, resting, a deliberate
- *         walk, socializing to recover)
- * other = neither work nor restorative (chores, errands, answering the door)
+ * Activity-type dropdown. Labels, icons and order come from the study config
+ * (`categories[]`); the definitions are shown in CategoryLegendCard.
  */
 export const CategorySelect = ({
   id,
@@ -47,13 +54,15 @@ export const CategorySelect = ({
   invalid?: boolean;
   triggerClassName?: string;
 }) => {
-  const SelectedIcon = CATEGORY_ITEMS.find(
-    (item) => item.value === value,
-  )?.icon;
+  const items = categoryItems().map((item) => ({
+    ...item,
+    icon: CATEGORY_ICONS[item.icon] ?? CircleIcon,
+  }));
+  const SelectedIcon = items.find((item) => item.value === value)?.icon;
 
   return (
     <Select
-      items={CATEGORY_ITEMS}
+      items={items}
       value={value}
       onValueChange={(newValue) => {
         if (newValue !== null) onChange(newValue as CategoryLabel);
@@ -74,7 +83,7 @@ export const CategorySelect = ({
         sideOffset={6}
         className="p-1"
       >
-        {CATEGORY_ITEMS.map((item) => {
+        {items.map((item) => {
           const Icon = item.icon;
 
           return (

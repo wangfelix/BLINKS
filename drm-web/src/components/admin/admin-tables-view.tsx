@@ -18,6 +18,7 @@ import {
   ADMIN_TABLES,
   downloadAdminTable,
   getAdminOverview,
+  getAdminStudyConfig,
   getAdminTable,
   type AdminCellValue,
   type AdminTableName,
@@ -67,7 +68,7 @@ const tableCopy: Record<
     description: "Capture, file, anonymization, and deletion metadata",
   },
   chunks: {
-    label: "5-minute chunks",
+    label: "Chunks",
     description: "VLM processing state, labels, and confidence distributions",
   },
   activity_lists: {
@@ -76,7 +77,16 @@ const tableCopy: Record<
   },
   activities: {
     label: "Activities",
-    description: "Episode spans, labels, provenance, and ratings",
+    description: "Episode spans, labels, and provenance",
+  },
+  activity_ratings: {
+    label: "Activity ratings",
+    description: "Experience-item answers per activity",
+  },
+  device_info_reports: {
+    label: "Camera device info",
+    description:
+      "Firmware, camera type, and capture interval after each connect",
   },
 };
 
@@ -112,6 +122,17 @@ export const AdminTablesView = () => {
     queryKey: ["admin", "overview"],
     queryFn: getAdminOverview,
   });
+  const studyConfigQuery = useQuery({
+    queryKey: ["admin", "study-config"],
+    queryFn: getAdminStudyConfig,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const windowMinutes = studyConfigQuery.data?.windowing.windowMinutes;
+  // The chunk table is labelled with the configured window, e.g. "5-minute chunks".
+  const copyOf = (name: AdminTableName) =>
+    name === "chunks" && windowMinutes !== undefined
+      ? { ...tableCopy.chunks, label: `${windowMinutes}-minute chunks` }
+      : tableCopy[name];
   const tableQuery = useQuery({
     queryKey: [
       "admin",
@@ -212,7 +233,7 @@ export const AdminTablesView = () => {
           ) : (
             <DownloadIcon aria-hidden />
           )}
-          Download {tableCopy[table].label} CSV
+          Download {copyOf(table).label} CSV
         </Button>
       </div>
 
@@ -249,7 +270,7 @@ export const AdminTablesView = () => {
                     )}
               </span>
             </div>
-            <p className="mt-3 font-semibold">{tableCopy[candidate].label}</p>
+            <p className="mt-3 font-semibold">{copyOf(candidate).label}</p>
             <p
               className={mergeClassNames(
                 "mt-1 text-xs leading-relaxed",
@@ -258,7 +279,7 @@ export const AdminTablesView = () => {
                   : "text-muted-foreground",
               )}
             >
-              {tableCopy[candidate].description}
+              {copyOf(candidate).description}
             </p>
           </button>
         ))}
@@ -273,8 +294,8 @@ export const AdminTablesView = () => {
 
       <Card className="gap-0 rounded-2xl bg-background/82 py-0 shadow-lg backdrop-blur-xl">
         <CardHeader className="border-b border-border/70 py-5">
-          <CardTitle>{tableCopy[table].label}</CardTitle>
-          <CardDescription>{tableCopy[table].description}</CardDescription>
+          <CardTitle>{copyOf(table).label}</CardTitle>
+          <CardDescription>{copyOf(table).description}</CardDescription>
           <CardAction>
             <Button
               variant="ghost"
