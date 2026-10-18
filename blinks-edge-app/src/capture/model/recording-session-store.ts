@@ -439,7 +439,7 @@ class RecordingSessionStore {
     this.cameraLink.start();
   }
 
-  // Contract 4.8: main session only (test recordings create no DB rows),
+  // Documentation 4.8: main session only (test recordings create no DB rows),
   // best-effort and never awaited by the capture path.
   private reportDeviceInfo(report: CaptureConfigReport, deviceId: string): void {
     const session = this.state.sessionId;

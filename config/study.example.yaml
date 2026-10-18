@@ -12,7 +12,7 @@
 # from server/src/study-config/schema.ts). The server and both Python workers
 # validate this file at start-up and refuse to start if it is invalid.
 #
-# There is intentionally no config version or hash (decision Felix).
+# There is intentionally no config version or hash.
 # Infrastructure (ports, paths, API key, base URL, WEB_URL) stays in env vars.
 # =============================================================================
 

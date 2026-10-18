@@ -1,5 +1,5 @@
 // ===========================================================================
-// Study config loader (contract: docs/study-config-contract.md).
+// Study config loader (documentation: docs/study-config-documentation.md).
 //
 // Resolution:
 //   1. env BLINKS_STUDY_CONFIG (absolute, or relative to the working dir).
@@ -7,7 +7,7 @@
 //      production even when named explicitly.
 //   2. <repo>/config/study.yaml (gitignored, the real study).
 //   3. <repo>/config/study.example.yaml, ONLY outside production and with a
-//      loud warning (F1, decided 17.10.: production never falls back).
+//      loud warning (production never falls back).
 //
 // Validation: YAML -> zod shape -> cross-field checks. Any problem is fatal:
 // every issue is printed as `path.to.field: reason` and the process exits 2.
@@ -121,9 +121,9 @@ export const parseStudyConfig = (source: string, configPath: string): StudyConfi
   return parsed.data;
 };
 
-// --- production-only content rules (review of PR #1, m2) -----------------------
+// --- production-only content rules ---------------------------------------------
 // A 1:1 copy of study.example.yaml under another name must not run a study
-// either (F1/F6): placeholder PIN or links, or the PIN used before the study
+// either: placeholder PIN or links, or the PIN used before the study
 // config existed, are refused in production. The retired PIN is compared by
 // SHA-256 so it is not written to the code again in clear text (it stays in
 // the public git history, which is why it is retired). Same rule set in

@@ -1,5 +1,5 @@
 "use strict";
-// Client-facing projections of the study config (contract sections 4.1, 4.3,
+// Client-facing projections of the study config (documentation sections 4.1, 4.3,
 // 4.6). Only whitelisted fields leave the server: no VLM prompts or
 // definitions, no overreliance values, no privacy settings. The PIN goes to
 // participants only (app-config) and is never logged.
@@ -80,7 +80,7 @@ const appConfigResponse = (config = index_1.studyConfig) => ({
     studySettingsPin: config.app.studySettingsPin,
 });
 exports.appConfigResponse = appConfigResponse;
-/** Contract 4.6 rule 1: every configured item key, null when unanswered. */
+/** Documentation 4.6 rule 1: every configured item key, null when unanswered. */
 const ratingsResponse = (stored, config = index_1.studyConfig) => Object.fromEntries(config.experienceItems.map((item) => [
     item.key,
     Object.prototype.hasOwnProperty.call(stored, item.key)
@@ -89,7 +89,7 @@ const ratingsResponse = (stored, config = index_1.studyConfig) => Object.fromEnt
 ]));
 exports.ratingsResponse = ratingsResponse;
 /**
- * Contract 4.6 rules 2-4. submitCategory: undefined = draft save (no
+ * Documentation 4.6 rules 2-4. submitCategory: undefined = draft save (no
  * required check); string|null = final category on submit. Errors are
  * returned WITHOUT the "activity <i>: " prefix.
  */

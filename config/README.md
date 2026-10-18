@@ -4,8 +4,8 @@ One YAML file holds every study setting: activity labels and categories,
 rating items, windowing, capture intervals, schedule, VLM model and prompts,
 overreliance injection, face blur, reminders, texts, links and the app PIN.
 The server, the VLM worker, the face-blur worker, the app and the DRM website
-all read the same file. The full contract (fields, invariants, endpoints) is
-in [`docs/study-config-contract.md`](../docs/study-config-contract.md).
+all read the same file. Fields, validation rules and endpoints are documented
+in [`docs/study-config-documentation.md`](../docs/study-config-documentation.md).
 
 | File                        | Purpose                                                                             |
 | --------------------------- | ----------------------------------------------------------------------------------- |
@@ -41,7 +41,7 @@ Check at least:
 - `study.name`, `study.timezone` (IANA, e.g. `Europe/Berlin`)
 - `activities` / `categories`: keys are stored in the database. Do not rename
   or remove keys while a study is running; add new ones instead.
-- `experienceItems`: keys, scales, `required`, `appliesToCategories`. Ratings
+- `experienceItems`: keys, scales, `requiredOnSubmit`, `appliesTo`. Ratings
   are stored per item key (`activity_ratings`).
 - `windowing.windowMinutes`: must divide 60 and every UTC offset of
   `study.timezone`; otherwise start-up stops with exit 2 and lists the allowed
@@ -50,7 +50,7 @@ Check at least:
 - `capture.intervalMsByFormFactor`: at least 5000 ms (firmware lower bound);
   the app sends the interval to the camera on every connect.
 - `schedule.reconstructionOpensAt` / `endSessionAvailableAt` (study time zone)
-- `vlm.model`, `vlm.prompts` (placeholders: see the contract)
+- `vlm.model`, `vlm.prompts` (placeholders: see the study config documentation, section 3)
 - `overreliance.enabled` / `rate`: needs at least 2 categories when it
   injects. `rate: 0` means never inject (no fallback label either), exactly
   like `enabled: false`; in both cases
@@ -112,87 +112,87 @@ labels already computed from the unblurred frames are not changed.
 
 The zod schema in `server/src/study-config/schema.ts` is the source of truth.
 After changing it, run `npm run generate-study-config-schema` and
-`npm run test-study-config-schema` in `server/`, and update the contract doc.
+`npm run test-study-config-schema` in `server/`, and update
+`docs/study-config-documentation.md`.
 
-## Neue Studie konfigurieren
+## Configuring a new study (quick guide)
 
-Kurzanleitung für das Studienteam. Die Details stehen oben und im Vertrag
-([`docs/study-config-contract.md`](../docs/study-config-contract.md)).
+Short walkthrough. Details are above and in the study config documentation
+([`docs/study-config-documentation.md`](../docs/study-config-documentation.md)).
 
-### 1. Datei anlegen
+### 1. Create the file
 
 ```bash
-cp config/study.example.yaml config/study.yaml   # study.yaml ist gitignored
+cp config/study.example.yaml config/study.yaml   # study.yaml is gitignored
 chmod 600 config/study.yaml
 $EDITOR config/study.yaml
 ```
 
-Nie `study.example.yaml` oder `study.test.yaml` für eine echte Studie verwenden.
+Never use `study.example.yaml` or `study.test.yaml` for a real study.
 
-### 2. Was wo sichtbar wird
+### 2. Where each block shows up
 
-| Block in der YAML | Wirkung in Web (DRM-Website) und App |
+| YAML block | Effect in the web app (DRM website) and the app |
 |---|---|
-| `study.timezone` | Zeitanzeige im Web, Abend-Gate, Ende-Session-Zeit in der App |
-| `ui.locale`, `ui.thumbnailsPerActivity` | Datums-/Zeitformat im Web, Anzahl Vorschaubilder pro Aktivität in Runde 2 |
-| `windowing.windowMinutes` | Raster in „Adjust times“ und Texte („five-minute“/„ten-minute“), Admin-Label der Chunks. Muss 60 und jeden UTC-Offset der Zeitzone teilen (Berlin: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60), sonst startet der Server nicht |
-| `activities[].displayLabel` | Auswahlliste „Activity“ in beiden Runden |
-| `categories[]` (`displayLabel`, `icon`, `description`) | Auswahl „Activity type“ und die Legende „Categories“. Erlaubte Icons: `briefcase, pause, ellipsis, coffee, users, house, book-open, heart, circle` |
-| `experienceItems[]` | Eine Bewertungsskala pro Item und Kategorie (`appliesTo`), Skalenlänge `min..max`, Anker, Pflicht beim Absenden (`requiredOnSubmit`), Kurzlabel in der Zusammenfassung („Mental demand 4/7“) |
-| `texts.rounds`, `texts.progress` | Intro-, Reminder- und Hinweistexte der Runden, Schritt-Labels oben. `assistedReminderIncorrectLabelsNotice: null` blendet den Hinweis auf falsche Labels aus. Ohne Injektion (`overreliance.enabled: false` oder `rate: 0`) muss er `null` sein, sonst startet der Server nicht |
-| `overreliance.*` | Absichtlich falsche Labels in Runde 2 (Admin-Spalte `is_incorrect_annotation_injected`). `rate: 0` heißt nie injizieren, auch kein Fallback-Label. Mit Injektion sind mindestens 2 Kategorien nötig |
-| `surveys.onboarding/final` | Links zu den Fragebögen inkl. Teilnehmer-Parameter (`participantParameter`) |
-| `surveys.payoutUrl` | Ziel von `/api/payout` (Link „Payout“ auf der Survey-Seite). Leitet nur eingeloggt mit abgeschlossenem Onboarding weiter, sonst 401/403 |
-| `devices.formFactors` | Auswahl „Camera type“ in den Study Settings der App |
-| `capture.intervalMsByFormFactor` | Aufnahmeintervall, das die App bei jeder Kamera-Verbindung per BLE `0x03` setzt (5000–600000 ms) |
-| `schedule.endSessionAvailableAt` | Ab wann „End session“ in der App aktiv ist (Studien-Zeitzone) |
-| `texts.app` | Benachrichtigungs- und Onboarding-Texte der App, „Available from {{time}}“ |
-| `app.studySettingsPin` | PIN der Study Settings (4–8 Ziffern). **Für jede Studie neu vergeben**, der alte PIN steht in der öffentlichen Git-Historie. Produktion lehnt den Platzhalter-PIN und den alten PIN ab |
+| `study.timezone` | times shown in the web app, evening gate, end-session time in the app |
+| `ui.locale`, `ui.thumbnailsPerActivity` | date/time format in the web app, number of preview images per activity in round 2 |
+| `windowing.windowMinutes` | grid in "Adjust times" and texts ("five-minute"/"ten-minute"), admin label of the chunks. Must divide 60 and every UTC offset of the time zone (Berlin: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60), otherwise the server does not start |
+| `activities[].displayLabel` | "Activity" dropdown in both rounds |
+| `categories[]` (`displayLabel`, `icon`, `description`) | "Activity type" selection and the "Categories" legend. Allowed icons: `briefcase, pause, ellipsis, coffee, users, house, book-open, heart, circle` |
+| `experienceItems[]` | one rating scale per item and category (`appliesTo`), scale `min..max`, anchors, required on submit (`requiredOnSubmit`), short label in the summary ("Mental demand 4/7") |
+| `texts.rounds`, `texts.progress` | intro, reminder and hint texts of the rounds, step labels at the top. `assistedReminderIncorrectLabelsNotice: null` hides the notice about incorrect labels. Without injection (`overreliance.enabled: false` or `rate: 0`) it must be `null`, otherwise the server does not start |
+| `overreliance.*` | deliberately incorrect labels in round 2 (admin column `is_incorrect_annotation_injected`). `rate: 0` means never inject, no fallback label either. Injection needs at least 2 categories |
+| `surveys.onboarding/final` | survey links including the participant parameter (`participantParameter`) |
+| `surveys.payoutUrl` | target of `/api/payout` ("Payout" link on the survey page). Redirects only when signed in with completed onboarding, otherwise 401/403 |
+| `devices.formFactors` | "Camera type" selection in the app's Study Settings |
+| `capture.intervalMsByFormFactor` | capture interval the app sets via BLE `0x03` on every camera connection (5000–600000 ms) |
+| `schedule.endSessionAvailableAt` | when "End session" becomes available in the app (study time zone) |
+| `texts.app` | notification and onboarding texts of the app, "Available from {{time}}" |
+| `app.studySettingsPin` | Study Settings PIN (4–8 digits). **Set a new one for every study**; the old PIN is in the public git history. Production refuses the placeholder PIN and the old PIN |
 
-Wichtig: Die `key`-Werte (Aktivitäten, Kategorien, Items, Bauformen) landen in
-der Datenbank. Während einer laufenden Studie nicht umbenennen oder löschen,
-nur neue hinzufügen. Anzeigetexte (`displayLabel`, Fragen, Texte) dürfen sich
-ändern.
+Important: the `key` values (activities, categories, items, form factors) are
+stored in the database. Do not rename or remove them during a running study;
+only add new ones. Display texts (`displayLabel`, questions, texts) may change.
 
-### 3. Lokal prüfen
+### 3. Check locally
 
 ```bash
 cd server && npm run build
 BLINKS_STUDY_CONFIG=../config/study.yaml node -e 'require("./dist/study-config")' && echo OK
 ```
 
-Zum Durchklicken einen Server mit eigener Datenablage starten. Damit das
-Abend-Gate offen ist, eine Kopie mit `reconstructionOpensAt: "00:00"` nehmen:
+To click through, start a server with its own data directories. To open the
+evening gate, use a copy with `reconstructionOpensAt: "00:00"`:
 
 ```bash
 sed 's/reconstructionOpensAt: "[0-9:]*"/reconstructionOpensAt: "00:00"/' \
   ../config/study.yaml > /tmp/study.local.yaml
-BLINKS_STUDY_CONFIG=/tmp/study.local.yaml DATA_DIR=/tmp/neu/data \
-  RECORDINGS_DIR=/tmp/neu/rec DISABLE_PUSH=1 npm run dev
-# zweites Terminal
+BLINKS_STUDY_CONFIG=/tmp/study.local.yaml DATA_DIR=/tmp/new/data \
+  RECORDINGS_DIR=/tmp/new/rec DISABLE_PUSH=1 npm run dev
+# second terminal
 cd drm-web && npm run dev    # http://localhost:3002
 ```
 
-Web und App brauchen für eine neue Config **keinen neuen Build**, sie laden die
-Werte zur Laufzeit. Wie eine völlig andere Studie aussieht, zeigt
-`config/study.test.yaml` (5 Labels, 2 Kategorien, 3 Items, 10-Minuten-Fenster,
-Texte mit „[TEST]“).
+The web app and the app need **no new build** for a new config; they load the
+values at runtime. `config/study.test.yaml` shows what a completely different
+study looks like (5 labels, 2 categories, 3 items, 10-minute window, texts
+with "[TEST]").
 
-### 4. Ausrollen
+### 4. Roll out
 
-1. `config/study.yaml` auf dem Server ablegen; `deploy.sh` validiert sie und
-   startet die Dienste neu.
-2. **Nicht während einer Abend-Rekonstruktion deployen.** Das Web lädt die
-   Config einmal pro Anmeldung bzw. Seitenaufruf. Ein offener Tab mit altem
-   Stand sieht erst nach dem Neuladen die neuen Werte. Ein Tab mit der Web-Version
-   vor dieser Umstellung (alte Felder `workloadRating`/`recoveryRating`) bekommt
-   beim Speichern `400` und muss neu geladen werden.
-3. App: Jedes Telefon muss sich nach der Umstellung **einmal online anmelden**
-   (oder bei Verbindung die Study Settings öffnen). Erst dann ist der PIN
-   bekannt und das Aufnahmeintervall wird gesetzt. Vorher sind die Study
-   Settings gesperrt und die Kamera nimmt mit ihrem Firmware-Default auf
-   (15 s Bodycam, 30 s Glasses). Danach funktioniert alles auch offline aus
-   dem Cache. Abmelden löscht den Cache dieses Users.
-4. Nach dem ersten Verbinden der Kamera in den Study Settings prüfen, dass
-   keine Warnung angezeigt wird (geklemmtes Intervall oder abweichende Bauform).
-   Im Admin-Bereich steht jede Verbindung in der Tabelle „Camera device info“.
+1. Put `config/study.yaml` on the server; `deploy.sh` validates it and
+   restarts the services.
+2. **Do not deploy during an evening reconstruction.** The web app loads the
+   config once per sign-in or page load. An open tab shows the new values only
+   after a reload. A tab still running a web version that sends the legacy
+   fields `workloadRating`/`recoveryRating` gets `400` on save and must be
+   reloaded.
+3. App: every phone must **sign in online once** after the change (or open
+   Study Settings while connected). Only then is the PIN known and the capture
+   interval set. Before that, Study Settings is locked and the camera records
+   with its firmware default (15 s necklace, 30 s glasses). Afterwards
+   everything also works offline from the cache. Signing out deletes that
+   user's cache.
+4. After the first camera connection, check in Study Settings that no warning
+   is shown (clamped interval or different form factor). In the admin area,
+   every connection is listed in the "Camera device info" table.

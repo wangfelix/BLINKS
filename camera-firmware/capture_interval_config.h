@@ -1,7 +1,7 @@
 #pragma once
 // Runtime capture interval (control opcode 0x03) + device info JSON
-// (characteristic ...0004). Spec: docs/study-config-contract.md and
-// docs/ble-capture-config.md.
+// (characteristic ...0004). Spec: docs/ble-protocol.md and
+// docs/study-config-documentation.md.
 //
 // Header-only and free of Arduino APIs so it is host-testable
 // (glasses-camera-firmware-pio/tests/capture_interval_test.cpp).

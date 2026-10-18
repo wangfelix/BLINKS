@@ -1,4 +1,4 @@
-// Client-facing projections of the study config (contract sections 4.1, 4.3,
+// Client-facing projections of the study config (documentation sections 4.1, 4.3,
 // 4.6). Only whitelisted fields leave the server: no VLM prompts or
 // definitions, no overreliance values, no privacy settings. The PIN goes to
 // participants only (app-config) and is never logged.
@@ -88,7 +88,7 @@ export const appConfigResponse = (config: StudyConfig = loadedStudyConfig) => ({
   studySettingsPin: config.app.studySettingsPin,
 });
 
-/** Contract 4.6 rule 1: every configured item key, null when unanswered. */
+/** Documentation 4.6 rule 1: every configured item key, null when unanswered. */
 export const ratingsResponse = (
   stored: Record<string, number>,
   config: StudyConfig = loadedStudyConfig,
@@ -103,7 +103,7 @@ export const ratingsResponse = (
   );
 
 /**
- * Contract 4.6 rules 2-4. submitCategory: undefined = draft save (no
+ * Documentation 4.6 rules 2-4. submitCategory: undefined = draft save (no
  * required check); string|null = final category on submit. Errors are
  * returned WITHOUT the "activity <i>: " prefix.
  */

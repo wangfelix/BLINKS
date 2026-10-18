@@ -1,6 +1,6 @@
 import type { AppTexts } from "@/study/types/app-config";
 
-// Offline safety net only (contract 4.5: recording must never fail because of
+// Offline safety net only (documentation 4.5: recording must never fail because of
 // the config). Used for the recording notification and the onboarding form
 // while this account has never loaded GET /api/app-config. The study's real
 // texts come from config/study.yaml; these mirror config/study.example.yaml.

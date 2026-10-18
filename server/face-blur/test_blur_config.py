@@ -2,7 +2,7 @@
 
 cv2, numpy and deface are stubbed, so this only covers what the study config
 controls: parameters, METHOD_TAG, and the enabled=false exit path
-(docs/study-config-contract.md section 6).
+(docs/study-config-documentation.md section 6).
 
 Run from server/face-blur:  python -m unittest test_blur_config
 """

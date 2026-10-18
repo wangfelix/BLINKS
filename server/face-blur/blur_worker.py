@@ -43,7 +43,7 @@ Infrastructure config (environment variables):
     BATCH_SIZE        rows fetched per poll                    (default: 50)
     BLINKS_STUDY_CONFIG  study config path (default: <repo>/config/study.yaml)
 
-Study config (privacy.faceBlur, see docs/study-config-contract.md section 6):
+Study config (privacy.faceBlur, see docs/study-config-documentation.md section 6):
     enabled           false = the server stores new frames as already done
                       (face_method='disabled'); this worker then anonymizes the
                       remaining 'pending' backlog once and exits with
@@ -349,7 +349,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
     if not FACE_BLUR_ENABLED:
-        # Contract section 6: frames already 'pending' when blur was switched
+        # Documentation section 6: frames already 'pending' when blur was switched
         # off stay in this worker path; anonymize that backlog once, then stop.
         _log(
             "NOTICE: privacy.faceBlur.enabled=false in the study config. New frames "

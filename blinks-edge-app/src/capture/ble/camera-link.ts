@@ -95,7 +95,7 @@ interface CameraLinkEvents {
   onStatusChange: (status: CameraLinkStatus) => void;
   onDeviceIdentified: (deviceId: string) => void;
   // Result of the capture-interval handshake (BLE doc section 3, step 4),
-  // reported to the server as device info (contract 4.8).
+  // reported to the server as device info (documentation 4.8).
   onCaptureConfigReport?: (
     report: CaptureConfigReport,
     deviceId: string,
@@ -357,7 +357,7 @@ export class CameraLink {
       // before the up-to-5 s interval handshake.
       if (this.desiredPaused) await this.writePausedState().catch(() => {});
 
-      // Then device info + 0x03 (docs/ble-capture-config.md section 3), then
+      // Then device info + 0x03 (docs/ble-protocol.md section 6), then
       // frame notifications. Bounded by CAPTURE_INTERVAL_TIMEOUT_MS; on
       // timeout or disconnect the handshake is aborted (no stray writes
       // afterwards). Never aborts recording.

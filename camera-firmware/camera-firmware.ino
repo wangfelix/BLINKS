@@ -32,7 +32,7 @@
 #define CONTROL_OP_PAUSE  0x01
 #define CONTROL_OP_RESUME 0x02
 // 0x03 = SET_CAPTURE_INTERVAL, 5 bytes [0x03][uint32 BE intervalMs], see
-// capture_interval_config.h and docs/ble-capture-config.md.
+// capture_interval_config.h and docs/ble-protocol.md.
 
 // ---- Sampling rate --------------------------------------------------------
 // Compiled-in DEFAULT. The app sets the study interval with opcode 0x03 on

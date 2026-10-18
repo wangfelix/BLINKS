@@ -58,7 +58,7 @@ export interface StudySurveyLink {
   participantParameter: string;
 }
 
-/** GET /api/study-config (docs/study-config-contract.md, section 4.1). */
+/** GET /api/study-config (docs/study-config-documentation.md, section 4.1). */
 export interface StudyConfigResponse {
   study: { timezone: string };
   ui: { locale: string; thumbnailsPerActivity: number };

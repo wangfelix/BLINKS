@@ -1,5 +1,5 @@
 // ===========================================================================
-// Study configuration schema (contract: docs/study-config-contract.md).
+// Study configuration schema (documentation: docs/study-config-documentation.md).
 //
 // SINGLE SOURCE OF TRUTH for the shape of config/study.yaml. The JSON Schema
 // consumed by the Python workers (config/study-config.schema.json) is
@@ -11,9 +11,9 @@
 //      Python workers validate the same shape with `jsonschema`).
 //   2. Cross-field checks (`studyConfigCrossCheckIssues` below). These are
 //      NOT representable in JSON Schema; the Python workers re-implement the
-//      subset they depend on (see docs/study-config-contract.md, section 2).
+//      subset they depend on (see docs/study-config-documentation.md, section 1.2).
 //
-// Deliberately NOT part of the design (decision Felix): no config version,
+// Deliberately NOT part of the design: no config version,
 // no hash, no DB snapshot. Values come from the file and are validated at
 // start-up; an invalid file stops the process with `path.to.field: reason`.
 //
@@ -115,7 +115,7 @@ const DevicesSection = z
   .strict();
 
 /**
- * Firmware accepts 5 s .. 10 min (see docs/ble-capture-config.md). 5 s is the
+ * Firmware accepts 5 s .. 10 min (see docs/ble-protocol.md). 5 s is the
  * hardware-tested minimum; sending one 58 KB frame alone takes ~2.6 s.
  * Same constants in both firmwares.
  */
@@ -434,7 +434,7 @@ const duplicateKeyIssues = (
   return issues;
 };
 
-// --- window alignment (review of PR #1, M3, decided by Felix: variant A) ------
+// --- window alignment ---------------------------------------------------------
 // Windows are epoch-aligned (chunkStartOf in db.ts: t - t % W). They fall on
 // local W-minute marks, and therefore never cross local midnight, exactly
 // when W divides 60 AND every UTC offset of the study time zone. This is
@@ -477,7 +477,7 @@ const minutesOf = (time: string): number => {
 
 /**
  * Checks that JSON Schema cannot express. The Node loader runs all of them;
- * the Python workers run the ones marked [py] (contract doc, section 2).
+ * the Python workers run the ones marked [py] (documentation, section 1.2).
  */
 export const studyConfigCrossCheckIssues = (
   config: StudyConfig,
@@ -588,8 +588,8 @@ export const studyConfigCrossCheckIssues = (
     issues.push({ path: "study.timezone", message: "unknown IANA timezone" });
   }
 
-  // [py] A deliberately wrong category needs an alternative (review m1:
-  // crypto.randomInt(0) threw for a single-category study).
+  // [py] A deliberately wrong category needs an alternative (a single-category
+  // study has none).
   const injects = config.overreliance.enabled && config.overreliance.rate > 0;
   if (injects && config.categories.length < 2) {
     issues.push({

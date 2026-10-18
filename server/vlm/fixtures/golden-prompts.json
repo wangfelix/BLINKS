@@ -1,5 +1,5 @@
 {
-  "_comment": "Frozen 2026-10-17 from the pre-config vlm_worker.py (commit 93b511d). Golden reference: config/study.example.yaml must render exactly these strings. Do not edit.",
+  "_comment": "Frozen from the pre-config vlm_worker.py (commit 93b511d). Golden reference: config/study.example.yaml must render exactly these strings. Do not edit.",
   "system": "You analyze short sequences of frames from a body-worn (first-person) camera for a research study on knowledge work. The frames are given in chronological order and together span about five minutes. Faces in the images are intentionally pixelated for privacy; describe the scene and activity, never attempt to identify people. Judge the sequence as a whole: classify the DOMINANT activity of the window, not any single frame. Use incremental probability elicitation: first determine the most likely label, then assess its confidence, then distribute probability across every allowed label. Do this independently for activity and category. Do not reveal your reasoning or output chosen-label fields; the server derives each label from the corresponding distribution. Activity describes visible behavior only. Purpose and restorative intent belong exclusively in category.",
   "user": [
     {

@@ -276,7 +276,7 @@ export const mergeWithNextActivity = (
   const rawLabel = agreedValue(first.rawLabel, second.rawLabel);
   const categoryLabel = agreedValue(first.categoryLabel, second.categoryLabel);
   // Per item: kept only when it applies to the surviving category and both
-  // rows gave the same answer (contract 4.6, rule 6).
+  // rows gave the same answer (documentation 4.6, rule 6).
   const ratings: ExperienceRatings = {};
   for (const item of experienceItems()) {
     ratings[item.key] =

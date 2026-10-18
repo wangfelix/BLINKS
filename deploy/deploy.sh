@@ -118,7 +118,7 @@ grep -qE 'example\.(org|com)' "$STUDY_CONFIG" \
   && die "config/study.yaml still contains example.org/example.com placeholder links"
 # Placeholder PIN from study.example.yaml or the retired pre-config PIN (by
 # SHA-256, not in clear text). The loaders enforce the same rule in production
-# (review of PR #1, m2); this early check fails before any build.
+# as well; this early check fails before any build.
 study_pin() { sed -nE 's/^[[:space:]]*studySettingsPin:[[:space:]]*["'"'"']?([0-9]+)["'"'"']?.*/\1/p' "$1" | head -1; }
 STUDY_PIN="$(study_pin "$STUDY_CONFIG")"
 [ -n "$STUDY_PIN" ] || die "config/study.yaml has no app.studySettingsPin"

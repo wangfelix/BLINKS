@@ -54,7 +54,7 @@ before `afterMidnightCutoff` (12:00) clamp the reminder to `latestAt` (23:50).
 ### Study config
 
 Every study setting lives in one YAML file, validated at start-up by the
-server and both Python workers (`docs/study-config-contract.md`, how to set up
+server and both Python workers (`docs/study-config-documentation.md`, how to set up
 a new study: `config/README.md`). Resolution: `BLINKS_STUDY_CONFIG` →
 `config/study.yaml` (gitignored) → `config/study.example.yaml` (only outside
 production, with a warning). An invalid file stops the process with exit code 2
@@ -144,7 +144,7 @@ npm run test-auth-onboarding  # legacy migration + first-run state transitions
 npm run test-admin-data       # admin table/CSV/photo read model
 npm run test-push             # bedtime math + Expo ticket acceptance
 npm run test-study-config-schema   # schema, example, generated JSON Schema in sync
-npm run build && npm run test-study-config-runtime  # loader exit 2/F1, endpoints, ratings, device-info (study.test.yaml)
+npm run build && npm run test-study-config-runtime  # loader exit 2/production rules, endpoints, ratings, device-info (study.test.yaml)
 npm run test-ratings-migration     # workload/recovery -> activity_ratings (counts, idempotent, rollback)
 # dry run of the migration on a COPY of a real DB (refuses paths outside /tmp, aggregated output only):
 #   mkdir -p /tmp/mig-test && cp <copy>.db /tmp/mig-test/work.db

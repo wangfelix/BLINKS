@@ -112,7 +112,7 @@ persisted future retry time.
 ### Study settings (study config, not env)
 
 Since the study config rollout everything study-related comes from the validated study
-config (`docs/study-config-contract.md`): `vlm.model`,
+config (`docs/study-config-documentation.md`): `vlm.model`,
 `vlm.request.{temperature, reasoningEffort, maxCompletionTokens}` (paper:
 `azure.gpt-5.6-terra`, `0`, `high`, `8192`), `vlm.maxFramesPerWindow` (20),
 `vlm.prompts.*` (templates), `activities`, `categories`,

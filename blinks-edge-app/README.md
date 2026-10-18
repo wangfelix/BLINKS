@@ -60,7 +60,7 @@ On every camera connection the app writes the capture interval for the
 selected camera type via BLE opcode `0x03`, re-reads the device-info
 characteristic `…0004`, shows clamp/mismatch warnings in Study Settings and
 reports the result (main session only, best-effort queue) to
-`POST /api/recording/device-info` (`docs/ble-capture-config.md`).
+`POST /api/recording/device-info` (`docs/ble-protocol.md`).
 
 ## Recording restoration
 

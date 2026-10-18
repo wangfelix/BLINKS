@@ -1,6 +1,6 @@
 import { CONTROL_OPCODE_SET_INTERVAL } from "@/capture/ble/ble-constants";
 
-// Contents of the device-info characteristic 0004 (docs/ble-capture-config.md).
+// Contents of the device-info characteristic 0004 (docs/ble-protocol.md).
 export interface CameraDeviceInfo {
   v: number;
   fw: string;

@@ -2,7 +2,7 @@
 
 Shared by server/vlm/vlm_worker.py and server/face-blur/blur_worker.py, so
 both validate the SAME file the Node server validates
-(docs/study-config-contract.md, section 1):
+(docs/study-config-documentation.md, section 1):
 
   1. YAML parse, 2. shape via jsonschema against config/study-config.schema.json
   (generated from server/src/study-config/schema.ts), 3. the cross-checks
@@ -14,7 +14,7 @@ Resolution (identical to server/src/study-config/load.ts):
     missing file is fatal
   - <repo>/config/study.yaml
   - <repo>/config/study.example.yaml ONLY outside production, with a warning.
-    Production = NODE_ENV=production or BLINKS_ENV=production (F1). The
+    Production = NODE_ENV=production or BLINKS_ENV=production. The
     example is refused in production even when named explicitly.
 
 Only default: privacy.faceBlur.enabled = True (set explicitly here).
@@ -132,7 +132,7 @@ def time_zone_offsets_minutes(time_zone: str, now: "datetime | None" = None) -> 
 def allowed_window_minutes(time_zone: str, now: "datetime | None" = None) -> list[int]:
     """windowMinutes values whose epoch-aligned windows sit on local marks.
 
-    Review of PR #1, M3 (variant A): W must divide 60 and every UTC offset of
+    W must divide 60 and every UTC offset of
     the study time zone, so windows never cross local midnight or a DST switch.
     """
     offsets = time_zone_offsets_minutes(time_zone, now)
@@ -140,7 +140,7 @@ def allowed_window_minutes(time_zone: str, now: "datetime | None" = None) -> lis
 
 
 def _cross_check_issues(config: dict[str, Any]) -> list[tuple[str, str]]:
-    """The cross-checks marked [py] in the contract (section 1).
+    """The cross-checks marked [py] in the study config documentation (section 1.2).
 
     Deliberately a SUBSET of studyConfigCrossCheckIssues in
     server/src/study-config/schema.ts: only rules the workers depend on. The
@@ -224,7 +224,7 @@ def load_study_config_file(config_path: Path | str) -> dict[str, Any]:
     return parse_study_config(Path(config_path).read_text(encoding="utf-8"), config_path)
 
 
-# Production-only content rules (review of PR #1, m2), same as
+# Production-only content rules, same as
 # productionConfigIssues in server/src/study-config/load.ts: placeholder PIN or
 # links from study.example.yaml, or the retired pre-config PIN (compared by
 # SHA-256 so it is not written in clear text again).
@@ -285,7 +285,7 @@ def load_study_config_or_exit(log_prefix: str = "") -> tuple[dict[str, Any], Pat
     return config, config_path
 
 
-# --- Prompt templates (contract section 3, golden-tested) ---------------------
+# --- Prompt templates (documentation section 3, golden-tested) ----------------
 
 def render_template(template: str, values: dict[str, str]) -> str:
     """Single-pass {{name}} replacement; inserted values are not re-scanned."""

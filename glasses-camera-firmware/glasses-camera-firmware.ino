@@ -51,7 +51,7 @@ int lightSleepStatus = -1;
 #define CONTROL_OP_PAUSE  0x01
 #define CONTROL_OP_RESUME 0x02
 // 0x03 = SET_CAPTURE_INTERVAL, 5 bytes [0x03][uint32 BE intervalMs], see
-// capture_interval_config.h and docs/ble-capture-config.md.
+// capture_interval_config.h and docs/ble-protocol.md.
 
 // ---- Sampling rate --------------------------------------------------------
 // 30 s rather than the bodycam's 15 s: the glasses only reach about four hours

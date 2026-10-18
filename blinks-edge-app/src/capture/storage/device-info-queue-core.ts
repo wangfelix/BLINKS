@@ -1,7 +1,7 @@
 import { isApiError } from "@/application/api/api-error";
 import type { DeviceInfoReportRequest } from "@/capture/api/capture-api";
 
-// Best-effort, per-participant queue for camera device-info reports (contract
+// Best-effort, per-participant queue for camera device-info reports (documentation
 // 4.8). Kept free of native modules so it can be tested in Node; the app
 // instance in device-info-queue.ts wires it to SecureStore and the API client.
 export interface DeviceInfoQueueStorage {
