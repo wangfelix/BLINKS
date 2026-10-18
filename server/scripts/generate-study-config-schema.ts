@@ -38,7 +38,7 @@ export const renderStudyConfigJsonSchema = (): string => {
           "GENERATED from server/src/study-config/schema.ts by " +
           "server/scripts/generate-study-config-schema.ts. Do not edit by hand. " +
           "Cross-field checks are not part of this schema; see " +
-          "docs/study-config-contract.md.",
+          "docs/study-config-documentation.md.",
       },
       null,
       2,

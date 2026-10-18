@@ -1,4 +1,4 @@
-// Window alignment (review of PR #1, M3, decided: variant A). Windows are
+// Window alignment. Windows are
 // epoch-aligned (chunkStartOf), so the loader only accepts windowMinutes W
 // that divide 60 and every UTC offset of the study time zone. Then every
 // window starts on a local W-minute mark and none crosses local midnight,

@@ -70,7 +70,7 @@ export const injectIncorrectAnnotations = (
     presentedCategoryLabel: activity.categoryLabel,
     isIncorrectAnnotationInjected: false,
   }));
-  // rate 0 = never inject (decided 17.10.: no fallback label either).
+  // rate 0 = never inject (no fallback label either).
   if (!settings.enabled || settings.rate === 0) return prepared;
   const candidates = prepared
     .map((activity, index) => ({ activity, index }))

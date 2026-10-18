@@ -281,14 +281,14 @@ export interface PhotoFrameRow {
 // windows at ingestion, and the VLM worker labels whole chunks (not
 // individual frames). Windows are epoch-aligned (t - t % W). The config
 // loader only accepts a window W that divides 60 and every UTC offset of
-// study.timezone (review of PR #1, M3), so every window starts on a local
+// study.timezone, so every window starts on a local
 // W-minute mark and none crosses local midnight, also on DST days (Europe/
 // Berlin, 5 min: 276 windows on 2026-03-29, 300 on 2026-10-25).
 // scripts/test-window-alignment.ts covers this.
 
 export const CHUNK_WINDOW_MS = WINDOW_MS;
 
-// privacy.faceBlur.enabled=false (contract section 6): new frames are stored
+// privacy.faceBlur.enabled=false (documentation section 6): new frames are stored
 // as already anonymized (face_method='disabled', face_count=NULL) so the
 // three face_status='done' gates stay unchanged. Existing pending frames are
 // NOT touched.
@@ -462,7 +462,7 @@ function migrateDropColumn(table: string, column: string): void {
   }
 }
 
-// --- Generic experience ratings (study config, contract section 7) --------
+// --- Generic experience ratings (study config, documentation section 7) ------
 // One row per answered item; unanswered = no row. item_key is validated by the
 // server against experienceItems[] in the study config, not by the DB (the
 // config is deliberately not stored in the DB).
@@ -890,7 +890,7 @@ export function initDb(dbPath: string): void {
   `);
 
   // Camera device info reported by the app after each BLE connect
-  // (contract 4.8, F3). Append-only; PK makes app retries idempotent.
+  // (documentation 4.8). Append-only; PK makes app retries idempotent.
   db.exec(`
     CREATE TABLE IF NOT EXISTS device_info_reports (
       participant              TEXT    NOT NULL,
@@ -2769,7 +2769,7 @@ export function exportFramesCsv(q: ExportQuery): string {
 
 // --- Research admin read model ---------------------------------------------
 
-// --- Device info reports (contract 4.8) ---------------------------------------
+// --- Device info reports (documentation 4.8) ---------------------------------
 
 export interface DeviceInfoReportInput {
   event_id: string;
@@ -2799,7 +2799,7 @@ const DEVICE_INFO_COMPARED_COLUMNS = [
  * (retry); "conflict" = same eventId with different content.
  */
 /**
- * Upper bound per participant (append-only table, review n5). The app sends
+ * Upper bound per participant (append-only table). The app sends
  * one report per BLE connect; a study day with frequent reconnects stays far
  * below this. Further reports are acknowledged but not stored ("capped").
  */

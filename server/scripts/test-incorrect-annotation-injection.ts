@@ -146,7 +146,7 @@ assert.ok(
   "replacement labels come from the configured vocabulary",
 );
 
-// Review m1: a single category must not crash (crypto.randomInt(0) threw).
+// A single category must not crash (crypto.randomInt(0) threw).
 // The loader refuses enabled + 1 category; the module keeps the original.
 const oneCategory = { ...PAPER, categoryKeys: ["work"] };
 const single = injectIncorrectAnnotations([activity(0, 0.95)], undefined, oneCategory)[0];
@@ -154,7 +154,7 @@ assert.equal(single.isIncorrectAnnotationInjected, true);
 assert.equal(single.presentedCategoryLabel, "work", "no alternative category: unchanged");
 assert.notEqual(single.presentedRawLabel, single.rawLabel, "activity still swapped");
 
-// rate 0 = never inject (decided 17.10.): no rate-based selection AND no
+// rate 0 = never inject: no rate-based selection AND no
 // fallback, for many activities and for the smallest possible input.
 const allBelow = Array.from({ length: 200 }, (_, index) => activity(index, 0.5 - index * 0.001));
 const allAbove = Array.from({ length: 200 }, (_, index) => activity(index, 0.99));

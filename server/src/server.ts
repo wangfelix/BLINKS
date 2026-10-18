@@ -544,7 +544,7 @@ app.get(
   },
 );
 
-// --- Study config for clients (contract 4.1-4.3) -------------------------------
+// --- Study config for clients (documentation 4.1-4.3) ------------------------
 
 app.get(
   "/api/study-config",
@@ -561,7 +561,7 @@ app.get("/api/app-config", requireAuth, (_req: AuthenticatedRequest, res) => {
   res.json(appConfigResponse());
 });
 
-// Payout redirect (contract 4.2). Opened as a same-origin browser link, so no
+// Payout redirect (documentation 4.2). Opened as a same-origin browser link, so no
 // bearer header: the blinks_token cookie is accepted as on /frames/*, and the
 // participant must have completed onboarding (as the master Next.js gate did).
 // GET-only and side-effect free, so the cookie fallback is CSRF-safe. Without
@@ -1159,7 +1159,7 @@ const MAX_ACTIVITIES_PER_ROUND = 300;
 // Validates the replace-all activities body shared by draft PUT and submit.
 // requireLabels (submit) additionally demands a supported activity enum AND a
 // categoryLabel on every activity, plus every requiredOnSubmit experience
-// item whose appliesTo contains the final category (contract 4.6).
+// item whose appliesTo contains the final category (documentation 4.6).
 // Every span must lie within the pinned study day and spans must not overlap,
 // preserving one unambiguous ordered reconstruction. On round 1 every
 // activity must be user-sourced and carries no VLM provenance (there is no
@@ -1242,7 +1242,7 @@ const parseActivityInputs = (
       return { error: `activity ${index}: categoryLabel is required to submit` };
     }
 
-    // Experience ratings (contract 4.6): every sent value is stored as sent,
+    // Experience ratings (documentation 4.6): every sent value is stored as sent,
     // even for items of another category (a draft keeps an answer when the
     // participant flips the category back and forth); submit requires every
     // requiredOnSubmit item that applies to the final category.
@@ -1915,7 +1915,7 @@ function handleRecordingEvent(
   }
 }
 
-// --- Device info (contract 4.8, F3) -------------------------------------------
+// --- Device info (documentation 4.8) -----------------------------------------
 
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9]{1,64}$/;
 const MAX_DEVICE_INFO_JSON_CHARS = 4096;
@@ -2041,7 +2041,7 @@ app.post(
     }
     if (outcome === "created") {
       // fw/formFactor come from the BLE device: strip control characters and
-      // cap the length before logging (log injection, review n1). The DB keeps
+      // cap the length before logging (log injection). The DB keeps
       // the values verbatim.
       const unknownFormFactors = [report.settings_form_factor, report.form_factor].filter(
         (value): value is string => value !== null && !FORM_FACTOR_KEYS.includes(value),

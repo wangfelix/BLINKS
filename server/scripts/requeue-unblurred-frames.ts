@@ -1,5 +1,5 @@
 // Re-anonymize frames that were stored while privacy.faceBlur.enabled was
-// false (face_method='disabled', review of PR #1, m4). Those frames are
+// false (face_method='disabled'). Those frames are
 // served unblurred and stay so after blur is switched back on, unless they
 // are requeued here. Prints counts only (no participant data).
 //

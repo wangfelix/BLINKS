@@ -224,7 +224,7 @@ class LoaderTest(unittest.TestCase):
             messages = [message for path, message in exc.issues if path == "windowing.windowMinutes"]
             return messages[0] if messages else None
 
-    def test_window_alignment_review_m3(self) -> None:
+    def test_window_alignment_rule(self) -> None:
         berlin = "1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60"
         self.assertEqual(", ".join(map(str, blinks_study_config.allowed_window_minutes("Europe/Berlin"))), berlin)
         self.assertEqual(blinks_study_config.allowed_window_minutes("Asia/Kolkata"), [1, 2, 3, 5, 6, 10, 15, 30])

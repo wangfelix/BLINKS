@@ -1096,7 +1096,7 @@ const main = async (): Promise<void> => {
 
   // ...plus the category's required experience items: a work activity
   // without ratings.mental_demand cannot be submitted, and out-of-range
-  // ratings are rejected outright (contract 4.6 error texts).
+  // ratings are rejected outright (documentation 4.6 error texts).
   await api("/api/reconstruction/round/1/submit", {
     method: "POST",
     token,

@@ -66,7 +66,7 @@ Config (environment variables; a local .env next to this file is auto-loaded):
     BLINKS_STUDY_CONFIG   study config path (default: <repo>/config/study.yaml;
                             outside production falls back to study.example.yaml)
 
-Study settings (from the study config, see docs/study-config-contract.md):
+Study settings (from the study config, see docs/study-config-documentation.md):
     vlm.model, vlm.request.{temperature, reasoningEffort, maxCompletionTokens},
     vlm.maxFramesPerWindow, vlm.prompts.*, activities, categories,
     windowing.windowMinutes, study.timezone. The former env vars VLM_MODEL,
@@ -197,7 +197,7 @@ class InFlightAttempt:
 # Closed, visually grounded activity enum and the independent category enum,
 # both from the study config (activities[].key / categories[].key, same list
 # as the server API and drm-web). Off-enum output fails validation and is
-# retried. Prompts are rendered from vlm.prompts (contract section 3).
+# retried. Prompts are rendered from vlm.prompts (documentation section 3).
 ACTIVITY_DEFINITIONS = {
     activity["key"]: activity["vlmDefinition"] for activity in STUDY_CONFIG["activities"]
 }

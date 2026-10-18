@@ -1,5 +1,5 @@
 // Migration test: activities.workload_rating/recovery_rating ->
-// activity_ratings (study config, contract section 7), plus the removal of
+// activity_ratings (study config, documentation section 7), plus the removal of
 // the camera_form_factor CHECK. Starts from the exact pre-migration schema
 // (fixtures/recordings-schema-pre-study-config.sql) with synthetic rows.
 //

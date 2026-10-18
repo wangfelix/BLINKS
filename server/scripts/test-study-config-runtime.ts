@@ -1,5 +1,5 @@
 // Runtime tests for the study config (study config rollout):
-//   - loader: exit 2 on invalid/missing files, F1 production rules
+//   - loader: exit 2 on invalid/missing files, production rules
 //   - client projections + ratings rules against BOTH configs (pure)
 //   - HTTP: /api/study-config, /api/app-config, /api/payout,
 //     /api/recording/device-info against a server started with
@@ -46,7 +46,7 @@ const runLoader = (env: Record<string, string | undefined>) => {
 };
 
 // study.test.yaml uses example.org links on purpose; production refuses
-// those (m2), so the production cases run on a copy with neutral links.
+// those, so the production cases run on a copy with neutral links.
 const productionReady = (source: string): string =>
   source.replace(/https:\/\/([a-z.]*)example\.org/g, "https://$1blinks-test.invalid");
 const writeConfig = (name: string, source: string): string => {
@@ -67,7 +67,7 @@ test("loader: valid explicit config loads (exit 0)", () => {
   assert.match(result.stdout, /LOADED/);
 });
 
-test("loader m2: production refuses placeholder links and PINs (copy of the example)", () => {
+test("loader: production refuses placeholder links and PINs (copy of the example)", () => {
   const links = runLoader({ BLINKS_STUDY_CONFIG: TEST_CONFIG, NODE_ENV: "production" });
   assert.strictEqual(links.status, 2);
   assert.match(links.stderr, /surveys\.payoutUrl: is a placeholder example\.org/);
@@ -118,7 +118,7 @@ test("loader: rate 0 behaves like enabled false (notice must be null, 1 category
   assert.ok(!/overreliance\.enabled: needs at least 2 categories/.test(singleResult.stderr), singleResult.stderr);
 });
 
-test("loader m1: overreliance on with a single category exits 2", () => {
+test("loader: overreliance on with a single category exits 2", () => {
   const source = fs.readFileSync(EXAMPLE, "utf8");
   const start = source.indexOf("\ncategories:\n");
   const end = source.indexOf("\nexperienceItems:", start);
@@ -174,7 +174,7 @@ test("loader: explicit missing file exits 2", () => {
 });
 
 const hasRealStudyYaml = fs.existsSync(path.join(REPO_ROOT, "config", "study.yaml"));
-test("loader F1: example is refused in production, explicit or as fallback", () => {
+test("loader: example is refused in production, explicit or as fallback", () => {
   const explicit = runLoader({ BLINKS_STUDY_CONFIG: EXAMPLE, NODE_ENV: "production" });
   assert.strictEqual(explicit.status, 2);
   assert.match(explicit.stderr, /not allowed in production/);
@@ -192,7 +192,7 @@ test("loader: outside production the example is used with a warning", () => {
   assert.match(result.stderr, /WARNING: using config\/study\.example\.yaml/);
 });
 
-test("face blur off: frames are stored as done/disabled (contract 6)", () => {
+test("face blur off: frames are stored as done/disabled (documentation 6)", () => {
   const cfg = path.join(tmp, "noblur.yaml");
   fs.writeFileSync(
     cfg,
@@ -237,7 +237,7 @@ test("face blur off: frames are stored as done/disabled (contract 6)", () => {
   });
 });
 
-test("device-info: per-participant cap acknowledges but does not store (n5)", () => {
+test("device-info: per-participant cap acknowledges but does not store", () => {
   const script = `
     const { initDb, recordDeviceInfoReport } = require(${JSON.stringify(path.join(SERVER_DIR, "dist", "db.js"))});
     initDb(process.argv[1]);
@@ -262,7 +262,7 @@ test("device-info: per-participant cap acknowledges but does not store (n5)", ()
   ]);
 });
 
-test("face blur back on: requeue-unblurred-frames resets 'disabled' frames (m4)", () => {
+test("face blur back on: requeue-unblurred-frames resets 'disabled' frames", () => {
   const recordings = path.join(tmp, "requeue");
   fs.mkdirSync(recordings, { recursive: true });
   const dbPath = path.join(recordings, "recordings.db");
@@ -557,7 +557,7 @@ test("http: POST /api/recording/device-info (201, 200 replay, 409, 400, 401)", a
   assert.deepStrictEqual(JSON.parse(rows[0].info_json), body.info, "info stored verbatim incl. extra fields");
   assert.strictEqual(rows[1].info_json, null);
 
-  // n1/n5: device strings are logged sanitized; unknown form factors warned, not rejected
+  // Device strings are logged sanitized; unknown form factors warned, not rejected
   const injected = await request("POST", "/api/recording/device-info", participantToken, {
     ...body,
     eventId: "dev-log",
