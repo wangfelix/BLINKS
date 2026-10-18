@@ -18,8 +18,7 @@ const documentLanguage = (locale: string): string =>
 /**
  * Loads GET /api/study-config once per sign-in (sign-in/out clears the query
  * cache) and installs it before rendering the study page. There are no
- * client-side defaults: while loading nothing renders (as before the config
- * existed); a failed load shows a retry instead of a page with guessed values.
+ * client-side defaults: while loading nothing renders; a failed load shows a retry instead of a page with guessed values.
  */
 export const StudyConfigGate = ({ children }: { children: ReactNode }) => {
   const configQuery = useQuery({

@@ -70,12 +70,10 @@ test("study.example.yaml is valid", () => {
 
 const example: StudyConfig = StudyConfigSchema.parse(exampleRaw);
 
-// Paper-study values as they were hardcoded on master before the study config
-// (server/src/activity-vocabulary.ts, incorrect-annotation-injection.ts).
-// Frozen literals instead of imports: the runtime modules now derive these from
-// the ACTIVE config, so importing them made this test fail under
-// BLINKS_STUDY_CONFIG=config/study.test.yaml (review PR #1, m6). This file
-// only reads study.example.yaml and runs under any active config.
+// Paper-study values (the defaults the code used before the study config
+// existed), kept as literals: the runtime modules derive these values from the
+// ACTIVE config, so importing them would tie this test to BLINKS_STUDY_CONFIG.
+// This file only reads study.example.yaml and runs under any active config.
 const PAPER_ACTIVITY_KEYS = [
   "computer_or_monitor_use",
   "watching_video",
@@ -157,9 +155,9 @@ test("example = today's server constants", () => {
   );
 });
 
-// The former drm-web/app parity checks are gone: both clients read the config
-// at runtime now (FE/study-config). Default-config pixel identity is covered by
-// the FE E2E run, the app fallback texts by blinks-edge-app/scripts/test-study-config.ts.
+// drm-web and the app read the study config at runtime, so their texts are not
+// compared here; the app's offline fallback texts are checked by
+// blinks-edge-app/scripts/test-study-config.ts.
 test("example = frozen paper push texts", () => {
   // push.ts reads texts.push from the study config; frozen paper-study wording:
   assert.equal(example.texts.push.bedtimeTitle, "Before you go to bed");

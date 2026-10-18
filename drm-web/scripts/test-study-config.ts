@@ -51,7 +51,7 @@ const check = (name: string, actual: unknown, expected: unknown) => {
 const DAY = "2026-08-06";
 const at = (time: string) => dayTimeToEpochMs(DAY, time);
 
-// --- Default config = the values the UI hardcoded before -------------------
+// --- Default config (study.example.yaml, paper-study values) ---------------
 
 installStudyConfig(defaultStudyConfig());
 
@@ -60,7 +60,7 @@ check("default window adjective", windowMinuteAdjective(), "five-minute");
 check("default thumbnails per activity", thumbnailsPerActivity(), 5);
 check("default has the 17 activities", activityItems().length, 17);
 check(
-  "default activity order and labels are unchanged",
+  "default activity order and labels",
   [activityItems()[0], activityItems()[16]],
   [
     { value: "computer_or_monitor_use", label: "Computer or monitor use" },
@@ -77,7 +77,7 @@ check(
   ],
 );
 check(
-  "default rating summaries read as before",
+  "default rating summaries",
   [
     experienceRatingSummaryLabel(experienceItemsForCategory("work")[0], 4),
     experienceRatingSummaryLabel(experienceItemsForCategory("break")[0], 2),
