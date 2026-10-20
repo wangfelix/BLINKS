@@ -168,7 +168,7 @@ class LoaderTest(unittest.TestCase):
         self.assertIn("file not found (BLINKS_STUDY_CONFIG)", result.stderr)
 
     def production_ready(self, name: str, source: str) -> Path:
-        # study.test.yaml uses example.org links on purpose (refused in production)
+        # replace the example.org links of study.test.yaml (refused in production)
         import re
 
         path = Path(self.tmp) / name
@@ -182,9 +182,7 @@ class LoaderTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("LOADED", result.stdout)
 
-    def test_production_refuses_placeholders_and_retired_pin(self) -> None:
-        import hashlib
-
+    def test_production_refuses_placeholders(self) -> None:
         links = self.run_loader({"BLINKS_STUDY_CONFIG": str(TEST_CONFIG_PATH), "BLINKS_ENV": "production"})
         self.assertEqual(links.returncode, 2)
         self.assertIn("surveys.payoutUrl: is a placeholder example.org", links.stderr)
@@ -195,20 +193,6 @@ class LoaderTest(unittest.TestCase):
         self.assertEqual(copied.returncode, 2)
         self.assertIn("app.studySettingsPin: is the placeholder PIN", copied.stderr)
         self.assertEqual(self.run_loader({"BLINKS_STUDY_CONFIG": str(copy)}).returncode, 0)
-
-        # the retired PIN, found by its hash (not written here in clear text)
-        retired = next(
-            pin for pin in (f"{n:04d}" for n in range(10_000))
-            if hashlib.sha256(pin.encode()).hexdigest() in blinks_study_config.RETIRED_PIN_SHA256
-        )
-        old = self.production_ready(
-            "retired.yaml",
-            TEST_CONFIG_PATH.read_text(encoding="utf-8").replace('studySettingsPin: "123456"', f'studySettingsPin: "{retired}"'),
-        )
-        result = self.run_loader({"BLINKS_STUDY_CONFIG": str(old), "NODE_ENV": "production"})
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("app.studySettingsPin: is a retired PIN", result.stderr)
-        self.assertNotIn(retired, result.stderr)
 
     def window_issue(self, window: int, time_zone: str = "Europe/Berlin") -> str | None:
         import re

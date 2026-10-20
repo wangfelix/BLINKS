@@ -12,7 +12,7 @@ Environment=BLINKS_ENV=production
 # always: the worker owns the serving gate, so any exit while anonymization
 # is on (crash, invalid config = exit 2, even an unexpected clean exit) is
 # restarted. With privacy.faceBlur.enabled=false it finishes the pending
-# backlog and exits 3 (EXIT_DISABLED) on purpose: success, no restart.
+# backlog and exits 3 (EXIT_DISABLED): success, no restart.
 Restart=always
 SuccessExitStatus=3
 RestartPreventExitStatus=3

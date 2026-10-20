@@ -3,7 +3,7 @@ import { randomInt } from "crypto";
 import type { SegmentedActivity } from "./segmentation";
 import { ACTIVITY_KEYS, CATEGORY_KEYS, studyConfig } from "./study-config";
 
-/** overreliance.* from the study config (never sent to any client). */
+/** overreliance.* from the study config. */
 export interface OverrelianceSettings {
   enabled: boolean;
   rate: number;
@@ -40,8 +40,7 @@ const chooseAlternative = <T>(
   randomIndex: RandomIndex,
 ): T => {
   const alternatives = values.filter((value) => value !== original);
-  // The loader requires >= 2 categories/activities when injection is on; keep
-  // the original rather than calling randomIndex(0) (crypto.randomInt throws).
+  // With fewer than 2 categories/activities the original label is kept.
   if (alternatives.length === 0) return original;
   return alternatives[randomIndex(alternatives.length)];
 };
@@ -53,7 +52,7 @@ const chooseAlternative = <T>(
  *
  * Eligible count = valid labelled activities with a finite mean activity
  * argmax probability. Up to ceil(rate) of all valid labelled activities are
- * selected from scores >= minConfidence (paper: 10%, 0.8). If none reaches
+ * selected from scores >= minConfidence. If none reaches
  * the threshold and fallbackToTopWhenNoneAboveThreshold is set, the single
  * highest-scoring activity is selected. Blank/legacy activities without
  * confidence are not candidates. enabled=false or rate=0 injects nothing

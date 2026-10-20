@@ -1,6 +1,6 @@
-// Dry run of the study-config schema migration on a COPY of a real recordings.db.
+// Dry run of the study-config schema migration on a copy of a real recordings.db.
 // Prints aggregated numbers only (no participant data). Refuses to run
-// outside the OS temp dir so it can never touch a live database.
+// outside the OS temp dir.
 //
 //   mkdir -p /tmp/mig-test && cp <prod-copy>.db /tmp/mig-test/work.db
 //   npx tsx scripts/check-ratings-migration-copy.ts /tmp/mig-test/work.db [--rollback | --rollback-form-factor]

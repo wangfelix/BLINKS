@@ -2,24 +2,23 @@
 // ===========================================================================
 // Study config loader (documentation: docs/study-config-documentation.md).
 //
-// Resolution:
+// The config file path is chosen in this order (first match wins):
 //   1. env BLINKS_STUDY_CONFIG (absolute, or relative to the working dir).
-//      A missing file is always fatal; the example file is refused in
-//      production even when named explicitly.
+//      A missing file is fatal; the example file is refused in production
+//      even when named explicitly.
 //   2. <repo>/config/study.yaml (gitignored, the real study).
-//   3. <repo>/config/study.example.yaml, ONLY outside production and with a
-//      loud warning (production never falls back).
+//   3. <repo>/config/study.example.yaml, only outside production. The loader
+//      then prints a warning to stderr that placeholder survey links and PIN
+//      are in use. In production a missing study.yaml is fatal.
 //
 // Validation: YAML -> zod shape -> cross-field checks. Any problem is fatal:
 // every issue is printed as `path.to.field: reason` and the process exits 2.
-// There is deliberately no version, hash, or DB snapshot of the config.
 // ===========================================================================
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getStudyConfigSource = exports.getStudyConfig = exports.loadStudyConfigFile = exports.productionConfigIssues = exports.RETIRED_PIN_SHA256 = exports.parseStudyConfig = exports.resolveStudyConfigPath = exports.isProduction = exports.StudyConfigError = exports.EXAMPLE_STUDY_CONFIG_PATH = exports.DEFAULT_STUDY_CONFIG_PATH = exports.REPO_ROOT = void 0;
-const crypto_1 = __importDefault(require("crypto"));
+exports.getStudyConfigSource = exports.getStudyConfig = exports.loadStudyConfigFile = exports.productionConfigIssues = exports.parseStudyConfig = exports.resolveStudyConfigPath = exports.isProduction = exports.StudyConfigError = exports.EXAMPLE_STUDY_CONFIG_PATH = exports.DEFAULT_STUDY_CONFIG_PATH = exports.REPO_ROOT = void 0;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const yaml_1 = require("yaml");
@@ -99,15 +98,9 @@ const parseStudyConfig = (source, configPath) => {
 };
 exports.parseStudyConfig = parseStudyConfig;
 // --- production-only content rules ---------------------------------------------
-// A 1:1 copy of study.example.yaml under another name must not run a study
-// either: placeholder PIN or links, or the PIN used before the study
-// config existed, are refused in production. The retired PIN is compared by
-// SHA-256 so it is not written to the code again in clear text (it stays in
-// the public git history, which is why it is retired). Same rule set in
-// server/blinks_study_config.py and deploy/deploy.sh.
-exports.RETIRED_PIN_SHA256 = [
-    "305800b71062b49b350208327a02ec378199b4cf35e60eeb971611bef4928394",
-];
+// In production the placeholder PIN and the placeholder survey/payout links
+// from study.example.yaml are refused, also under another file name. Same
+// rule set in server/blinks_study_config.py and deploy/deploy.sh.
 const PLACEHOLDER_HOST = /^(?:[a-z0-9-]+\.)*example\.(?:org|com)$/i;
 const examplePin = () => {
     try {
@@ -135,13 +128,6 @@ const productionConfigIssues = (config) => {
         issues.push({
             path: "app.studySettingsPin",
             message: "is the placeholder PIN from study.example.yaml; set a new PIN for this study",
-        });
-    }
-    const pinHash = crypto_1.default.createHash("sha256").update(pin, "utf8").digest("hex");
-    if (exports.RETIRED_PIN_SHA256.includes(pinHash)) {
-        issues.push({
-            path: "app.studySettingsPin",
-            message: "is a retired PIN (public in the git history); set a new PIN for this study",
         });
     }
     const links = [

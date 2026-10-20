@@ -13,8 +13,7 @@ exports.INCORRECT_ANNOTATION_MIN_MEAN_CONFIDENCE = exports.CONFIGURED_OVERRELIAN
 const defaultRandomIndex = (upperExclusive) => (0, crypto_1.randomInt)(upperExclusive);
 const chooseAlternative = (values, original, randomIndex) => {
     const alternatives = values.filter((value) => value !== original);
-    // The loader requires >= 2 categories/activities when injection is on; keep
-    // the original rather than calling randomIndex(0) (crypto.randomInt throws).
+    // With fewer than 2 categories/activities the original label is kept.
     if (alternatives.length === 0)
         return original;
     return alternatives[randomIndex(alternatives.length)];
@@ -26,7 +25,7 @@ const chooseAlternative = (values, original, randomIndex) => {
  *
  * Eligible count = valid labelled activities with a finite mean activity
  * argmax probability. Up to ceil(rate) of all valid labelled activities are
- * selected from scores >= minConfidence (paper: 10%, 0.8). If none reaches
+ * selected from scores >= minConfidence. If none reaches
  * the threshold and fallbackToTopWhenNoneAboveThreshold is set, the single
  * highest-scoring activity is selected. Blank/legacy activities without
  * confidence are not candidates. enabled=false or rate=0 injects nothing
