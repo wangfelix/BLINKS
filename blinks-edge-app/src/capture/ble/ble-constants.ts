@@ -5,10 +5,16 @@ export const BLE_FRAME_CHARACTERISTIC_UUID =
   "9a8b7c6d-0002-4a5b-8c9d-0e1f2a3b4c5d";
 export const BLE_CONTROL_CHARACTERISTIC_UUID =
   "9a8b7c6d-0003-4a5b-8c9d-0e1f2a3b4c5d";
+// Read-only compact JSON (docs/ble-protocol.md). Its presence after
+// service discovery means the firmware supports CONTROL_OPCODE_SET_INTERVAL.
+export const BLE_DEVICE_INFO_CHARACTERISTIC_UUID =
+  "9a8b7c6d-0004-4a5b-8c9d-0e1f2a3b4c5d";
 
-// Control opcodes (phone -> camera, single byte).
+// Control opcodes (phone -> camera). Pause/resume are a single byte;
+// set-interval is [0x03][uint32 BE intervalMs] (exactly 5 bytes).
 export const CONTROL_OPCODE_PAUSE = 0x01;
 export const CONTROL_OPCODE_RESUME = 0x02;
+export const CONTROL_OPCODE_SET_INTERVAL = 0x03;
 
 // Tagged notification framing:
 //   header [0x01][jpeg length BE 4B][camera frame counter BE 4B]

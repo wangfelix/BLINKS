@@ -1,4 +1,4 @@
-import { fromByteArray } from "base64-js";
+import { fromByteArray, toByteArray } from "base64-js";
 import {
   BleManager,
   type Device,
@@ -7,25 +7,86 @@ import {
 
 import {
   BLE_CONTROL_CHARACTERISTIC_UUID,
+  BLE_DEVICE_INFO_CHARACTERISTIC_UUID,
   BLE_DEVICE_NAME,
   BLE_FRAME_CHARACTERISTIC_UUID,
   BLE_SERVICE_UUID,
   CONTROL_OPCODE_PAUSE,
   CONTROL_OPCODE_RESUME,
 } from "@/capture/ble/ble-constants";
+import {
+  cameraCaptureConfigStore,
+  cameraIntervalWarning,
+  encodeSetIntervalCommand,
+  parseCameraDeviceInfo,
+  type CameraDeviceInfo,
+} from "@/capture/ble/camera-device-info";
 import { AssembledFrame, FrameAssembler } from "@/capture/ble/frame-assembler";
+import {
+  appConfigStore,
+  desiredCaptureIntervalMs,
+} from "@/study/model/app-config-store";
 
 export type CameraLinkStatus =
-  | "idle"
-  | "bluetoothOff"
-  | "scanning"
-  | "connecting"
-  | "connected";
+  "idle" | "bluetoothOff" | "scanning" | "connecting" | "connected";
 
 const SCAN_RESTART_MS = 30_000;
 const SCAN_RETRY_INITIAL_MS = 2_000;
 const SCAN_RETRY_MAX_MS = 30_000;
 const RECONNECT_RETRY_MS = 3_000;
+// The capture-interval handshake must never delay frame monitoring for long.
+const CAPTURE_INTERVAL_TIMEOUT_MS = 5_000;
+
+class HandshakeAbortedError extends Error {
+  constructor(reason: string) {
+    super(`capture-interval handshake aborted: ${reason}`);
+    this.name = "HandshakeAbortedError";
+  }
+}
+
+// AbortController whose signal also fires when the parent aborts (the
+// connection's controller), or after timeoutMs. AbortSignal.any/timeout are
+// not available on Hermes, hence by hand.
+const childController = (
+  parent: AbortSignal,
+  timeoutMs: number,
+): { controller: AbortController; dispose: () => void } => {
+  const controller = new AbortController();
+  const onParentAbort = () => controller.abort(parent.reason);
+  if (parent.aborted) {
+    controller.abort(parent.reason);
+  } else {
+    parent.addEventListener("abort", onParentAbort);
+  }
+  const timer = setTimeout(
+    () => controller.abort(`timed out after ${timeoutMs} ms`),
+    timeoutMs,
+  );
+  return {
+    controller,
+    dispose: () => {
+      clearTimeout(timer);
+      parent.removeEventListener("abort", onParentAbort);
+    },
+  };
+};
+
+const throwIfAborted = (signal: AbortSignal): void => {
+  if (signal.aborted) {
+    throw new HandshakeAbortedError(String(signal.reason ?? "aborted"));
+  }
+};
+
+// Per-connection state. Aborted on disconnect and stop(), so nothing queued
+// for an old connection writes to the camera after it is gone.
+interface ConnectionContext {
+  device: Device;
+  deviceId: string;
+  controller: AbortController;
+  // Serializes 0x03 handshakes/rewrites: never two set-interval writes at
+  // once on one connection.
+  intervalQueue: Promise<void>;
+}
 
 interface CameraLinkEvents {
   // deviceId is the camera's BLE MAC with colons stripped (the server's
@@ -33,6 +94,21 @@ interface CameraLinkEvents {
   onFrame: (frame: AssembledFrame, deviceId: string) => void;
   onStatusChange: (status: CameraLinkStatus) => void;
   onDeviceIdentified: (deviceId: string) => void;
+  // Result of the capture-interval handshake (BLE doc section 3, step 4),
+  // reported to the server as device info (documentation 4.8).
+  onCaptureConfigReport?: (
+    report: CaptureConfigReport,
+    deviceId: string,
+  ) => void;
+}
+
+export interface CaptureConfigReport {
+  measuredAtMs: number;
+  /** Written via 0x03; null = no 0x03 (old firmware or no config cache). */
+  requestedIntervalMs: number | null;
+  settingsFormFactor: string | null;
+  /** Parsed 0004 JSON; null = characteristic missing or unreadable. */
+  info: CameraDeviceInfo | null;
 }
 
 // BLE central for the BLINKS camera: scans by name (the 128-bit service UUID
@@ -52,6 +128,15 @@ export class CameraLink {
   private scanning = false;
   private desiredPaused = false;
   private bluetoothStateSubscription: Subscription | null = null;
+  private appConfigUnsubscribe: (() => void) | null = null;
+  private connection: ConnectionContext | null = null;
+  private transactionCounter = 0;
+  // Instance field so the Node integration test can shorten it.
+  private captureIntervalTimeoutMs = CAPTURE_INTERVAL_TIMEOUT_MS;
+  // Firmware with characteristic 0004 accepts the 0x03 set-interval command.
+  private supportsInterval = false;
+  // "<formFactor>:<intervalMs>" last written on the current connection.
+  private appliedIntervalKey: string | null = null;
   private scanRestartTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private scanRetryMs = SCAN_RETRY_INITIAL_MS;
@@ -61,6 +146,16 @@ export class CameraLink {
   start(): void {
     if (this.running) return;
     this.running = true;
+    cameraCaptureConfigStore.set({
+      deviceInfo: null,
+      supportsInterval: null,
+      warning: null,
+    });
+    // A form-factor change in Study Settings (or a refreshed config) rewrites
+    // the interval on the live connection right away.
+    this.appConfigUnsubscribe = appConfigStore.subscribe(() =>
+      this.handleAppConfigChange(),
+    );
     this.bluetoothStateSubscription = this.manager.onStateChange((state) => {
       if (!this.running) return;
       if (state === "PoweredOn") {
@@ -80,8 +175,11 @@ export class CameraLink {
     this.bluetoothPoweredOn = false;
     this.bluetoothStateSubscription?.remove();
     this.bluetoothStateSubscription = null;
+    this.appConfigUnsubscribe?.();
+    this.appConfigUnsubscribe = null;
     this.stopScan();
     this.clearReconnectTimer();
+    this.abortConnection("link stopped");
     const deviceId = this.device?.id ?? this.knownDeviceId;
     if (deviceId) {
       await this.manager.cancelDeviceConnection(deviceId).catch(() => {});
@@ -225,17 +323,55 @@ export class CameraLink {
 
       this.device = connected;
       this.knownDeviceId = connected.id;
+      this.supportsInterval = false;
+      this.appliedIntervalKey = null;
       this.scanRetryMs = SCAN_RETRY_INITIAL_MS;
       this.clearReconnectTimer();
 
       const deviceId = connected.id.replace(/:/g, "");
+      this.abortConnection("replaced by a new connection");
+      const connection: ConnectionContext = {
+        device: connected,
+        deviceId,
+        controller: new AbortController(),
+        intervalQueue: Promise.resolve(),
+      };
+      this.connection = connection;
       this.events.onDeviceIdentified(deviceId);
 
       connected.onDisconnected(() => {
+        // Cancels a running handshake and queued rewrites for this
+        // connection (including their in-flight BLE transactions).
+        if (this.connection === connection)
+          this.abortConnection("disconnected");
         this.assembler.reset();
         this.device = null;
+        // The firmware falls back to its default interval on disconnect.
+        this.supportsInterval = false;
+        this.appliedIntervalKey = null;
         if (this.running) this.scheduleReconnect();
       });
+
+      // The firmware starts capturing the moment a central connects (paused
+      // resets on disconnect), so a paused session re-asserts pause first,
+      // before the up-to-5 s interval handshake.
+      if (this.desiredPaused) await this.writePausedState().catch(() => {});
+
+      // Then device info + 0x03 (docs/ble-protocol.md section 6), then
+      // frame notifications. Bounded by CAPTURE_INTERVAL_TIMEOUT_MS; on
+      // timeout or disconnect the handshake is aborted (no stray writes
+      // afterwards). Never aborts recording.
+      await this.runCaptureIntervalStep(connection, (signal) =>
+        this.applyCaptureInterval(connection, signal),
+      ).catch((error: unknown) =>
+        console.warn(
+          "BLE capture interval handshake skipped:",
+          error instanceof HandshakeAbortedError ? error.message : error,
+        ),
+      );
+
+      // Disconnected or stopped meanwhile: the reconnect path takes over.
+      if (connection.controller.signal.aborted) return;
 
       connected.monitorCharacteristicForService(
         BLE_SERVICE_UUID,
@@ -246,10 +382,6 @@ export class CameraLink {
           if (frame) this.events.onFrame(frame, deviceId);
         },
       );
-
-      // The firmware starts capturing the moment a central connects, so a
-      // paused session must re-assert pause before frames pile up.
-      if (this.desiredPaused) await this.writePausedState().catch(() => {});
 
       this.events.onStatusChange("connected");
     } catch (error) {
@@ -285,6 +417,234 @@ export class CameraLink {
     if (!this.reconnectTimer) return;
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+  }
+
+  private abortConnection(reason: string): void {
+    const connection = this.connection;
+    if (!connection) return;
+    this.connection = null;
+    connection.controller.abort(reason);
+  }
+
+  // Runs one 0x03 step on the connection's queue with its own timeout. The
+  // step's signal aborts on timeout, disconnect or stop().
+  private runCaptureIntervalStep(
+    connection: ConnectionContext,
+    step: (signal: AbortSignal) => Promise<void>,
+  ): Promise<void> {
+    const run = async () => {
+      const { controller, dispose } = childController(
+        connection.controller.signal,
+        this.captureIntervalTimeoutMs,
+      );
+      try {
+        await new Promise<void>((resolve, reject) => {
+          // Resolve as soon as the signal aborts, even if the current BLE
+          // call ignores cancellation: the next step checks the signal.
+          const onAbort = () =>
+            reject(
+              new HandshakeAbortedError(
+                String(controller.signal.reason ?? "aborted"),
+              ),
+            );
+          if (controller.signal.aborted) return onAbort();
+          controller.signal.addEventListener("abort", onAbort);
+          step(controller.signal)
+            .then(resolve, reject)
+            .finally(() =>
+              controller.signal.removeEventListener("abort", onAbort),
+            );
+        });
+      } finally {
+        dispose();
+      }
+    };
+    const result = connection.intervalQueue.then(run);
+    connection.intervalQueue = result.catch(() => {});
+    return result;
+  }
+
+  // One BLE call that is cancelled (cancelTransaction) when signal aborts.
+  private async bleCall<T>(
+    signal: AbortSignal,
+    call: (transactionId: string) => Promise<T>,
+  ): Promise<T> {
+    throwIfAborted(signal);
+    const transactionId = `blinks-capture-${++this.transactionCounter}`;
+    const onAbort = () => {
+      void this.manager.cancelTransaction(transactionId).catch(() => {});
+    };
+    signal.addEventListener("abort", onAbort);
+    try {
+      return await call(transactionId);
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+
+  private async applyCaptureInterval(
+    connection: ConnectionContext,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const { device } = connection;
+    try {
+      const characteristics = await this.bleCall(signal, () =>
+        device.characteristicsForService(BLE_SERVICE_UUID),
+      );
+      const hasDeviceInfo = characteristics.some(
+        (characteristic) =>
+          characteristic.uuid.toLowerCase() ===
+          BLE_DEVICE_INFO_CHARACTERISTIC_UUID,
+      );
+      const before = hasDeviceInfo
+        ? await this.readDeviceInfo(device, signal)
+        : null;
+      throwIfAborted(signal);
+      if (!before) {
+        console.info(
+          "BLE camera firmware has no capture-interval support; using its default.",
+        );
+        cameraCaptureConfigStore.set({
+          deviceInfo: null,
+          supportsInterval: false,
+          warning: null,
+        });
+        this.report(device, null, null);
+        return;
+      }
+      this.supportsInterval = true;
+      console.info("BLE camera device info:", JSON.stringify(before));
+      cameraCaptureConfigStore.set({
+        deviceInfo: before,
+        supportsInterval: true,
+        warning: null,
+      });
+      await this.writeCaptureInterval(connection, signal);
+    } catch (error) {
+      if (error instanceof HandshakeAbortedError || signal.aborted) throw error;
+      console.warn(
+        "BLE capture interval could not be applied; camera keeps its interval:",
+        error,
+      );
+    }
+  }
+
+  private async writeCaptureInterval(
+    connection: ConnectionContext,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const { device } = connection;
+    throwIfAborted(signal);
+    const appState = appConfigStore.getState();
+    const intervalMs = desiredCaptureIntervalMs(appState);
+    const formFactor = appState.cameraFormFactor;
+    if (intervalMs === null || formFactor === null) {
+      // Never loaded the config (or no form factor yet): no 0x03, the camera
+      // records with its firmware default.
+      console.info("No cached capture interval; camera keeps its default.");
+      this.report(device, null, cameraCaptureConfigStore.getState().deviceInfo);
+      return;
+    }
+    const key = `${formFactor}:${intervalMs}`;
+    // A queued rewrite whose value an earlier step already wrote: nothing to do.
+    if (this.appliedIntervalKey === key) return;
+    this.appliedIntervalKey = key;
+    try {
+      await this.bleCall(signal, (transactionId) =>
+        device.writeCharacteristicWithResponseForService(
+          BLE_SERVICE_UUID,
+          BLE_CONTROL_CHARACTERISTIC_UUID,
+          fromByteArray(encodeSetIntervalCommand(intervalMs)),
+          transactionId,
+        ),
+      );
+    } catch (error) {
+      this.appliedIntervalKey = null;
+      throw error;
+    }
+    let after: CameraDeviceInfo | null = null;
+    try {
+      after = await this.readDeviceInfo(device, signal);
+    } catch {
+      after = null;
+    }
+    // The 0x03 went out, so report it even if the re-read was cut off.
+    this.report(device, intervalMs, after);
+    throwIfAborted(signal);
+    if (!after) return;
+    const formFactors = appState.config?.devices.formFactors ?? [];
+    const warning = cameraIntervalWarning(
+      after,
+      intervalMs,
+      formFactor,
+      (formFactorKey) =>
+        formFactors.find((candidate) => candidate.key === formFactorKey)
+          ?.displayLabel ?? formFactorKey,
+    );
+    if (warning) {
+      console.warn("BLE capture interval:", warning, JSON.stringify(after));
+    } else {
+      console.info("BLE capture interval applied:", JSON.stringify(after));
+    }
+    cameraCaptureConfigStore.set({
+      deviceInfo: after,
+      supportsInterval: true,
+      warning,
+    });
+  }
+
+  private handleAppConfigChange(): void {
+    const connection = this.connection;
+    if (!connection || !this.supportsInterval) return;
+    const appState = appConfigStore.getState();
+    const intervalMs = desiredCaptureIntervalMs(appState);
+    if (intervalMs === null || appState.cameraFormFactor === null) return;
+    if (
+      this.appliedIntervalKey === `${appState.cameraFormFactor}:${intervalMs}`
+    ) {
+      return;
+    }
+    // Queued behind a running handshake; re-checks the key when it runs.
+    void this.runCaptureIntervalStep(connection, (signal) =>
+      this.writeCaptureInterval(connection, signal),
+    ).catch((error) =>
+      console.warn("BLE capture interval could not be rewritten:", error),
+    );
+  }
+
+  private report(
+    device: Device,
+    requestedIntervalMs: number | null,
+    info: CameraDeviceInfo | null,
+  ): void {
+    try {
+      this.events.onCaptureConfigReport?.(
+        {
+          measuredAtMs: Date.now(),
+          requestedIntervalMs,
+          settingsFormFactor: appConfigStore.getState().cameraFormFactor,
+          info,
+        },
+        device.id.replace(/:/g, ""),
+      );
+    } catch (error) {
+      console.warn("Device-info report failed:", error);
+    }
+  }
+
+  private async readDeviceInfo(
+    device: Device,
+    signal: AbortSignal,
+  ): Promise<CameraDeviceInfo | null> {
+    const characteristic = await this.bleCall(signal, (transactionId) =>
+      device.readCharacteristicForService(
+        BLE_SERVICE_UUID,
+        BLE_DEVICE_INFO_CHARACTERISTIC_UUID,
+        transactionId,
+      ),
+    );
+    if (!characteristic.value) return null;
+    return parseCameraDeviceInfo(toByteArray(characteristic.value));
   }
 
   private async writePausedState(): Promise<void> {
