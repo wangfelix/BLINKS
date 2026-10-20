@@ -82,8 +82,6 @@ import {
   setCameraFormFactor,
   setPushToken,
   parseRatingsJson,
-  MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT,
-  recordDeviceInfoReport,
   softDeleteFrameRow,
   upsertParticipantProfile,
 } from "./db";
@@ -95,13 +93,11 @@ import { currentLocalMinutes, timeOfDayToMinutes, todayKey } from "./time";
 import {
   CATEGORY_KEY_SET,
   EXPERIENCE_ITEMS,
-  FORM_FACTOR_KEYS,
   IDLE_CLOSE_MS,
   minutesOfTimeOfDay,
   studyConfig,
 } from "./study-config";
 import { getStudyConfigSource } from "./study-config/load";
-import type { DeviceInfoReportInput } from "./db";
 import {
   appConfigResponse,
   parseRatingsInput,
@@ -1914,152 +1910,6 @@ function handleRecordingEvent(
     throw eventError;
   }
 }
-
-// --- Device info (documentation 4.8) -----------------------------------------
-
-const DEVICE_ID_PATTERN = /^[A-Za-z0-9]{1,64}$/;
-const MAX_DEVICE_INFO_JSON_CHARS = 4096;
-
-type DeviceInfoParse =
-  | { report: DeviceInfoReportInput; error?: undefined }
-  | { report?: undefined; error: string };
-
-function parseDeviceInfoReport(body: unknown): DeviceInfoParse {
-  if (body === null || typeof body !== "object" || Array.isArray(body)) {
-    return { error: "body must be a JSON object" };
-  }
-  const payload = body as Record<string, unknown>;
-  const isPositiveInt = (value: unknown): value is number =>
-    Number.isSafeInteger(value) && (value as number) > 0;
-  if (
-    typeof payload.eventId !== "string" ||
-    payload.eventId.length < 1 ||
-    payload.eventId.length > 128
-  ) {
-    return { error: "eventId must be a string of 1-128 characters" };
-  }
-  if (!isPositiveInt(payload.session)) {
-    return { error: "session must be a positive integer" };
-  }
-  if (typeof payload.device !== "string" || !DEVICE_ID_PATTERN.test(payload.device)) {
-    return { error: "device must be 1-64 characters [A-Za-z0-9]" };
-  }
-  if (!isPositiveInt(payload.clientEpochMs)) {
-    return { error: "clientEpochMs must be a positive integer" };
-  }
-  if (payload.requestedIntervalMs !== null && !isPositiveInt(payload.requestedIntervalMs)) {
-    return { error: "requestedIntervalMs must be a positive integer or null" };
-  }
-  if (
-    payload.settingsFormFactor !== null &&
-    (typeof payload.settingsFormFactor !== "string" ||
-      payload.settingsFormFactor.length < 1 ||
-      payload.settingsFormFactor.length > 64)
-  ) {
-    return { error: "settingsFormFactor must be a string of 1-64 characters or null" };
-  }
-  const info = payload.info;
-  let infoJson: string | null = null;
-  let fw: string | null = null;
-  let formFactor: string | null = null;
-  let intervalMs: number | null = null;
-  let defaultMs: number | null = null;
-  if (info !== null) {
-    if (info === undefined || typeof info !== "object" || Array.isArray(info)) {
-      return { error: "info must be an object or null" };
-    }
-    const record = info as Record<string, unknown>;
-    for (const field of ["v", "intervalMs", "defaultMs", "minMs", "maxMs"] as const) {
-      if (!Number.isSafeInteger(record[field])) {
-        return { error: `info.${field} must be an integer` };
-      }
-    }
-    for (const field of ["fw", "formFactor"] as const) {
-      if (typeof record[field] !== "string") {
-        return { error: `info.${field} must be a string` };
-      }
-    }
-    infoJson = JSON.stringify(info);
-    if (infoJson.length > MAX_DEVICE_INFO_JSON_CHARS) {
-      return {
-        error: `info must be at most ${MAX_DEVICE_INFO_JSON_CHARS} characters as JSON`,
-      };
-    }
-    fw = record.fw as string;
-    formFactor = record.formFactor as string;
-    intervalMs = record.intervalMs as number;
-    defaultMs = record.defaultMs as number;
-  }
-  return {
-    report: {
-      event_id: payload.eventId,
-      session: payload.session,
-      device: payload.device,
-      client_epoch_ms: payload.clientEpochMs,
-      requested_interval_ms: (payload.requestedIntervalMs as number | null) ?? null,
-      settings_form_factor: (payload.settingsFormFactor as string | null) ?? null,
-      firmware_version: fw,
-      form_factor: formFactor,
-      interval_ms: intervalMs,
-      default_ms: defaultMs,
-      info_json: infoJson,
-    },
-  };
-}
-
-/** Device-provided strings in logs: no control characters, max 32 chars. */
-const logSafe = (value: string | null): string =>
-  value === null ? "-" : JSON.stringify(value.replace(/[\u0000-\u001f\u007f-\u009f]/g, "?").slice(0, 32));
-
-const deviceInfoCapLogged = new Set<string>();
-
-app.post(
-  "/api/recording/device-info",
-  requireAuth,
-  (req: AuthenticatedRequest, res) => {
-    const { report, error } = parseDeviceInfoReport(req.body);
-    if (!report) {
-      res.status(400).json({ error });
-      return;
-    }
-    const participant = req.participant!;
-    const outcome = recordDeviceInfoReport(participant, report);
-    if (outcome === "conflict") {
-      res.status(409).json({ error: "eventId already used with a different payload" });
-      return;
-    }
-    if (outcome === "capped") {
-      if (!deviceInfoCapLogged.has(participant)) {
-        deviceInfoCapLogged.add(participant);
-        console.warn(
-          `Device info: ${participant} reached ${MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT} ` +
-            "stored reports; further reports are acknowledged but not stored",
-        );
-      }
-      res.status(200).json({ ok: true, duplicate: false, stored: false });
-      return;
-    }
-    if (outcome === "created") {
-      // fw/formFactor come from the BLE device: strip control characters and
-      // cap the length before logging (log injection). The DB keeps
-      // the values verbatim.
-      const unknownFormFactors = [report.settings_form_factor, report.form_factor].filter(
-        (value): value is string => value !== null && !FORM_FACTOR_KEYS.includes(value),
-      );
-      console.log(
-        `Device info: ${participant}/${report.session} fw=${logSafe(report.firmware_version)} ` +
-          `formFactor=${logSafe(report.form_factor)} interval=${report.interval_ms ?? "-"}ms ` +
-          `requested=${report.requested_interval_ms ?? "-"}ms` +
-          (unknownFormFactors.length > 0
-            ? ` WARNING: form factor ${unknownFormFactors.map(logSafe).join("/")} not in devices.formFactors`
-            : ""),
-      );
-    }
-    res
-      .status(outcome === "created" ? 201 : 200)
-      .json({ ok: true, duplicate: outcome === "duplicate" });
-  },
-);
 
 app.get("/api/recording/state", requireAuth, (req: AuthenticatedRequest, res) => {
   res.json(getRecordingState(req.participant!));

@@ -289,7 +289,6 @@ test("fresh DB: final schema directly", () => {
   initDb(dbPath);
   assert.ok(!columnsOf(dbPath, "activities").includes("workload_rating"));
   assert.deepStrictEqual(columnsOf(dbPath, "activity_ratings"), ["activity_id", "item_key", "value"]);
-  assert.ok(columnsOf(dbPath, "device_info_reports").includes("info_json"));
 });
 
 fs.rmSync(tmp, { recursive: true, force: true });

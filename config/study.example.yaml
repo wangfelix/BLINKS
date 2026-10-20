@@ -40,14 +40,6 @@ devices:
     - key: glasses
       displayLabel: "Glasses"
 
-capture:
-  # Sent by the app to the camera (BLE control opcode 0x03) on every connect.
-  # Allowed 5000..600000 ms (firmware clamps to the same bounds).
-  # Shorter intervals use more battery and can increase BLE frame loss.
-  intervalMsByFormFactor:
-    necklace: 15000
-    glasses: 30000
-
 schedule:
   # Local time (study.timezone) from which the participant can reconstruct
   # the current study day.

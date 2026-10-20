@@ -18,7 +18,7 @@
 // WEB_URL, DISABLE_PUSH, DRM_DEV_MODE, worker concurrency/retry/poll).
 // ===========================================================================
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.studyConfigCrossCheckIssues = exports.allowedWindowMinutes = exports.timeZoneOffsetsMinutes = exports.utcOffsetMinutesAt = exports.StudyConfigSchema = exports.SCALE_MAX_SPAN = exports.CATEGORY_ICONS = exports.CAPTURE_INTERVAL_MAX_MS = exports.CAPTURE_INTERVAL_MIN_MS = exports.PROMPT_PLACEHOLDERS = void 0;
+exports.studyConfigCrossCheckIssues = exports.allowedWindowMinutes = exports.timeZoneOffsetsMinutes = exports.utcOffsetMinutesAt = exports.StudyConfigSchema = exports.SCALE_MAX_SPAN = exports.CATEGORY_ICONS = exports.PROMPT_PLACEHOLDERS = void 0;
 const zod_1 = require("zod");
 // --- Primitives --------------------------------------------------------------
 /** Stable machine key: lowercase snake_case, used in DB rows and the API. */
@@ -94,22 +94,6 @@ const FormFactor = zod_1.z
 const DevicesSection = zod_1.z
     .object({
     formFactors: zod_1.z.array(FormFactor).min(1),
-})
-    .strict();
-/**
- * Firmware accepts 5 s .. 10 min (see docs/ble-protocol.md). Same constants
- * in both firmwares.
- */
-exports.CAPTURE_INTERVAL_MIN_MS = 5000;
-exports.CAPTURE_INTERVAL_MAX_MS = 600000;
-const CaptureSection = zod_1.z
-    .object({
-    /** Capture interval per form-factor key, sent to the camera via BLE 0x03. */
-    intervalMsByFormFactor: zod_1.z.record(Key, zod_1.z
-        .number()
-        .int()
-        .min(exports.CAPTURE_INTERVAL_MIN_MS)
-        .max(exports.CAPTURE_INTERVAL_MAX_MS)),
 })
     .strict();
 const ScheduleSection = zod_1.z
@@ -340,7 +324,6 @@ exports.StudyConfigSchema = zod_1.z
     ui: UiSection,
     windowing: WindowingSection,
     devices: DevicesSection,
-    capture: CaptureSection,
     schedule: ScheduleSection,
     activities: zod_1.z.array(Activity).min(2),
     categories: zod_1.z.array(Category).min(1),
@@ -448,31 +431,6 @@ const studyConfigCrossCheckIssues = (config) => {
             });
         }
     });
-    // capture interval for exactly the configured form factors
-    const formFactorKeys = new Set(config.devices.formFactors.map((f) => f.key));
-    for (const key of formFactorKeys) {
-        if (!(key in config.capture.intervalMsByFormFactor)) {
-            issues.push({
-                path: `capture.intervalMsByFormFactor.${key}`,
-                message: "missing interval for configured form factor",
-            });
-        }
-    }
-    for (const [key, intervalMs] of Object.entries(config.capture.intervalMsByFormFactor)) {
-        if (!formFactorKeys.has(key)) {
-            issues.push({
-                path: `capture.intervalMsByFormFactor.${key}`,
-                message: "unknown form factor (not in devices.formFactors)",
-            });
-        }
-        // [py] interval < window
-        if (intervalMs >= config.windowing.windowMinutes * 60000) {
-            issues.push({
-                path: `capture.intervalMsByFormFactor.${key}`,
-                message: "must be shorter than windowing.windowMinutes",
-            });
-        }
-    }
     // [py] windows on local W-minute marks (never across local midnight/DST)
     let allowedWindows = null;
     try {

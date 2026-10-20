@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAdminTableColumns = exports.isAdminTableName = exports.MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT = exports.parseRatingsJson = exports.getLastRatingsMigrationReport = exports.ratingsMigrationTestHooks = exports.LEGACY_RATING_COLUMN_KEYS = exports.FACE_BLUR_ENABLED = exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = exports.CAMERA_FORM_FACTORS = exports.RecordingEventConflictError = exports.RECORDING_EVENT_TYPES = exports.ADMIN_TABLE_NAMES = void 0;
+exports.getAdminTableColumns = exports.isAdminTableName = exports.parseRatingsJson = exports.getLastRatingsMigrationReport = exports.ratingsMigrationTestHooks = exports.LEGACY_RATING_COLUMN_KEYS = exports.FACE_BLUR_ENABLED = exports.CHUNK_WINDOW_MS = exports.ACTIVITY_LIST_KINDS = exports.CAMERA_FORM_FACTORS = exports.RecordingEventConflictError = exports.RECORDING_EVENT_TYPES = exports.ADMIN_TABLE_NAMES = void 0;
 exports.chunkStartOf = chunkStartOf;
 exports.initDb = initDb;
 exports.pinRoundResponseList = pinRoundResponseList;
@@ -44,7 +44,6 @@ exports.listStudyActivityLists = listStudyActivityLists;
 exports.createVlmProposal = createVlmProposal;
 exports.replaceActivities = replaceActivities;
 exports.exportFramesCsv = exportFramesCsv;
-exports.recordDeviceInfoReport = recordDeviceInfoReport;
 exports.getAdminTableCounts = getAdminTableCounts;
 exports.listAdminTableRows = listAdminTableRows;
 exports.exportAdminTableCsv = exportAdminTableCsv;
@@ -63,7 +62,6 @@ exports.ADMIN_TABLE_NAMES = [
     "activity_lists",
     "activities",
     "activity_ratings",
-    "device_info_reports",
 ];
 // --- Recording lifecycle events ---------------------------------------------
 exports.RECORDING_EVENT_TYPES = [
@@ -522,26 +520,6 @@ function initDb(dbPath) {
     );
     CREATE INDEX IF NOT EXISTS idx_recording_events_session
       ON recording_events (participant, session, sequence_number);
-  `);
-    // Camera device info reported by the app after each BLE connect
-    // (documentation 4.8). Append-only; PK makes app retries idempotent.
-    db.exec(`
-    CREATE TABLE IF NOT EXISTS device_info_reports (
-      participant              TEXT    NOT NULL,
-      event_id                 TEXT    NOT NULL,
-      session                  INTEGER NOT NULL,
-      device                   TEXT    NOT NULL,
-      client_epoch_ms          INTEGER NOT NULL,
-      server_received_epoch_ms INTEGER NOT NULL,
-      requested_interval_ms    INTEGER,
-      settings_form_factor     TEXT,
-      firmware_version         TEXT,
-      form_factor              TEXT,
-      interval_ms              INTEGER,
-      default_ms               INTEGER,
-      info_json                TEXT,
-      PRIMARY KEY (participant, event_id)
-    );
   `);
     // DRM schema discovery. Workflow state used to live in a separate
     // reconstructions table; the final model moves it onto the response-list
@@ -1889,51 +1867,7 @@ function exportFramesCsv(q) {
     ].join(";"));
     return [header, ...lines].join("\n") + "\n";
 }
-const DEVICE_INFO_COMPARED_COLUMNS = [
-    "session",
-    "device",
-    "client_epoch_ms",
-    "requested_interval_ms",
-    "settings_form_factor",
-    "info_json",
-];
-/**
- * Inserts a report. "duplicate" = same eventId with identical content
- * (retry); "conflict" = same eventId with different content.
- */
-/**
- * Upper bound per participant (append-only table). The app sends
- * one report per BLE connect; a study day with frequent reconnects stays far
- * below this. Further reports are acknowledged but not stored ("capped").
- */
-exports.MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT = 5000;
-function recordDeviceInfoReport(participant, report, now = Date.now(), maxReports = exports.MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT) {
-    return db.transaction(() => {
-        const existing = db
-            .prepare(`SELECT ${DEVICE_INFO_COMPARED_COLUMNS.join(", ")}
-         FROM device_info_reports WHERE participant = ? AND event_id = ?`)
-            .get(participant, report.event_id);
-        if (existing !== undefined) {
-            const same = DEVICE_INFO_COMPARED_COLUMNS.every((column) => existing[column] === report[column]);
-            return same ? "duplicate" : "conflict";
-        }
-        const stored = db
-            .prepare(`SELECT COUNT(*) AS n FROM device_info_reports WHERE participant = ?`)
-            .get(participant).n;
-        if (stored >= maxReports)
-            return "capped";
-        db.prepare(`INSERT INTO device_info_reports (
-         participant, event_id, session, device, client_epoch_ms,
-         server_received_epoch_ms, requested_interval_ms, settings_form_factor,
-         firmware_version, form_factor, interval_ms, default_ms, info_json
-       ) VALUES (
-         @participant, @event_id, @session, @device, @client_epoch_ms,
-         @server_received_epoch_ms, @requested_interval_ms, @settings_form_factor,
-         @firmware_version, @form_factor, @interval_ms, @default_ms, @info_json
-       )`).run({ ...report, participant, server_received_epoch_ms: now });
-        return "created";
-    })();
-}
+// --- Research admin read model ---------------------------------------------
 const isAdminTableName = (value) => exports.ADMIN_TABLE_NAMES.includes(value);
 exports.isAdminTableName = isAdminTableName;
 const ADMIN_TABLE_COLUMN_OVERRIDES = {

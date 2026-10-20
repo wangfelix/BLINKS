@@ -91,28 +91,6 @@
       ],
       "additionalProperties": false
     },
-    "capture": {
-      "type": "object",
-      "properties": {
-        "intervalMsByFormFactor": {
-          "type": "object",
-          "propertyNames": {
-            "type": "string",
-            "maxLength": 64,
-            "pattern": "^[a-z][a-z0-9_]*$"
-          },
-          "additionalProperties": {
-            "type": "integer",
-            "minimum": 5000,
-            "maximum": 600000
-          }
-        }
-      },
-      "required": [
-        "intervalMsByFormFactor"
-      ],
-      "additionalProperties": false
-    },
     "schedule": {
       "type": "object",
       "properties": {
@@ -769,7 +747,6 @@
     "ui",
     "windowing",
     "devices",
-    "capture",
     "schedule",
     "activities",
     "categories",

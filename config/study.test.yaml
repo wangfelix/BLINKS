@@ -6,7 +6,7 @@
 #   - 5 activities, 2 categories (no "other"), 3 experience items
 #     (two for "work", one optional for "break"; 0-4 and 1-5 scales)
 #   - 10-minute window, reconstruction opens at 00:00 (always open locally)
-#   - other capture intervals, single form factor added ("clip")
+#   - additional form factor ("clip")
 #   - overreliance off (notice null), gap merge off, bedtime push off
 #   - texts prefixed with "[TEST]" so a leaked default is easy to spot
 #
@@ -35,12 +35,6 @@ devices:
       displayLabel: "[TEST] Glasses"
     - key: clip
       displayLabel: "[TEST] Clip-on"
-
-capture:
-  intervalMsByFormFactor:
-    necklace: 10000
-    glasses: 20000
-    clip: 5000
 
 schedule:
   reconstructionOpensAt: "00:00"

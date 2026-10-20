@@ -110,27 +110,6 @@ const DevicesSection = z
   })
   .strict();
 
-/**
- * Firmware accepts 5 s .. 10 min (see docs/ble-protocol.md). Same constants
- * in both firmwares.
- */
-export const CAPTURE_INTERVAL_MIN_MS = 5_000;
-export const CAPTURE_INTERVAL_MAX_MS = 600_000;
-
-const CaptureSection = z
-  .object({
-    /** Capture interval per form-factor key, sent to the camera via BLE 0x03. */
-    intervalMsByFormFactor: z.record(
-      Key,
-      z
-        .number()
-        .int()
-        .min(CAPTURE_INTERVAL_MIN_MS)
-        .max(CAPTURE_INTERVAL_MAX_MS),
-    ),
-  })
-  .strict();
-
 const ScheduleSection = z
   .object({
     /** Reconstruction of the current study day opens at this local time. */
@@ -378,7 +357,6 @@ export const StudyConfigSchema = z
     ui: UiSection,
     windowing: WindowingSection,
     devices: DevicesSection,
-    capture: CaptureSection,
     schedule: ScheduleSection,
     activities: z.array(Activity).min(2),
     categories: z.array(Category).min(1),
@@ -508,34 +486,6 @@ export const studyConfigCrossCheckIssues = (
       });
     }
   });
-
-  // capture interval for exactly the configured form factors
-  const formFactorKeys = new Set(config.devices.formFactors.map((f) => f.key));
-  for (const key of formFactorKeys) {
-    if (!(key in config.capture.intervalMsByFormFactor)) {
-      issues.push({
-        path: `capture.intervalMsByFormFactor.${key}`,
-        message: "missing interval for configured form factor",
-      });
-    }
-  }
-  for (const [key, intervalMs] of Object.entries(
-    config.capture.intervalMsByFormFactor,
-  )) {
-    if (!formFactorKeys.has(key)) {
-      issues.push({
-        path: `capture.intervalMsByFormFactor.${key}`,
-        message: "unknown form factor (not in devices.formFactors)",
-      });
-    }
-    // [py] interval < window
-    if (intervalMs >= config.windowing.windowMinutes * 60_000) {
-      issues.push({
-        path: `capture.intervalMsByFormFactor.${key}`,
-        message: "must be shorter than windowing.windowMinutes",
-      });
-    }
-  }
 
   // [py] windows on local W-minute marks (never across local midnight/DST)
   let allowedWindows: number[] | null = null;
