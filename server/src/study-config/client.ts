@@ -88,7 +88,6 @@ export const appConfigResponse = (config: StudyConfig = loadedStudyConfig) => ({
   studySettingsPin: config.app.studySettingsPin,
 });
 
-/** Documentation 4.6 rule 1: every configured item key, null when unanswered. */
 export const ratingsResponse = (
   stored: Record<string, number>,
   config: StudyConfig = loadedStudyConfig,
@@ -102,11 +101,6 @@ export const ratingsResponse = (
     ]),
   );
 
-/**
- * Documentation 4.6 rules 2-4. submitCategory: undefined = draft save (no
- * required check); string|null = final category on submit. Errors are
- * returned WITHOUT the "activity <i>: " prefix.
- */
 export const parseRatingsInput = (
   raw: unknown,
   submitCategory: string | null | undefined,

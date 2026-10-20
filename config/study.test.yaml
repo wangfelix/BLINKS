@@ -1,13 +1,13 @@
 # =============================================================================
-# BLINKS study configuration — TEST STUDY (local development only)
+# BLINKS study configuration — test study (local development only)
 #
-# A deliberately DIFFERENT study, used to check that nothing in the server,
-# workers or clients is still hardcoded to the paper study:
+# A study that differs from study.example.yaml, used to check that the server,
+# workers and clients read every study value from the config:
 #   - 5 activities, 2 categories (no "other"), 3 experience items
 #     (two for "work", one optional for "break"; 0-4 and 1-5 scales)
 #   - 10-minute window, reconstruction opens at 00:00 (always open locally)
 #   - other capture intervals, single form factor added ("clip")
-#   - overreliance OFF (notice null), gap merge OFF, bedtime push OFF
+#   - overreliance off (notice null), gap merge off, bedtime push off
 #   - texts prefixed with "[TEST]" so a leaked default is easy to spot
 #
 #   BLINKS_STUDY_CONFIG=config/study.test.yaml npm run dev      (in server/)

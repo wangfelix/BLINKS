@@ -60,7 +60,7 @@ Check at least:
   `example.org` / `example.com` links.
 - `app.studySettingsPin`: a new PIN per study. In production the loaders
   (server and both workers) and `deploy.sh` refuse the placeholder PIN from
-  `study.example.yaml` and the retired pre-config PIN, as well as
+  `study.example.yaml`, as well as
   `example.org`/`example.com` survey/payout links. The file is not public, but it
   is not a secret store either: keep it readable only by the service user
   (`chmod 600`; `deploy.sh` warns about any group/other bits).
@@ -148,7 +148,7 @@ Never use `study.example.yaml` or `study.test.yaml` for a real study.
 | `capture.intervalMsByFormFactor` | capture interval the app sets via BLE `0x03` on every camera connection (5000–600000 ms) |
 | `schedule.endSessionAvailableAt` | when "End session" becomes available in the app (study time zone) |
 | `texts.app` | notification and onboarding texts of the app, "Available from {{time}}" |
-| `app.studySettingsPin` | Study Settings PIN (4–8 digits). **Set a new one for every study**; the old PIN is in the public git history. Production refuses the placeholder PIN and the old PIN |
+| `app.studySettingsPin` | Study Settings PIN (4–8 digits). **Set a new one for every study**. Production refuses the placeholder PIN |
 
 Important: the `key` values (activities, categories, items, form factors) are
 stored in the database. Do not rename or remove them during a running study;
