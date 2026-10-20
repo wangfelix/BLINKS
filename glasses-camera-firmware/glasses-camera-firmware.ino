@@ -60,7 +60,7 @@ int lightSleepStatus = -1;
 // per VLM chunk instead of ~20 (vlm.maxFramesPerWindow is a cap, not a
 // requirement). That is a known, accepted difference in the visual evidence
 // behind glasses participants' VLM labels versus bodycam participants'.
-// Compiled-in DEFAULT since the study config rollout: the app sets the study interval
+// Compiled-in default: the app sets the study interval
 // (capture.intervalMsByFormFactor) with opcode 0x03 on every connect; a
 // disconnect reverts to this default.
 #define CAPTURE_INTERVAL_MS 30000

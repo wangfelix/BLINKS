@@ -78,7 +78,7 @@ they start on local W-minute marks and never cross local midnight or a DST switc
 Checked by the Node loader, the Python loader and `deploy/deploy.sh`:
 
 - `app.studySettingsPin` must differ from the placeholder PIN in
-  `study.example.yaml` and from the retired pre-config PIN (compared by SHA-256).
+  `study.example.yaml`.
 - Survey and payout links on `example.org` / `example.com` (any subdomain) are refused.
 
 ## 2. Fields

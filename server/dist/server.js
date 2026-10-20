@@ -369,7 +369,7 @@ app.get("/api/app-config", auth_1.requireAuth, (_req, res) => {
 });
 // Payout redirect (documentation 4.2). Opened as a same-origin browser link, so no
 // bearer header: the blinks_token cookie is accepted as on /frames/*, and the
-// participant must have completed onboarding (as the master Next.js gate did).
+// participant must have completed onboarding.
 // GET-only and side-effect free, so the cookie fallback is CSRF-safe. Without
 // a valid participant session: 401/403 JSON, never the payout link.
 const noStore = (_req, res, next) => {
@@ -1051,7 +1051,7 @@ app.get("/api/reconstruction/round/:round", auth_1.requireAuth, auth_1.requireCo
             recordingEnded &&
             vlmPendingCount === 0 &&
             dayChunks.length > 0) {
-            // Segmentation runs on the day's clock-aligned CHUNKS.
+            // Segmentation runs on the day's clock-aligned chunks.
             // Consecutive windows merge only when both their closed activity enum
             // and category match. Failed/unlabelled chunks each stay as a blank
             // proposal row so the participant can classify them; chunks with no
@@ -1593,7 +1593,7 @@ wss.on("connection", (ws, req) => {
     });
 });
 (0, push_1.startPushScheduler)();
-// Chunk idle sweep: a session's LAST window never sees a later
+// Chunk idle sweep: a session's last window never sees a later
 // frame, so it is closed once no new frame has arrived for CHUNK_IDLE_CLOSE_MS
 // (server receipt time — a delayed catch-up upload keeps its chunk open while
 // frames are still streaming in). 60 s tick, same cadence as the push loop.

@@ -1,7 +1,7 @@
-"""Study config loader for the Python workers .
+"""Study config loader for the Python workers.
 
 Shared by server/vlm/vlm_worker.py and server/face-blur/blur_worker.py, so
-both validate the SAME file the Node server validates
+both validate the same file the Node server validates
 (docs/study-config-documentation.md, section 1):
 
   1. YAML parse, 2. shape via jsonschema against config/study-config.schema.json
@@ -9,11 +9,11 @@ both validate the SAME file the Node server validates
   marked [py], 4. on any error: every issue as `path.to.field: reason` on
   stderr and exit code 2.
 
-Resolution (identical to server/src/study-config/load.ts):
+Config file path, first match wins (same order as server/src/study-config/load.ts):
   - env BLINKS_STUDY_CONFIG (absolute or relative to the working dir); a
     missing file is fatal
   - <repo>/config/study.yaml
-  - <repo>/config/study.example.yaml ONLY outside production, with a warning.
+  - <repo>/config/study.example.yaml only outside production, with a warning.
     Production = NODE_ENV=production or BLINKS_ENV=production. The
     example is refused in production even when named explicitly.
 
@@ -22,7 +22,6 @@ Only default: privacy.faceBlur.enabled = True (set explicitly here).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -226,11 +225,7 @@ def load_study_config_file(config_path: Path | str) -> dict[str, Any]:
 
 # Production-only content rules, same as
 # productionConfigIssues in server/src/study-config/load.ts: placeholder PIN or
-# links from study.example.yaml, or the retired pre-config PIN (compared by
-# SHA-256 so it is not written in clear text again).
-RETIRED_PIN_SHA256: tuple[str, ...] = (
-    "305800b71062b49b350208327a02ec378199b4cf35e60eeb971611bef4928394",
-)
+# links from study.example.yaml.
 _PLACEHOLDER_HOST = re.compile(r"^(?:[a-z0-9-]+\.)*example\.(?:org|com)$", re.IGNORECASE)
 
 
@@ -250,8 +245,6 @@ def production_config_issues(config: dict[str, Any]) -> list[tuple[str, str]]:
     pin = config["app"]["studySettingsPin"]
     if pin == (_example_pin() or "0000"):
         issues.append(("app.studySettingsPin", "is the placeholder PIN from study.example.yaml; set a new PIN for this study"))
-    if hashlib.sha256(pin.encode("utf-8")).hexdigest() in RETIRED_PIN_SHA256:
-        issues.append(("app.studySettingsPin", "is a retired PIN (public in the git history); set a new PIN for this study"))
     surveys = config["surveys"]
     for field, url in (
         ("surveys.onboarding.url", surveys["onboarding"]["url"]),

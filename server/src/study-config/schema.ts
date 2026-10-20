@@ -1,21 +1,17 @@
 // ===========================================================================
 // Study configuration schema (documentation: docs/study-config-documentation.md).
 //
-// SINGLE SOURCE OF TRUTH for the shape of config/study.yaml. The JSON Schema
-// consumed by the Python workers (config/study-config.schema.json) is
-// GENERATED from this file:  npm run generate-study-config-schema
+// Defines the shape of config/study.yaml. The JSON Schema consumed by the
+// Python workers (config/study-config.schema.json) is generated from this
+// file:  npm run generate-study-config-schema
 // and checked for freshness by scripts/test-study-config-schema.ts.
 //
 // Two validation layers:
 //   1. Shape (this zod object -> also expressible as JSON Schema, so the
 //      Python workers validate the same shape with `jsonschema`).
 //   2. Cross-field checks (`studyConfigCrossCheckIssues` below). These are
-//      NOT representable in JSON Schema; the Python workers re-implement the
+//      not representable in JSON Schema; the Python workers re-implement the
 //      subset they depend on (see docs/study-config-documentation.md, section 1.2).
-//
-// Deliberately NOT part of the design: no config version,
-// no hash, no DB snapshot. Values come from the file and are validated at
-// start-up; an invalid file stops the process with `path.to.field: reason`.
 //
 // Infrastructure stays in env vars (ports, paths, API key, base URL,
 // WEB_URL, DISABLE_PUSH, DRM_DEV_MODE, worker concurrency/retry/poll).
@@ -36,8 +32,8 @@ const TimeOfDay = z
   .string()
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "must be HH:MM (24-hour)");
 
-// No .trim(): texts are used verbatim (prompt fragments such as
-// vlm.prompts.workDescription start with a deliberate space).
+// Texts are used verbatim, without trimming (prompt fragments such as
+// vlm.prompts.workDescription start with a space).
 const NonEmptyText = z.string().regex(/\S/, "must not be empty or blank");
 
 const HttpsUrl = z
@@ -45,7 +41,7 @@ const HttpsUrl = z
   .regex(/^https:\/\/\S+$/, "must be an absolute https:// URL");
 
 // --- Prompt placeholders -------------------------------------------------------
-// Fixed list. Templates are rendered by ONE single-pass replacement of
+// Fixed list. Templates are rendered by one single-pass replacement of
 // `{{name}}`; inserted values are never re-scanned, so a participant-entered
 // occupation containing "{{" cannot inject a placeholder. Any other `{{...}}`
 // is a validation error.
@@ -72,16 +68,16 @@ export type PromptTemplateName = keyof typeof PROMPT_PLACEHOLDERS;
 
 const StudySection = z
   .object({
-    /** Human-readable name, logs/admin only. Not a version. */
+    /** Human-readable name, logs/admin only. */
     name: NonEmptyText,
-    /** IANA timezone; replaces DRM_TZ (server, VLM worker) and NEXT_PUBLIC_DRM_TZ. */
+    /** IANA timezone used by the server, the workers and the clients. */
     timezone: NonEmptyText,
   })
   .strict();
 
 const UiSection = z
   .object({
-    /** BCP-47 locale for date/time formatting in drm-web (today: en-GB). */
+    /** BCP-47 locale for date/time formatting in drm-web. */
     locale: NonEmptyText,
     /** Preview thumbnails per activity card (assisted + read-only lists). */
     thumbnailsPerActivity: z.number().int().min(1).max(20),
@@ -91,12 +87,12 @@ const UiSection = z
 const WindowingSection = z
   .object({
     /**
-     * VLM chunk / segmentation grid. Cross-check: must divide 60 and every UTC
-     * offset of study.timezone (Europe/Berlin: 1, 2, 3, 4, 5, 6, 10, 12, 15,
-     * 20, 30, 60), so the epoch-aligned windows never cross local midnight.
+     * VLM chunk / segmentation window in minutes. Cross-check: must divide 60
+     * and every UTC offset of study.timezone (Europe/Berlin: 1, 2, 3, 4, 5, 6,
+     * 10, 12, 15, 20, 30, 60).
      */
     windowMinutes: z.number().int().min(1).max(120),
-    /** Idle sweep that closes a session's last chunk (was CHUNK_IDLE_CLOSE_MS). */
+    /** Minutes without a new frame after which a session's last chunk is closed. */
     idleCloseMinutes: z.number().int().min(1).max(240),
   })
   .strict();
@@ -115,9 +111,8 @@ const DevicesSection = z
   .strict();
 
 /**
- * Firmware accepts 5 s .. 10 min (see docs/ble-protocol.md). 5 s is the
- * hardware-tested minimum; sending one 58 KB frame alone takes ~2.6 s.
- * Same constants in both firmwares.
+ * Firmware accepts 5 s .. 10 min (see docs/ble-protocol.md). Same constants
+ * in both firmwares.
  */
 export const CAPTURE_INTERVAL_MIN_MS = 5_000;
 export const CAPTURE_INTERVAL_MAX_MS = 600_000;
@@ -138,11 +133,11 @@ const CaptureSection = z
 
 const ScheduleSection = z
   .object({
-    /** Reconstruction of TODAY opens at this local time (was DRM_AVAILABLE_FROM_HOUR=19). */
+    /** Reconstruction of the current study day opens at this local time. */
     reconstructionOpensAt: TimeOfDay,
     /** App enables "End session" at this time (study.timezone) on the session's start day. */
     endSessionAvailableAt: TimeOfDay,
-    /** Study day extends past local midnight by this much (was DRM_DAY_OVERRUN_HOURS). */
+    /** Hours the study day extends past local midnight. */
     dayOverrunHours: z.number().int().min(0).max(12),
   })
   .strict();
@@ -152,7 +147,7 @@ const Activity = z
     key: Key,
     /** Participant-facing label (drm-web dropdown). */
     displayLabel: NonEmptyText,
-    /** VLM-only definition. NEVER sent to clients. */
+    /** VLM-only definition, not included in client responses. */
     vlmDefinition: NonEmptyText,
   })
   .strict();
@@ -177,7 +172,7 @@ const Category = z
     icon: z.enum(CATEGORY_ICONS),
     /** Participant-facing legend text. */
     description: NonEmptyText,
-    /** VLM-only definition. NEVER sent to clients. */
+    /** VLM-only definition, not included in client responses. */
     vlmDefinition: NonEmptyText,
   })
   .strict();
@@ -212,8 +207,8 @@ const ExperienceItem = z
 const SegmentationSection = z
   .object({
     /**
-     * Today's rule 3: equal labelled chunks on both sides of a capture gap
-     * merge into one activity. false = a gap always splits.
+     * true: equal labelled chunks on both sides of a capture gap merge into
+     * one activity. false: a gap always splits.
      */
     mergeAcrossCaptureGaps: z.boolean(),
   })
@@ -240,7 +235,7 @@ const VlmSection = z
         maxCompletionTokens: z.number().int().min(1),
       })
       .strict(),
-    /** Frames sent per chunk, evenly sampled (was VLM_CHUNK_MAX_FRAMES). */
+    /** Frames sent per chunk, evenly sampled. */
     maxFramesPerWindow: z.number().int().min(1).max(100),
     prompts: VlmPrompts,
   })
@@ -255,8 +250,8 @@ const OverrelianceSection = z
     /** Only activities with mean confidence >= this are candidates. */
     minConfidence: z.number().min(0).max(1),
     /**
-     * Today: if no activity reaches minConfidence, the single
-     * highest-confidence activity is falsified. false = inject nothing then.
+     * true: if no activity reaches minConfidence, the single
+     * highest-confidence activity is falsified. false: nothing is injected.
      */
     fallbackToTopWhenNoneAboveThreshold: z.boolean(),
   })
@@ -264,7 +259,7 @@ const OverrelianceSection = z
 
 const FaceBlurSection = z
   .object({
-    /** Default true. false = frames bypass the blur worker (privacy impact!). */
+    /** Default true. false = frames bypass the blur worker and are stored unblurred. */
     enabled: z.boolean().default(true),
     threshold: z.number().min(0).max(1),
     method: z.enum(["mosaic", "blur"]),
@@ -287,7 +282,7 @@ const RemindersSection = z
       .object({
         enabled: z.boolean(),
         leadMinutes: z.number().int().min(0).max(720),
-        /** Used when the participant gave no bedtime (was DRM_DEFAULT_BEDTIME). */
+        /** Used when the participant gave no bedtime. */
         defaultBedtime: TimeOfDay,
         /** Latest reminder time on the study day. */
         latestAt: TimeOfDay,
@@ -311,7 +306,7 @@ const TextsSection = z
         assistedIntroDescription: NonEmptyText,
         assistedReminderTitle: NonEmptyText,
         assistedReminderBody: NonEmptyText,
-        /** Shown only while incorrect labels are part of the study design. */
+        /** Shown in the assisted-round reminder; null hides it. */
         assistedReminderIncorrectLabelsNotice: NonEmptyText.nullable(),
         selfEditorHint: NonEmptyText,
         assistedEditorHint: NonEmptyText,
@@ -359,7 +354,7 @@ const Survey = z
   })
   .strict();
 
-/** SENSITIVE: real values only in the gitignored config/study.yaml. */
+/** Sensitive: real values only in the gitignored config/study.yaml. */
 const SurveysSection = z
   .object({
     onboarding: Survey,
@@ -368,7 +363,7 @@ const SurveysSection = z
   })
   .strict();
 
-/** SENSITIVE: real value only in config/study.yaml. */
+/** Sensitive: real value only in config/study.yaml. */
 const AppSection = z
   .object({
     studySettingsPin: z.string().regex(/^\d{4,8}$/, "must be 4-8 digits"),
@@ -437,7 +432,7 @@ const duplicateKeyIssues = (
 // --- window alignment ---------------------------------------------------------
 // Windows are epoch-aligned (chunkStartOf in db.ts: t - t % W). They fall on
 // local W-minute marks, and therefore never cross local midnight, exactly
-// when W divides 60 AND every UTC offset of the study time zone. This is
+// when W divides 60 and every UTC offset of the study time zone. This is
 // checked for the offsets on the 1st and 15th of every month of the current
 // and the next year (covers DST and announced offset changes).
 
@@ -588,8 +583,7 @@ export const studyConfigCrossCheckIssues = (
     issues.push({ path: "study.timezone", message: "unknown IANA timezone" });
   }
 
-  // [py] A deliberately wrong category needs an alternative (a single-category
-  // study has none).
+  // [py] injecting an incorrect category requires at least two categories
   const injects = config.overreliance.enabled && config.overreliance.rate > 0;
   if (injects && config.categories.length < 2) {
     issues.push({
@@ -598,8 +592,8 @@ export const studyConfigCrossCheckIssues = (
     });
   }
 
-  // Never tell participants that labels are deliberately wrong when they are not.
-  // rate 0 injects nothing, exactly like enabled: false.
+  // the incorrect-labels notice must be null when nothing is injected
+  // (enabled: false or rate 0)
   if (!injects && config.texts.rounds.assistedReminderIncorrectLabelsNotice !== null) {
     issues.push({
       path: "texts.rounds.assistedReminderIncorrectLabelsNotice",

@@ -9,10 +9,9 @@
 //
 // Env: RECORDINGS_DIR (default server/recordings), BLINKS_STUDY_CONFIG.
 // --apply needs privacy.faceBlur.enabled=true in the active study config.
-// Requeued frames get face_status='pending' and are HIDDEN from participants
+// Requeued frames get face_status='pending' and are hidden from participants
 // until blinks-face-blur has processed them (same gate as new frames). VLM
-// labels already computed from the unblurred images are not changed: the
-// images have already been sent to the VLM endpoint.
+// labels already computed from the unblurred images are not changed.
 
 import fs = require("fs");
 import path = require("path");

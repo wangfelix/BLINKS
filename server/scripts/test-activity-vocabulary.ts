@@ -1,7 +1,6 @@
-// Contract test for the activity enum. Since the study config rollout the single
-// source is activities[] in the study config: the server API and the Python
-// VLM worker both read it. drm-web still carries a copy of the paper list
-// until it reads GET /api/study-config.
+// Contract test for the activity enum. The server API and the Python VLM
+// worker both read activities[] from the study config; a static activity list
+// in drm-web, if present, is compared against study.example.yaml.
 //
 //   npx tsx scripts/test-activity-vocabulary.ts
 

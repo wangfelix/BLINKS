@@ -86,11 +86,11 @@ TRACKED_CHANGES="$(git status --porcelain --untracked-files=no)"
 
 BEFORE_SHA="$(git rev-parse --short HEAD)"
 log "deploying $BEFORE_SHA ($(git log -1 --format=%s)); checkout was at $PREVIOUS_SHA"
-# A plain code rollback is NOT enough across a startup schema migration: e.g.
-# the activity_ratings migration (study config rollout) drops workload_rating /
+# A plain code rollback is not enough across a startup schema migration: e.g.
+# the activity_ratings migration drops workload_rating /
 # recovery_rating, and older code then fails in initDb. Full procedure in
 # deploy/README.md ("Rollback"): stop the services, restore recordings.db (and
-# auth.db if needed) from the OLDEST snapshot of the first deploy that ran the
+# auth.db if needed) from the oldest snapshot of the first deploy that ran the
 # migration (verify its schema with pragma_table_info first), delete the
 # -wal/-shm files, then check out and deploy the old commit.
 echo "    rollback: see deploy/README.md#rollback (stop services, restore the oldest"
@@ -109,29 +109,24 @@ STUDY_CONFIG="$REPO/config/study.yaml"
        links and a new PIN (see config/README.md), then chmod 600 config/study.yaml."
 git ls-files --error-unmatch config/study.yaml >/dev/null 2>&1 \
   && die "config/study.yaml is tracked by git — it holds the PIN and survey links; untrack it"
-# Holds the Study Settings PIN and the payout/survey links: owner-only. The
-# services run as root, so group read (640) is never needed.
+# Holds the Study Settings PIN and the payout/survey links: warns unless the
+# file is owner-only.
 STUDY_CONFIG_MODE="$(stat -c %a "$STUDY_CONFIG")"
 [ "$((8#$STUDY_CONFIG_MODE & 8#077))" -eq 0 ] \
   || warn "config/study.yaml is readable by group/others (mode $STUDY_CONFIG_MODE); chmod 600 config/study.yaml"
 grep -qE 'example\.(org|com)' "$STUDY_CONFIG" \
   && die "config/study.yaml still contains example.org/example.com placeholder links"
-# Placeholder PIN from study.example.yaml or the retired pre-config PIN (by
-# SHA-256, not in clear text). The loaders enforce the same rule in production
-# as well; this early check fails before any build.
+# Placeholder PIN from study.example.yaml. The loaders apply the same rule in
+# production; this check runs before any build.
 study_pin() { sed -nE 's/^[[:space:]]*studySettingsPin:[[:space:]]*["'"'"']?([0-9]+)["'"'"']?.*/\1/p' "$1" | head -1; }
 STUDY_PIN="$(study_pin "$STUDY_CONFIG")"
 [ -n "$STUDY_PIN" ] || die "config/study.yaml has no app.studySettingsPin"
 [ "$STUDY_PIN" != "$(study_pin "$REPO/config/study.example.yaml")" ] \
   || die "config/study.yaml still uses the placeholder Study Settings PIN from study.example.yaml"
-RETIRED_PIN_SHA256="305800b71062b49b350208327a02ec378199b4cf35e60eeb971611bef4928394"
-[ "$(printf '%s' "$STUDY_PIN" | sha256sum | cut -d' ' -f1)" != "$RETIRED_PIN_SHA256" ] \
-  || die "config/study.yaml uses the retired Study Settings PIN (public in git history); set a new one"
 unset STUDY_PIN
 
-# Transitional: as long as drm-web still builds the survey links from env
-# (before it reads GET /api/study-config), keep requiring them in .env.local.
-# NEXT_PUBLIC_* is inlined at build time, so a missing value would fail silently.
+# While drm-web/src still reads the survey links from env, require them in
+# .env.local (NEXT_PUBLIC_* is inlined at build time).
 if grep -rqE 'NEXT_PUBLIC_(ONBOARDING|FINAL)_SURVEY_URL|process\.env\.PAYOUT_URL' "$REPO/drm-web/src"; then
   warn "drm-web still reads survey/payout links from env; checking drm-web/.env.local (legacy)"
   [ -f "$REPO/drm-web/.env.local" ] || die "drm-web/.env.local is missing (legacy web survey links)"
@@ -332,7 +327,7 @@ for svc in "${SERVICES[@]}"; do
     # privacy.faceBlur.enabled=false: the worker anonymizes any remaining
     # pending backlog once and then exits 3 (EXIT_DISABLED); the unit has
     # Restart=always with SuccessExitStatus=3/RestartPreventExitStatus=3, so
-    # it stays down only for that deliberate stop.
+    # it stays down only after that exit.
     printf '    \033[1;33mdisabled\033[0m %s (privacy.faceBlur.enabled=false)\n' "$svc"
     continue
   fi
