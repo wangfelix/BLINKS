@@ -176,7 +176,7 @@ check(
 );
 
 // segmentation.mergeAcrossCaptureGaps (study config): equal labels on both
-// sides of a capture gap merge by default (paper rule 3) and split when off.
+// sides of a capture gap merge by default and split when off.
 const gapDay = [chunk(0, "computer_or_monitor_use", "work"), chunk(2, "computer_or_monitor_use", "work")];
 check(
   "mergeAcrossCaptureGaps=true merges equal labels across a gap",

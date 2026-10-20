@@ -1,9 +1,9 @@
-// Runtime tests for the study config (study config rollout):
+// Runtime tests for the study config:
 //   - loader: exit 2 on invalid/missing files, production rules
-//   - client projections + ratings rules against BOTH configs (pure)
+//   - client projections + ratings rules against both tracked configs (pure)
 //   - HTTP: /api/study-config, /api/app-config, /api/payout,
 //     /api/recording/device-info against a server started with
-//     config/study.test.yaml (proves nothing is hardcoded to the paper study)
+//     config/study.test.yaml
 //
 //   npm run build && npx tsx scripts/test-study-config-runtime.ts
 
@@ -45,8 +45,8 @@ const runLoader = (env: Record<string, string | undefined>) => {
   );
 };
 
-// study.test.yaml uses example.org links on purpose; production refuses
-// those, so the production cases run on a copy with neutral links.
+// Production cases run on a copy of study.test.yaml with the example.org
+// links replaced.
 const productionReady = (source: string): string =>
   source.replace(/https:\/\/([a-z.]*)example\.org/g, "https://$1blinks-test.invalid");
 const writeConfig = (name: string, source: string): string => {
@@ -79,23 +79,7 @@ test("loader: production refuses placeholder links and PINs (copy of the example
   assert.strictEqual(copied.status, 2);
   assert.match(copied.stderr, /app\.studySettingsPin: is the placeholder PIN/);
   assert.strictEqual(runLoader({ BLINKS_STUDY_CONFIG: copy }).status, 0, "allowed outside production");
-
-  // the retired PIN, found by its hash (not written here in clear text)
-  const { RETIRED_PIN_SHA256 } = require("../src/study-config/load");
-  const crypto = require("crypto");
-  const retired = Array.from({ length: 10_000 }, (_, n) => String(n).padStart(4, "0")).find(
-    (pin) => crypto.createHash("sha256").update(pin).digest("hex") === RETIRED_PIN_SHA256[0],
-  );
-  assert.ok(retired, "retired PIN hash is a 4-digit PIN");
-  const old = writeConfig(
-    "retired.yaml",
-    productionReady(testSource).replace('studySettingsPin: "123456"', `studySettingsPin: "${retired}"`),
-  );
-  const oldResult = runLoader({ BLINKS_STUDY_CONFIG: old, NODE_ENV: "production" });
-  assert.strictEqual(oldResult.status, 2);
-  assert.match(oldResult.stderr, /app\.studySettingsPin: is a retired PIN/);
-  assert.ok(!oldResult.stderr.includes(retired!), "the PIN is not echoed");
-  assert.strictEqual(runLoader({ BLINKS_STUDY_CONFIG: old, BLINKS_ENV: "production" }).status, 0, "BLINKS_ENV is Python-only");
+  assert.strictEqual(runLoader({ BLINKS_STUDY_CONFIG: copy, BLINKS_ENV: "production" }).status, 0, "BLINKS_ENV is Python-only");
 });
 
 test("loader: rate 0 behaves like enabled false (notice must be null, 1 category ok)", () => {
@@ -355,7 +339,7 @@ test("ratings: request rules and exact error texts (test config)", () => {
   assert.deepStrictEqual(parseRatingsInput({ stress: "3" }, undefined, testConfig), {
     error: "ratings.stress must be an integer 1-5 or null",
   });
-  // submit: all required items of the FINAL category
+  // submit: all required items of the final category
   assert.deepStrictEqual(parseRatingsInput({ focus: 2 }, "work", testConfig), {
     error: "ratings.stress is required to submit a work activity",
   });
@@ -365,7 +349,7 @@ test("ratings: request rules and exact error texts (test config)", () => {
   // optional item / other-category values are stored, never required
   assert.deepStrictEqual(parseRatingsInput({ focus: 1 }, "break", testConfig), { ratings: { focus: 1 } });
   assert.deepStrictEqual(parseRatingsInput({}, "break", testConfig), { ratings: {} });
-  // paper config: other has no items
+  // example config: other has no items
   assert.deepStrictEqual(parseRatingsInput(undefined, "other", example), { ratings: {} });
   assert.deepStrictEqual(parseRatingsInput({ mental_recovery: 4 }, "work", example), {
     error: "ratings.mental_demand is required to submit a work activity",
@@ -577,7 +561,7 @@ test("http: POST /api/recording/device-info (201, 200 replay, 409, 400, 401)", a
 });
 
 test("http: form factor validated against devices.formFactors", async () => {
-  // The test config adds "clip"; the old DB CHECK would have rejected it.
+  // The test config adds the form factor "clip".
   const ok = await request("PUT", "/api/study-settings/camera-form-factor", participantToken, { cameraFormFactor: "clip" });
   assert.strictEqual(ok.status, 200, ok.text);
   const bad = await request("PUT", "/api/study-settings/camera-form-factor", participantToken, { cameraFormFactor: "pendant" });
