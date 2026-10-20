@@ -35,7 +35,7 @@
 // capture_interval_config.h and docs/ble-protocol.md.
 
 // ---- Sampling rate --------------------------------------------------------
-// Compiled-in DEFAULT. The app sets the study interval with opcode 0x03 on
+// Compiled-in default. The app sets the study interval with opcode 0x03 on
 // every connect; a disconnect reverts to this default.
 #define CAPTURE_INTERVAL_MS 15000
 #define CAMERA_WARMUP_MS 500
