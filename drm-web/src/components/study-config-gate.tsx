@@ -11,14 +11,14 @@ import { Button } from "@/components/ui/button";
 
 export const STUDY_CONFIG_QUERY_KEY = ["study-config"] as const;
 
-/** `ui.locale` "en-GB" -> document language "en" (the pre-config value). */
+/** `ui.locale` "en-GB" -> document language "en". */
 const documentLanguage = (locale: string): string =>
   locale.split("-")[0] || "en";
 
 /**
  * Loads GET /api/study-config once per sign-in (sign-in/out clears the query
- * cache) and installs it before rendering the study page. There are no
- * client-side defaults: while loading nothing renders; a failed load shows a retry instead of a page with guessed values.
+ * cache) and installs it before rendering the study page. While loading,
+ * nothing renders; a failed load shows a retry.
  */
 export const StudyConfigGate = ({ children }: { children: ReactNode }) => {
   const configQuery = useQuery({

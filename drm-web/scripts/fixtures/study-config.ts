@@ -1,12 +1,10 @@
 // Study-config fixtures for the drm-web script tests.
 //
-// defaultStudyConfig() maps config/study.example.yaml (the paper study) to the
-// GET /api/study-config payload (docs/study-config-documentation.md, 4.1), so the
-// tests run against exactly the values the server serves by default.
-// testStudyConfig() does the same for config/study.test.yaml (the local test
-// study used for local end-to-end runs). alternativeStudyConfig() is an independent study
-// (5 labels, 2 categories, 3 items, 10-minute window) that must work without
-// code changes.
+// defaultStudyConfig() maps config/study.example.yaml to the
+// GET /api/study-config payload (docs/study-config-documentation.md, 4.1).
+// testStudyConfig() does the same for config/study.test.yaml.
+// alternativeStudyConfig() is an independent study (5 labels, 2 categories,
+// 3 items, 10-minute window).
 
 import { readFileSync } from "node:fs";
 import path from "node:path";

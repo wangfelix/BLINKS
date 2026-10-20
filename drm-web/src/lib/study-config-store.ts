@@ -1,10 +1,9 @@
 // Runtime study configuration (GET /api/study-config).
 //
 // The server loads config/study.yaml at start-up and serves the participant-
-// facing part; drm-web has NO defaults of its own. StudyConfigGate fetches the
-// config once per sign-in and installs it here before any study page renders,
-// so the pure helpers (vocabularies, time formatting, editor model) can read
-// it synchronously. Tests install a fixture with installStudyConfig().
+// facing part. StudyConfigGate fetches the config once per sign-in and
+// installs it here before any study page renders, so the pure helpers
+// (vocabularies, time formatting, editor model) can read it synchronously. Tests install a fixture with installStudyConfig().
 
 import type {
   StudyConfigCategory,

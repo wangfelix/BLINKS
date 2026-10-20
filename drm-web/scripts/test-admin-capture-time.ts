@@ -1,4 +1,4 @@
-// Admin photo browser capture times: study timezone, never a guessed zone.
+// Admin photo browser capture times in the study timezone.
 // Run from drm-web/:  npx tsx scripts/test-admin-capture-time.ts
 
 import {
