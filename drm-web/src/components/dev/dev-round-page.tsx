@@ -1,6 +1,7 @@
 "use client";
 
 import { ActiveRoundView } from "@/app/reconstruct/page";
+import { StudyConfigGate } from "@/components/study-config-gate";
 import { Column, Row } from "@/components/layout/flex";
 import { CategoryLegendCard } from "@/components/reconstruct/category-legend-card";
 import { StudyWorkspaceShell } from "@/components/study-workspace-shell";
@@ -34,5 +35,9 @@ const DevRoundContent = ({ round }: { round: 1 | 2 }) => (
 export const DevRoundPage = ({ round }: { round: 1 | 2 }) => {
   const ready = useRequireAuth();
   if (!ready) return null;
-  return <DevRoundContent round={round} />;
+  return (
+    <StudyConfigGate>
+      <DevRoundContent round={round} />
+    </StudyConfigGate>
+  );
 };

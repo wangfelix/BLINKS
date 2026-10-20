@@ -15,8 +15,10 @@ import {
   adminFrameImageSrc,
   getAdminPhotoFilters,
   getAdminPhotos,
+  getAdminStudyConfig,
   type AdminPhoto,
 } from "@/lib/admin-api";
+import { captureTimeFormatter } from "@/lib/admin-capture-time";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,12 +48,6 @@ import {
 
 const PAGE_SIZE = 96;
 const countFormat = new Intl.NumberFormat("en");
-const dateTimeFormat = new Intl.DateTimeFormat("en-GB", {
-  dateStyle: "medium",
-  timeStyle: "medium",
-  timeZone: "Europe/Berlin",
-});
-
 const frameKey = (frame: AdminPhoto) =>
   `${frame.participant}:${frame.device}:${frame.session}:${frame.frameIndex}`;
 
@@ -62,6 +58,17 @@ export const AdminPhotosView = () => {
   const [selectedSession, setSelectedSession] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [selectedPhoto, setSelectedPhoto] = useState<AdminPhoto | null>(null);
+
+  const studyConfigQuery = useQuery({
+    queryKey: ["admin", "study-config"],
+    queryFn: getAdminStudyConfig,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const studyTimeZone = studyConfigQuery.data?.study.timezone;
+  const dateTimeFormat = useMemo(
+    () => captureTimeFormatter(studyTimeZone),
+    [studyTimeZone],
+  );
 
   const filtersQuery = useQuery({
     queryKey: ["admin", "photo-filters"],
@@ -143,6 +150,7 @@ export const AdminPhotosView = () => {
               onClick={() => {
                 void filtersQuery.refetch();
                 void photosQuery.refetch();
+                if (studyConfigQuery.isError) void studyConfigQuery.refetch();
               }}
             >
               <RefreshCwIcon
@@ -155,6 +163,38 @@ export const AdminPhotosView = () => {
             </Button>
           </CardAction>
         </CardHeader>
+
+        {studyConfigQuery.isError ? (
+          <div className="border-b border-border/70 px-4 py-4 sm:px-5">
+            <Alert variant="destructive">
+              <AlertTitle>Capture times unavailable</AlertTitle>
+              <AlertDescription>
+                <p>
+                  The study configuration could not be loaded, so capture times
+                  cannot be shown in the study timezone.
+                  {studyConfigQuery.error instanceof Error
+                    ? ` (${studyConfigQuery.error.message})`
+                    : ""}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  disabled={studyConfigQuery.isFetching}
+                  onClick={() => void studyConfigQuery.refetch()}
+                >
+                  <RefreshCwIcon
+                    className={
+                      studyConfigQuery.isFetching ? "animate-spin" : undefined
+                    }
+                    aria-hidden
+                  />
+                  Retry
+                </Button>
+              </AlertDescription>
+            </Alert>
+          </div>
+        ) : null}
 
         <div className="grid gap-4 border-b border-border/70 bg-muted/20 px-4 py-4 sm:grid-cols-2 sm:px-5 lg:max-w-3xl">
           <div className="space-y-2">

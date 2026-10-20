@@ -1,61 +1,53 @@
 "use client";
 
-import type { ExperienceRating } from "@/lib/api-types";
+import type { StudyConfigExperienceItem } from "@/lib/api-types";
 import { Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
 import { mergeClassNames } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 
-const RATING_VALUES: ExperienceRating[] = [1, 2, 3, 4, 5, 6, 7];
+/** Every answer value of the item's scale, low to high. */
+const scaleValues = (item: StudyConfigExperienceItem): number[] =>
+  Array.from(
+    { length: item.scale.max - item.scale.min + 1 },
+    (_, index) => item.scale.min + index,
+  );
 
-/** The category an experience rating exists for ('other' is never rated). */
-export type RatedCategory = "work" | "break";
-
-// Item wording fixed by Michael (mail 2026-07-19) — keep verbatim.
-const SCALE_COPY: Record<
-  RatedCategory,
-  { question: string; lowAnchor: string; highAnchor: string }
-> = {
-  work: {
-    question: "How mentally demanding was this activity?",
-    lowAnchor: "Not at all",
-    highAnchor: "Very much",
-  },
-  break: {
-    question: "How mentally recovering was this activity?",
-    lowAnchor: "Not at all",
-    highAnchor: "Very much",
-  },
-};
+/** "Mental demand 4/7" / "Recovery 2/7" for the submitted view. */
+export const experienceRatingSummaryLabel = (
+  item: StudyConfigExperienceItem,
+  rating: number,
+): string => `${item.shortLabel} ${rating}/${item.scale.max}`;
 
 /**
- * 7-point Likert scale shown under an activity's label/category row. Work
- * activities rate mental demand, breaks rate mental recovery.
+ * Likert scale of one experience item (question, anchors and scale length
+ * from the study config), shown under an activity's label/category row.
  */
 export const ExperienceRatingScale = ({
-  category,
+  item,
   value,
   onChange,
   invalid = false,
   layout = "inline",
   className,
 }: {
-  category: RatedCategory;
-  value: ExperienceRating | null;
-  onChange: (rating: ExperienceRating) => void;
+  item: StudyConfigExperienceItem;
+  value: number | null;
+  onChange: (rating: number) => void;
   invalid?: boolean;
   layout?: "inline" | "field-row";
   className?: string;
 }) => {
-  const copy = SCALE_COPY[category];
+  const copy = item.scale;
+  const values = scaleValues(item);
 
-  const ratingButtons = RATING_VALUES.map((rating) => (
+  const ratingButtons = values.map((rating) => (
     <button
       key={rating}
       type="button"
       role="radio"
       aria-checked={value === rating}
-      aria-label={`${rating} of 7`}
+      aria-label={`${rating} of ${item.scale.max}`}
       onClick={() => onChange(rating)}
       className={mergeClassNames(
         "size-8 rounded-full border text-sm tabular-nums transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
@@ -78,13 +70,16 @@ export const ExperienceRatingScale = ({
         )}
       >
         <Label color={invalid ? "destructive" : undefined}>
-          {copy.question}
+          {item.question}
         </Label>
         <div className="w-full min-w-0 sm:justify-self-end">
           <div
-            className="grid grid-cols-7 place-items-center gap-1.5"
+            className="grid place-items-center gap-1.5"
+            style={{
+              gridTemplateColumns: `repeat(${values.length}, minmax(0, 1fr))`,
+            }}
             role="radiogroup"
-            aria-label={copy.question}
+            aria-label={item.question}
             aria-invalid={invalid || undefined}
           >
             {ratingButtons}
@@ -106,12 +101,12 @@ export const ExperienceRatingScale = ({
       wrap
       className={mergeClassNames("px-1", className)}
     >
-      <Label color={invalid ? "destructive" : undefined}>{copy.question}</Label>
+      <Label color={invalid ? "destructive" : undefined}>{item.question}</Label>
       <Row
         gap="sm"
         align="center"
         role="radiogroup"
-        aria-label={copy.question}
+        aria-label={item.question}
         aria-invalid={invalid || undefined}
       >
         <Text variant="nudge">{copy.lowAnchor}</Text>

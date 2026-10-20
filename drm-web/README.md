@@ -33,7 +33,8 @@ addition to enforcing authentication, round order, and the evening gate.
 ## Assisted time-span editing
 
 The assisted editor treats every activity span as a half-open interval
-`[start, end)` and exposes a complete clock-aligned five-minute grid for the
+`[start, end)` and exposes a complete clock-aligned window grid
+(`windowing.windowMinutes`, five minutes in the paper study) for the
 pinned study day. A grid slot remains selectable when no photo was captured
 and renders **No images available**; live photos in the same slot share one
 visual group. Slots distinguish the current activity, another activity, and
@@ -43,7 +44,7 @@ background and border. The editable selection adds a full-cell blue tint,
 merged three-pixel edge, and prominent Start/End flags without regrouping or
 moving any slots under the pointer.
 Assignment labels and group spans sit in a separate header row above the
-individual five-minute time labels. The half-hour time tape follows the first
+individual window time labels. The half-hour time tape follows the first
 visible grid row, keeps that marker in view, and highlights it persistently.
 
 Both **Insert activity** and **Adjust times** use the same picker. The selected
@@ -93,24 +94,22 @@ npm run dev   # http://localhost:3002 (BLINKS API expected on :3000)
 
 Env vars:
 
-| Variable                            | Default                 | Meaning                                                  |
-| ----------------------------------- | ----------------------- | -------------------------------------------------------- |
-| `API_PROXY_TARGET`                  | `http://127.0.0.1:3000` | Dev-proxy target for `/api`, `/frames`, `/health`        |
-| `DRM_DEV_MODE`                      | (off)                   | `1` shows direct dev navigation; set on API server too   |
-| `NEXT_PUBLIC_API_URL`               | `""` (same origin)      | API base override; normally never needed                 |
-| `NEXT_PUBLIC_DRM_TZ`                | `Europe/Berlin`         | Study timezone; keep in sync with the server's `DRM_TZ`  |
-| `NEXT_PUBLIC_ONBOARDING_SURVEY_URL` | (required)              | Pre-study LimeSurvey base URL; app adds `participant_id` |
-| `NEXT_PUBLIC_FINAL_SURVEY_URL`      | (required)              | Final LimeSurvey base URL; app adds `participantId`      |
-| `PAYOUT_URL`                        | (required)              | Server-only payout destination used by `/payout`         |
+| Variable              | Default                 | Meaning                                                |
+| --------------------- | ----------------------- | ------------------------------------------------------ |
+| `API_PROXY_TARGET`    | `http://127.0.0.1:3000` | Dev-proxy target for `/api`, `/frames`, `/health`      |
+| `DRM_DEV_MODE`        | (off)                   | `1` shows direct dev navigation; set on API server too |
+| `NEXT_PUBLIC_API_URL` | `""` (same origin)      | API base override; normally never needed               |
 
-Copy `.env.example` to `.env.local` for development. `NEXT_PUBLIC_*` values are
-compiled into the client bundle, so production values must be present when
-running `npm run build`. `PAYOUT_URL` is read only by the server-side `/payout`
-redirect and is not included in the client bundle.
-
-The redirect keeps the destination out of tracked source and public JavaScript.
-A participant who follows the redirect can still see the final destination in
-their browser, as with any external link.
+Study values are **not** configured in the web app. Activity labels,
+categories, rating items, window size, thumbnails per activity, timezone and
+locale, round texts and survey links come from the server's
+`GET /api/study-config` at runtime (`config/study.yaml`, see
+`config/README.md`). `StudyConfigGate` loads the config once per sign-in
+before any study page renders and shows an error with a retry button if the
+request fails; the web code has no study defaults. The payout link is the
+server redirect `GET /api/payout`, so its destination stays out of the
+tracked source and the client bundle. A participant who follows it can still
+see the final destination in their browser, as with any external link.
 
 With `DRM_DEV_MODE=1` on both the web app and API server, a floating menu
 links directly to the onboarding preview, Self DRM, VLM-assisted DRM, the
@@ -239,7 +238,7 @@ cd /root/BLINKS && git pull && cd drm-web && npm ci && npm run build && cp -r pu
 - `src/lib/time.ts` — study-timezone helpers (day keys, HH:MM conversion,
   DST-aware day bounds).
 - `src/components/reconstruct/` — assisted/self activity rows, frame-picker
-  dialog (five-minute boundary adjustment + insert), slot ownership/grouping,
+  dialog (window-grid boundary adjustment + insert), slot ownership/grouping,
   the two pre-round instruction screens, round editor with debounced autosave,
   and read-only view of submitted rounds.
 - `src/components/ui/` — generated shadcn/ui components.

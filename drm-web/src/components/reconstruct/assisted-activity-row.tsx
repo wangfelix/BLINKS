@@ -3,12 +3,11 @@
 import { useMemo, type ReactNode } from "react";
 import { ImageOffIcon, Trash2Icon } from "lucide-react";
 
-import type {
-  ActivityLabel,
-  CategoryLabel,
-  ExperienceRating,
-  Frame,
-} from "@/lib/api-types";
+import type { ActivityLabel, CategoryLabel, Frame } from "@/lib/api-types";
+import {
+  experienceItemsForCategory,
+  thumbnailsPerActivity,
+} from "@/lib/study-config-store";
 import { frameImageSrc } from "@/lib/api-client";
 import { mergeClassNames } from "@/lib/utils";
 import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
@@ -17,17 +16,12 @@ import { Label } from "@/components/ui/label";
 import { Text } from "@/components/layout/text";
 import { CategorySelect } from "@/components/reconstruct/category-select";
 import { ActivitySelect } from "@/components/reconstruct/activity-select";
-import {
-  ExperienceRatingScale,
-  type RatedCategory,
-} from "@/components/reconstruct/experience-rating-scale";
+import { ExperienceRatingScale } from "@/components/reconstruct/experience-rating-scale";
 import {
   sampleEvenly,
   type EditableActivity,
 } from "@/components/reconstruct/editor-types";
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
-
-const THUMBNAIL_COUNT = 5;
 
 export type MergeHighlightPhase = "holding" | "fading";
 
@@ -78,10 +72,7 @@ export const AssistedActivityRow = ({
   mergeHighlightPhase: MergeHighlightPhase | null;
   onChangeLabel: (rawLabel: ActivityLabel) => void;
   onChangeCategory: (category: CategoryLabel) => void;
-  onChangeExperienceRating: (
-    category: RatedCategory,
-    rating: ExperienceRating,
-  ) => void;
+  onChangeExperienceRating: (itemKey: string, rating: number) => void;
   onDelete: () => void;
   onAdjustBoundaries: () => void;
   onViewPhotos: (initialFrame?: Frame) => void;
@@ -97,7 +88,7 @@ export const AssistedActivityRow = ({
     [dayFrames, endMs, startMs],
   );
   const thumbnails = useMemo(
-    () => sampleEvenly(framesInSpan, THUMBNAIL_COUNT),
+    () => sampleEvenly(framesInSpan, thumbnailsPerActivity()),
     [framesInSpan],
   );
   const hasLivePhotos = useMemo(
@@ -107,14 +98,7 @@ export const AssistedActivityRow = ({
   const isLabelMissing = highlightIssues && activity.rawLabel === null;
   const isCategoryMissing = highlightIssues && activity.categoryLabel === null;
   const showIssueMessage = highlightIssues && issue !== null;
-  const ratedCategory: RatedCategory | null =
-    activity.categoryLabel === "work" || activity.categoryLabel === "break"
-      ? activity.categoryLabel
-      : null;
-  const experienceRating =
-    ratedCategory === "work"
-      ? activity.workloadRating
-      : activity.recoveryRating;
+  const ratedItems = experienceItemsForCategory(activity.categoryLabel);
 
   return (
     <article
@@ -241,7 +225,7 @@ export const AssistedActivityRow = ({
           label="Activity Type"
           htmlFor={`${activity.localId}-category`}
           invalid={isCategoryMissing}
-          className={ratedCategory === null ? "pt-2 pb-3" : "py-2"}
+          className={ratedItems.length === 0 ? "pt-2 pb-3" : "py-2"}
         >
           <CategorySelect
             id={`${activity.localId}-category`}
@@ -252,18 +236,22 @@ export const AssistedActivityRow = ({
           />
         </AssistedFieldRow>
 
-        {ratedCategory !== null && (
-          <ExperienceRatingScale
-            category={ratedCategory}
-            value={experienceRating}
-            onChange={(rating) =>
-              onChangeExperienceRating(ratedCategory, rating)
-            }
-            invalid={highlightIssues && experienceRating === null}
-            layout="field-row"
-            className="pt-2 pb-3"
-          />
-        )}
+        {ratedItems.map((item, index) => {
+          const value = activity.ratings[item.key] ?? null;
+          return (
+            <ExperienceRatingScale
+              key={item.key}
+              item={item}
+              value={value}
+              onChange={(rating) => onChangeExperienceRating(item.key, rating)}
+              invalid={
+                highlightIssues && item.requiredOnSubmit && value === null
+              }
+              layout="field-row"
+              className={index === ratedItems.length - 1 ? "pt-2 pb-3" : "py-2"}
+            />
+          );
+        })}
 
         {showIssueMessage && (
           <div className="py-3">
