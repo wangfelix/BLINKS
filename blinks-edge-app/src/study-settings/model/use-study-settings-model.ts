@@ -17,12 +17,15 @@ import {
 } from "@/study-settings/storage/image-rotation-storage";
 import type { CameraFormFactor } from "@/study-settings/types/camera-form-factor";
 import type { ImageRotation } from "@/study-settings/types/image-rotation";
+import { appConfigStore } from "@/study/model/app-config-store";
+import { useAppConfig } from "@/study/model/use-app-config";
 
 export const useStudySettingsModel = () => {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { session, startTestSession } = useRecordingSession();
   const profileQuery = useQuery(profileQueryOptions());
+  const appConfig = useAppConfig();
   const [imageRotation, setImageRotation] = useState<ImageRotation>(0);
   const [isLoadingRotation, setIsLoadingRotation] = useState(true);
   const [isSavingRotation, setIsSavingRotation] = useState(false);
@@ -61,6 +64,12 @@ export const useStudySettingsModel = () => {
     : session.restorationStatus === "restoring"
       ? "Checking recording state…"
       : "Start test recording";
+
+  // Opening Study Settings online loads the config on a device without a
+  // cached one.
+  useEffect(() => {
+    void appConfigStore.refresh();
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -144,6 +153,10 @@ export const useStudySettingsModel = () => {
   };
 
   return {
+    studySettingsPin: appConfig.studySettingsPin,
+    isRefreshingConfig: appConfig.isRefreshing,
+    refreshConfig: () => void appConfigStore.refresh(),
+    formFactors: appConfig.config?.devices.formFactors ?? [],
     cameraFormFactor: profileQuery.data?.cameraFormFactor ?? null,
     isLoadingCameraFormFactor: profileQuery.isLoading,
     isSavingCameraFormFactor: cameraFormFactorMutation.isPending,

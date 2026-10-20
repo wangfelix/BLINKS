@@ -14,21 +14,14 @@ import { AppCard } from "@/application/components/app-card";
 import { AppText } from "@/application/components/app-text";
 import { AppTextInput } from "@/application/components/app-text-input";
 import { ScreenContainer } from "@/application/components/screen-container";
-import { appConfig } from "@/application/config/app-config";
 import { colors, radius, spacing } from "@/application/theme/theme";
 import { useStudySettingsModel } from "@/study-settings/model/use-study-settings-model";
-import { CAMERA_FORM_FACTORS } from "@/study-settings/types/camera-form-factor";
-import type { CameraFormFactor } from "@/study-settings/types/camera-form-factor";
 import { IMAGE_ROTATIONS } from "@/study-settings/types/image-rotation";
 import type { ImageRotation } from "@/study-settings/types/image-rotation";
+import { isStudySettingsPinCorrect } from "@/study/utils/study-settings-pin";
 
 const rotationLabel = (rotation: ImageRotation): string =>
   rotation === 0 ? "None" : `${rotation}°`;
-
-const cameraFormFactorLabel: Record<CameraFormFactor, string> = {
-  necklace: "Necklace",
-  glasses: "Glasses",
-};
 
 const StudySettingsScreen = () => {
   const insets = useSafeAreaInsets();
@@ -36,6 +29,10 @@ const StudySettingsScreen = () => {
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState<string | null>(null);
   const {
+    studySettingsPin,
+    isRefreshingConfig,
+    refreshConfig,
+    formFactors,
     cameraFormFactor,
     isLoadingCameraFormFactor,
     isSavingCameraFormFactor,
@@ -51,13 +48,42 @@ const StudySettingsScreen = () => {
   } = useStudySettingsModel();
 
   const unlock = () => {
-    if (pin === appConfig.studySettingsPin) {
+    if (isStudySettingsPinCorrect(studySettingsPin, pin)) {
       setPinError(null);
       setIsUnlocked(true);
       return;
     }
     setPinError("Incorrect PIN");
   };
+
+  if (!isUnlocked && studySettingsPin === null) {
+    // This account has not loaded the study config yet.
+    return (
+      <ScreenContainer
+        scrollable
+        includeTopInset={false}
+        bottomSpacing={insets.bottom}
+      >
+        <AppCard style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <LockKeyIcon size={28} color={colors.primary} weight="fill" />
+            <View style={styles.headerText}>
+              <AppText variant="subheading">Study Settings are locked</AppText>
+              <AppText variant="caption">
+                Open Study Settings once while connected to the server to load
+                the study configuration.
+              </AppText>
+            </View>
+          </View>
+          <AppButton
+            label="Try again"
+            onPress={refreshConfig}
+            loading={isRefreshingConfig}
+          />
+        </AppCard>
+      </ScreenContainer>
+    );
+  }
 
   if (!isUnlocked) {
     return (
@@ -86,7 +112,7 @@ const StudySettingsScreen = () => {
             }}
             secureTextEntry
             keyboardType="number-pad"
-            maxLength={Math.max(4, appConfig.studySettingsPin.length)}
+            maxLength={Math.max(4, studySettingsPin?.length ?? 0)}
             errorMessage={pinError}
             autoFocus
           />
@@ -118,17 +144,15 @@ const StudySettingsScreen = () => {
         </View>
 
         <View style={styles.cameraTypeOptions}>
-          {CAMERA_FORM_FACTORS.map((candidate) => {
+          {formFactors.map(({ key: candidate, displayLabel }) => {
             const isSelected = candidate === cameraFormFactor;
             return (
               <Pressable
                 key={candidate}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: isSelected }}
-                accessibilityLabel={`${cameraFormFactorLabel[candidate]} camera`}
-                disabled={
-                  isLoadingCameraFormFactor || isSavingCameraFormFactor
-                }
+                accessibilityLabel={`${displayLabel} camera`}
+                disabled={isLoadingCameraFormFactor || isSavingCameraFormFactor}
                 onPress={() => void selectCameraFormFactor(candidate)}
                 style={({ pressed }) => [
                   styles.cameraTypeOption,
@@ -142,7 +166,7 @@ const StudySettingsScreen = () => {
                   variant="label"
                   color={isSelected ? colors.primary : colors.textSecondary}
                 >
-                  {cameraFormFactorLabel[candidate]}
+                  {displayLabel}
                 </AppText>
               </Pressable>
             );
@@ -197,9 +221,9 @@ const StudySettingsScreen = () => {
           <View style={styles.headerText}>
             <AppText variant="subheading">Lab test recording</AppText>
             <AppText variant="caption">
-              Check the camera, image orientation, and pause controls before
-              the field day. Test photos are stored separately and do not count
-              as the study session.
+              Check the camera, image orientation, and pause controls before the
+              field day. Test photos are stored separately and do not count as
+              the study session.
             </AppText>
           </View>
         </View>
@@ -210,7 +234,9 @@ const StudySettingsScreen = () => {
             !canOpenTestSession || isLoadingRotation || isSavingRotation
           }
           loading={isStartingRecording}
-          icon={<RecordIcon size={20} color={colors.textOnAccent} weight="fill" />}
+          icon={
+            <RecordIcon size={20} color={colors.textOnAccent} weight="fill" />
+          }
         />
         {!canOpenTestSession ? (
           <AppText variant="caption" style={styles.testUnavailableHint}>

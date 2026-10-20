@@ -10,8 +10,7 @@
       "distribution": "internal",
       "android": { "buildType": "apk" },
       "env": {
-        "EXPO_PUBLIC_SERVER_URL": "https://blinks.win.kit.edu",
-        "EXPO_PUBLIC_STUDY_SETTINGS_PIN": "2626"
+        "EXPO_PUBLIC_SERVER_URL": "https://blinks.win.kit.edu"
       }
     }
   }

@@ -8,6 +8,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { AppState } from "react-native";
 
 import { login as loginRequest } from "@/authentication/api/auth-api";
 import { sessionHolder } from "@/authentication/storage/session-holder";
@@ -17,6 +18,7 @@ import {
   storeSession,
 } from "@/authentication/storage/token-storage";
 import { recordingSessionStore } from "@/capture/model/recording-session-store";
+import { appConfigStore } from "@/study/model/app-config-store";
 
 type AuthStatus = "restoring" | "signedOut" | "signedIn";
 
@@ -39,6 +41,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       .then((stored) => {
         if (stored) {
           sessionHolder.setSession(stored.token, stored.username);
+          // Cached study values first (offline start), then a refresh from the
+          // server in the background.
+          void appConfigStore
+            .restore(stored.username)
+            .then(() => appConfigStore.refresh());
           void recordingSessionStore.restore();
           setUsername(stored.username);
           setStatus("signedIn");
@@ -55,6 +62,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUsername(null);
     setStatus("signedOut");
     queryClient.clear();
+    await appConfigStore.clear().catch(() => {});
     await clearStoredSession().catch(() => {});
   }, [queryClient]);
 
@@ -67,10 +75,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => sessionHolder.setOnUnauthorized(null);
   }, [signOut]);
 
+  // Pick up config changes whenever the app returns to the foreground.
+  useEffect(() => {
+    if (status !== "signedIn") return;
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void appConfigStore.refresh();
+    });
+    return () => subscription.remove();
+  }, [status]);
+
   const signIn = useCallback(async (name: string, password: string) => {
     const response = await loginRequest(name, password);
     sessionHolder.setSession(response.token, response.username);
     await storeSession({ token: response.token, username: response.username });
+    void appConfigStore
+      .restore(response.username)
+      .then(() => appConfigStore.refresh());
     void recordingSessionStore.restore();
     setUsername(response.username);
     setStatus("signedIn");
