@@ -83,11 +83,6 @@ const tableCopy: Record<
     label: "Activity ratings",
     description: "Experience-item answers per activity",
   },
-  device_info_reports: {
-    label: "Camera device info",
-    description:
-      "Firmware, camera type, and capture interval after each connect",
-  },
 };
 
 const countFormat = new Intl.NumberFormat("en");
