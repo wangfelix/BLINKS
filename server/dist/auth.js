@@ -9,6 +9,7 @@ exports.authenticateToken = authenticateToken;
 exports.participantFromAuthHeader = participantFromAuthHeader;
 exports.requireAuth = requireAuth;
 exports.requireAdmin = requireAdmin;
+exports.requireParticipantOrAdmin = requireParticipantOrAdmin;
 exports.requireCompletedOnboarding = requireCompletedOnboarding;
 exports.requireActiveStudy = requireActiveStudy;
 exports.requireAuthWithCookieFallback = requireAuthWithCookieFallback;
@@ -77,6 +78,19 @@ function requireAdmin(req, res, next) {
     req.participant = username;
     next();
 }
+// Participant OR admin bearer (GET /api/study-config). Sets req.authRole so
+// the route can withhold participant-only fields from admins.
+function requireParticipantOrAdmin(req, res, next) {
+    const username = usernameFromAuthHeader(req.headers.authorization);
+    const role = username === null ? undefined : (0, auth_db_1.getUser)(username)?.role;
+    if (username === null || (role !== "participant" && role !== "admin")) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+    }
+    req.participant = username;
+    req.authRole = role;
+    next();
+}
 // Secure authorization gate for the DRM web workflow. The Next.js proxy also
 // performs an optimistic redirect for a smooth first-run experience, but this
 // database-backed check is the authoritative protection against bypassing the
@@ -130,7 +144,8 @@ const tokenFromCookieHeader = (cookieHeader, cookieName = "blinks_token") => {
     return undefined;
 };
 // Like requireAuth, but additionally accepts the token from a blinks_token
-// cookie. ONLY for GET /frames/* image serving: the DRM website renders the
+// cookie. ONLY for GET /frames/* image serving and the GET /api/payout
+// redirect (both browser navigations): the DRM website renders the
 // frames via <img> tags, which cannot send an Authorization header. JSON APIs
 // stay header-only (CSRF hygiene: a cookie must never authorize a mutation).
 function requireAuthWithCookieFallback(req, res, next) {

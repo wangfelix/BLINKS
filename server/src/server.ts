@@ -14,6 +14,7 @@ import {
   requireAdmin,
   requireAdminWithCookieFallback,
   requireAuth,
+  requireParticipantOrAdmin,
   requireCompletedOnboarding,
   requireAuthWithCookieFallback,
   verifyPassword,
@@ -80,6 +81,9 @@ import {
   replaceActivities,
   setCameraFormFactor,
   setPushToken,
+  parseRatingsJson,
+  MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT,
+  recordDeviceInfoReport,
   softDeleteFrameRow,
   upsertParticipantProfile,
 } from "./db";
@@ -87,7 +91,23 @@ import { ACTIVITY_LABEL_SET } from "./activity-vocabulary";
 import { injectIncorrectAnnotations } from "./incorrect-annotation-injection";
 import { segmentDay } from "./segmentation";
 import { getPushSchedulerStatus, startPushScheduler } from "./push";
-import { currentLocalHour, timeOfDayToMinutes, todayKey } from "./time";
+import { currentLocalMinutes, timeOfDayToMinutes, todayKey } from "./time";
+import {
+  CATEGORY_KEY_SET,
+  EXPERIENCE_ITEMS,
+  FORM_FACTOR_KEYS,
+  IDLE_CLOSE_MS,
+  minutesOfTimeOfDay,
+  studyConfig,
+} from "./study-config";
+import { getStudyConfigSource } from "./study-config/load";
+import type { DeviceInfoReportInput } from "./db";
+import {
+  appConfigResponse,
+  parseRatingsInput,
+  ratingsResponse,
+  studyConfigResponse,
+} from "./study-config/client";
 
 // ===========================================================================
 // BLINKS ingestion + API server (BLE phone-relay architecture).
@@ -121,7 +141,9 @@ const MAX_BATCH_DELETE_FRAMES = 500;
 // and the local hour from which TODAY's reconstruction opens (past days are
 // always available; the gate is enforced server-side).
 const WEB_URL = process.env.WEB_URL ?? "https://blinks.win.kit.edu";
-const AVAILABLE_FROM_HOUR = Number(process.env.DRM_AVAILABLE_FROM_HOUR ?? 19);
+// Evening gate: schedule.reconstructionOpensAt ("HH:MM", study timezone).
+const RECONSTRUCTION_OPENS_AT = studyConfig.schedule.reconstructionOpensAt;
+const RECONSTRUCTION_OPENS_AT_MINUTES = minutesOfTimeOfDay(RECONSTRUCTION_OPENS_AT);
 const DRM_DEV_MODE = process.env.DRM_DEV_MODE === "1";
 
 function ensureDir(dir: string): void {
@@ -519,6 +541,48 @@ app.get(
         res.status(404).json({ error: "not found" });
       }
     });
+  },
+);
+
+// --- Study config for clients (documentation 4.1-4.3) ------------------------
+
+app.get(
+  "/api/study-config",
+  requireParticipantOrAdmin,
+  (req: AuthenticatedRequest, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json(studyConfigResponse(req.authRole === "participant"));
+  },
+);
+
+// Contains the Study Settings PIN: participant only, never logged.
+app.get("/api/app-config", requireAuth, (_req: AuthenticatedRequest, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json(appConfigResponse());
+});
+
+// Payout redirect (documentation 4.2). Opened as a same-origin browser link, so no
+// bearer header: the blinks_token cookie is accepted as on /frames/*, and the
+// participant must have completed onboarding (as the master Next.js gate did).
+// GET-only and side-effect free, so the cookie fallback is CSRF-safe. Without
+// a valid participant session: 401/403 JSON, never the payout link.
+const noStore: express.RequestHandler = (_req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+};
+
+app.get(
+  "/api/payout",
+  noStore,
+  requireAuthWithCookieFallback,
+  requireCompletedOnboarding,
+  (_req: AuthenticatedRequest, res) => {
+    const payoutUrl = studyConfig.surveys.payoutUrl;
+    if (typeof payoutUrl !== "string" || !/^https:\/\/\S+$/.test(payoutUrl)) {
+      res.status(503).type("text/plain").send("Payout link is not configured.");
+      return;
+    }
+    res.redirect(302, payoutUrl);
   },
 );
 
@@ -963,7 +1027,7 @@ app.put(
       !(CAMERA_FORM_FACTORS as readonly string[]).includes(cameraFormFactor)
     ) {
       res.status(400).json({
-        error: "cameraFormFactor must be necklace or glasses",
+        error: `cameraFormFactor must be one of ${CAMERA_FORM_FACTORS.join(", ")}`,
       });
       return;
     }
@@ -995,15 +1059,16 @@ app.post("/api/register-push", requireAuth, (req: AuthenticatedRequest, res) => 
 // the from-memory recall). Round 2 is always assisted: its immutable
 // vlm_proposal and editable assisted response are separate lists.
 // Reconstructing TODAY only opens at
-// AVAILABLE_FROM_HOUR local time (a past study day is always available).
+// schedule.reconstructionOpensAt local time (a past study day is always
+// available).
 
-const CATEGORY_LABELS = new Set(["work", "break", "other"]);
+const CATEGORY_LABELS = CATEGORY_KEY_SET;
 
 const isDayAvailable = (day: string): boolean => {
   const today = todayKey();
   if (day < today) return true;
   if (day > today) return false;
-  return currentLocalHour() >= AVAILABLE_FROM_HOUR;
+  return currentLocalMinutes() >= RECONSTRUCTION_OPENS_AT_MINUTES;
 };
 
 // The study day: pinned by round 1's response-list row once that round was
@@ -1020,8 +1085,7 @@ const toActivityJson = (row: ActivityRow) => ({
   categoryLabel: row.category_label,
   source: row.source,
   proposalActivityId: row.proposal_activity_id,
-  workloadRating: row.workload_rating,
-  recoveryRating: row.recovery_rating,
+  ratings: ratingsResponse(parseRatingsJson(row.ratings_json)),
   // This flag is an analysis/manipulation detail. It reaches the browser only
   // in explicit developer mode so the study UI cannot reveal affected rows.
   ...(DRM_DEV_MODE
@@ -1094,8 +1158,8 @@ const MAX_ACTIVITIES_PER_ROUND = 300;
 
 // Validates the replace-all activities body shared by draft PUT and submit.
 // requireLabels (submit) additionally demands a supported activity enum AND a
-// categoryLabel on every activity, plus the category's experience rating
-// (work -> workloadRating, break -> recoveryRating; both 7-point Likert).
+// categoryLabel on every activity, plus every requiredOnSubmit experience
+// item whose appliesTo contains the final category (documentation 4.6).
 // Every span must lie within the pinned study day and spans must not overlap,
 // preserving one unambiguous ordered reconstruction. On round 1 every
 // activity must be user-sourced and carries no VLM provenance (there is no
@@ -1122,6 +1186,7 @@ const parseActivityInputs = (
       categoryLabel?: unknown;
       source?: unknown;
       proposalActivityId?: unknown;
+      ratings?: unknown;
       workloadRating?: unknown;
       recoveryRating?: unknown;
     };
@@ -1161,7 +1226,7 @@ const parseActivityInputs = (
       !CATEGORY_LABELS.has(categoryLabel as string)
     ) {
       return {
-        error: `activity ${index}: categoryLabel must be work, break, other, or null`,
+        error: `activity ${index}: categoryLabel must be one of ${[...CATEGORY_LABELS].join(", ")}, or null`,
       };
     }
     if (source !== "vlm" && source !== "user") {
@@ -1177,34 +1242,22 @@ const parseActivityInputs = (
       return { error: `activity ${index}: categoryLabel is required to submit` };
     }
 
-    // Experience ratings: 7-point Likert, integer 1-7 or null. Both fields are
-    // stored as sent (a draft keeps an earlier answer when the participant
-    // flips the category back and forth); submit requires the rating that
-    // matches the final category.
-    const parseRating = (
-      value: unknown,
-      field: string,
-    ): { rating?: number | null; error?: string } => {
-      if (value === null || value === undefined) return { rating: null };
-      if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 7) {
-        return { error: `activity ${index}: ${field} must be an integer 1-7 or null` };
+    // Experience ratings (documentation 4.6): every sent value is stored as sent,
+    // even for items of another category (a draft keeps an answer when the
+    // participant flips the category back and forth); submit requires every
+    // requiredOnSubmit item that applies to the final category.
+    for (const legacyField of ["workloadRating", "recoveryRating"] as const) {
+      if (entry[legacyField] !== undefined) {
+        return {
+          error: `activity ${index}: ${legacyField} is no longer supported, use ratings`,
+        };
       }
-      return { rating: value as number };
-    };
-    const workload = parseRating(entry.workloadRating, "workloadRating");
-    if (workload.error) return { error: workload.error };
-    const recovery = parseRating(entry.recoveryRating, "recoveryRating");
-    if (recovery.error) return { error: recovery.error };
-    if (requireLabels && categoryLabel === "work" && workload.rating === null) {
-      return {
-        error: `activity ${index}: workloadRating (1-7) is required to submit a work activity`,
-      };
     }
-    if (requireLabels && categoryLabel === "break" && recovery.rating === null) {
-      return {
-        error: `activity ${index}: recoveryRating (1-7) is required to submit a break activity`,
-      };
-    }
+    const ratings = parseRatingsInput(
+      entry.ratings,
+      requireLabels ? ((categoryLabel as string | null | undefined) ?? null) : undefined,
+    );
+    if (ratings.error) return { error: `activity ${index}: ${ratings.error}` };
     // Opaque link to the immutable proposal row. The DB verifies that it
     // belongs to this participant/round and derives all hidden VLM and
     // intervention provenance from that row; the client never supplies it.
@@ -1222,8 +1275,7 @@ const parseActivityInputs = (
       category_label: (categoryLabel as string | null | undefined) ?? null,
       source,
       proposal_activity_id: proposalActivityId,
-      workload_rating: workload.rating ?? null,
-      recovery_rating: recovery.rating ?? null,
+      ratings: ratings.ratings,
     });
   }
 
@@ -1278,7 +1330,7 @@ app.get(
       dayEndMs: bounds?.endMs ?? null,
       frameCount: day === null ? 0 : countFramesOnDay(participant, day),
       available: day !== null && (DRM_DEV_MODE || isDayAvailable(day)),
-      availableFromHour: AVAILABLE_FROM_HOUR,
+      availableFrom: RECONSTRUCTION_OPENS_AT,
       rounds: [
         {
           round: 1,
@@ -1344,12 +1396,12 @@ const guardRound = (
     res.status(404).json({ error: "no frames recorded yet" });
     return undefined;
   }
-  // The evening gate applies to reads too: before AVAILABLE_FROM_HOUR a
+  // The evening gate applies to reads too: before reconstructionOpensAt a
   // premature GET would not only show a partial day, it would also pin the
   // study day (and later bootstrap the segmentation) on a half-finished day.
   if (!DRM_DEV_MODE && !isDayAvailable(day)) {
     res.status(403).json({
-      error: `the reconstruction opens at ${AVAILABLE_FROM_HOUR}:00`,
+      error: `the reconstruction opens at ${RECONSTRUCTION_OPENS_AT}`,
     });
     return undefined;
   }
@@ -1405,7 +1457,7 @@ app.get(
       const dayChunks = listChunksOnDay(participant, day);
       const recordingEnded =
         DRM_DEV_MODE || recordingEndedForFrames(participant, dayFrames);
-      // Pending = frames whose 5-minute chunk is not terminal yet (filling /
+      // Pending = frames whose window chunk is not terminal yet (filling /
       // ready / processing). Legacy frames without a chunk are frozen, and
       // face_status='failed' frames can never feed a chunk's VLM input — do
       // not let either hold the round in "still processing" forever.
@@ -1441,7 +1493,7 @@ app.get(
         vlmPendingCount === 0 &&
         dayChunks.length > 0
       ) {
-        // Segmentation runs on the day's clock-aligned 5-minute CHUNKS.
+        // Segmentation runs on the day's clock-aligned CHUNKS.
         // Consecutive windows merge only when both their closed activity enum
         // and category match. Failed/unlabelled chunks each stay as a blank
         // proposal row so the participant can classify them; chunks with no
@@ -1479,6 +1531,10 @@ app.get(
                 : null,
             };
           }),
+          {
+            mergeAcrossCaptureGaps:
+              studyConfig.segmentation.mergeAcrossCaptureGaps,
+          },
         );
         const preparedActivities = injectIncorrectAnnotations(segments);
         const proposalActivities = preparedActivities.map((segment) => ({
@@ -1859,6 +1915,152 @@ function handleRecordingEvent(
   }
 }
 
+// --- Device info (documentation 4.8) -----------------------------------------
+
+const DEVICE_ID_PATTERN = /^[A-Za-z0-9]{1,64}$/;
+const MAX_DEVICE_INFO_JSON_CHARS = 4096;
+
+type DeviceInfoParse =
+  | { report: DeviceInfoReportInput; error?: undefined }
+  | { report?: undefined; error: string };
+
+function parseDeviceInfoReport(body: unknown): DeviceInfoParse {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return { error: "body must be a JSON object" };
+  }
+  const payload = body as Record<string, unknown>;
+  const isPositiveInt = (value: unknown): value is number =>
+    Number.isSafeInteger(value) && (value as number) > 0;
+  if (
+    typeof payload.eventId !== "string" ||
+    payload.eventId.length < 1 ||
+    payload.eventId.length > 128
+  ) {
+    return { error: "eventId must be a string of 1-128 characters" };
+  }
+  if (!isPositiveInt(payload.session)) {
+    return { error: "session must be a positive integer" };
+  }
+  if (typeof payload.device !== "string" || !DEVICE_ID_PATTERN.test(payload.device)) {
+    return { error: "device must be 1-64 characters [A-Za-z0-9]" };
+  }
+  if (!isPositiveInt(payload.clientEpochMs)) {
+    return { error: "clientEpochMs must be a positive integer" };
+  }
+  if (payload.requestedIntervalMs !== null && !isPositiveInt(payload.requestedIntervalMs)) {
+    return { error: "requestedIntervalMs must be a positive integer or null" };
+  }
+  if (
+    payload.settingsFormFactor !== null &&
+    (typeof payload.settingsFormFactor !== "string" ||
+      payload.settingsFormFactor.length < 1 ||
+      payload.settingsFormFactor.length > 64)
+  ) {
+    return { error: "settingsFormFactor must be a string of 1-64 characters or null" };
+  }
+  const info = payload.info;
+  let infoJson: string | null = null;
+  let fw: string | null = null;
+  let formFactor: string | null = null;
+  let intervalMs: number | null = null;
+  let defaultMs: number | null = null;
+  if (info !== null) {
+    if (info === undefined || typeof info !== "object" || Array.isArray(info)) {
+      return { error: "info must be an object or null" };
+    }
+    const record = info as Record<string, unknown>;
+    for (const field of ["v", "intervalMs", "defaultMs", "minMs", "maxMs"] as const) {
+      if (!Number.isSafeInteger(record[field])) {
+        return { error: `info.${field} must be an integer` };
+      }
+    }
+    for (const field of ["fw", "formFactor"] as const) {
+      if (typeof record[field] !== "string") {
+        return { error: `info.${field} must be a string` };
+      }
+    }
+    infoJson = JSON.stringify(info);
+    if (infoJson.length > MAX_DEVICE_INFO_JSON_CHARS) {
+      return {
+        error: `info must be at most ${MAX_DEVICE_INFO_JSON_CHARS} characters as JSON`,
+      };
+    }
+    fw = record.fw as string;
+    formFactor = record.formFactor as string;
+    intervalMs = record.intervalMs as number;
+    defaultMs = record.defaultMs as number;
+  }
+  return {
+    report: {
+      event_id: payload.eventId,
+      session: payload.session,
+      device: payload.device,
+      client_epoch_ms: payload.clientEpochMs,
+      requested_interval_ms: (payload.requestedIntervalMs as number | null) ?? null,
+      settings_form_factor: (payload.settingsFormFactor as string | null) ?? null,
+      firmware_version: fw,
+      form_factor: formFactor,
+      interval_ms: intervalMs,
+      default_ms: defaultMs,
+      info_json: infoJson,
+    },
+  };
+}
+
+/** Device-provided strings in logs: no control characters, max 32 chars. */
+const logSafe = (value: string | null): string =>
+  value === null ? "-" : JSON.stringify(value.replace(/[\u0000-\u001f\u007f-\u009f]/g, "?").slice(0, 32));
+
+const deviceInfoCapLogged = new Set<string>();
+
+app.post(
+  "/api/recording/device-info",
+  requireAuth,
+  (req: AuthenticatedRequest, res) => {
+    const { report, error } = parseDeviceInfoReport(req.body);
+    if (!report) {
+      res.status(400).json({ error });
+      return;
+    }
+    const participant = req.participant!;
+    const outcome = recordDeviceInfoReport(participant, report);
+    if (outcome === "conflict") {
+      res.status(409).json({ error: "eventId already used with a different payload" });
+      return;
+    }
+    if (outcome === "capped") {
+      if (!deviceInfoCapLogged.has(participant)) {
+        deviceInfoCapLogged.add(participant);
+        console.warn(
+          `Device info: ${participant} reached ${MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT} ` +
+            "stored reports; further reports are acknowledged but not stored",
+        );
+      }
+      res.status(200).json({ ok: true, duplicate: false, stored: false });
+      return;
+    }
+    if (outcome === "created") {
+      // fw/formFactor come from the BLE device: strip control characters and
+      // cap the length before logging (log injection). The DB keeps
+      // the values verbatim.
+      const unknownFormFactors = [report.settings_form_factor, report.form_factor].filter(
+        (value): value is string => value !== null && !FORM_FACTOR_KEYS.includes(value),
+      );
+      console.log(
+        `Device info: ${participant}/${report.session} fw=${logSafe(report.firmware_version)} ` +
+          `formFactor=${logSafe(report.form_factor)} interval=${report.interval_ms ?? "-"}ms ` +
+          `requested=${report.requested_interval_ms ?? "-"}ms` +
+          (unknownFormFactors.length > 0
+            ? ` WARNING: form factor ${unknownFormFactors.map(logSafe).join("/")} not in devices.formFactors`
+            : ""),
+      );
+    }
+    res
+      .status(outcome === "created" ? 201 : 200)
+      .json({ ok: true, duplicate: outcome === "duplicate" });
+  },
+);
+
 app.get("/api/recording/state", requireAuth, (req: AuthenticatedRequest, res) => {
   res.json(getRecordingState(req.participant!));
 });
@@ -2038,13 +2240,11 @@ wss.on("connection", (ws: WebSocket, req) => {
 
 startPushScheduler();
 
-// Chunk idle sweep: a session's LAST 5-minute window never sees a later
+// Chunk idle sweep: a session's LAST window never sees a later
 // frame, so it is closed once no new frame has arrived for CHUNK_IDLE_CLOSE_MS
 // (server receipt time — a delayed catch-up upload keeps its chunk open while
 // frames are still streaming in). 60 s tick, same cadence as the push loop.
-const CHUNK_IDLE_CLOSE_MS = Number(
-  process.env.CHUNK_IDLE_CLOSE_MS ?? 10 * 60 * 1000,
-);
+const CHUNK_IDLE_CLOSE_MS = IDLE_CLOSE_MS; // windowing.idleCloseMinutes
 setInterval(() => {
   try {
     const closed = closeIdleChunks(CHUNK_IDLE_CLOSE_MS);
@@ -2061,4 +2261,17 @@ server.listen(PORT, HOST, () => {
   console.log(`Health:  http://localhost:${PORT}/health`);
   console.log(`Ingest:  ws://localhost:${PORT}/ingest (bearer token required)`);
   console.log(`Recordings directory: ${RECORDINGS_DIR}`);
+  const configSource = getStudyConfigSource();
+  console.log(
+    `Study config: ${configSource.path}${configSource.usingExample ? " (EXAMPLE)" : ""} ` +
+      `(${studyConfig.study.name}, ${studyConfig.study.timezone})`,
+  );
+  if (!studyConfig.privacy.faceBlur.enabled) {
+    console.warn(
+      "WARNING: privacy.faceBlur.enabled=false. New frames are stored, served to " +
+        "participants AND sent to the external VLM endpoint WITHOUT face " +
+        "anonymization (face_method='disabled'). They stay unblurred after " +
+        "re-enabling blur unless requeued (npm run requeue-unblurred-frames).",
+    );
+  }
 });

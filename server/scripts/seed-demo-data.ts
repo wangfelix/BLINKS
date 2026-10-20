@@ -11,6 +11,7 @@ import {
   markPasswordChanged,
 } from "../src/auth-db";
 import { ACTIVITY_LABELS } from "../src/activity-vocabulary";
+import { studyConfig } from "../src/study-config";
 import {
   chunkStartOf,
   initDb,
@@ -18,7 +19,8 @@ import {
   recordRecordingEvent,
 } from "../src/db";
 
-// Seeds a fully clickable demo state for testing drm-web locally:
+// Seeds a fully clickable demo state for testing drm-web locally (uses the
+// paper vocabulary, so run it with config/study.example.yaml or a copy):
 //
 //   npx tsx scripts/seed-demo-data.ts
 //
@@ -39,12 +41,13 @@ import {
 // 1x1 JPEG, which renders as a grey thumbnail).
 //
 // Re-runnable: wipes and re-seeds the demo users' frames and activity lists.
-// Run the server with DRM_AVAILABLE_FROM_HOUR=0 to test before 19:00.
+// To test before 19:00, run the server with BLINKS_STUDY_CONFIG pointing at a
+// config whose schedule.reconstructionOpensAt is "00:00" (see COMMANDS.md).
 
 const RECORDINGS_DIR =
   process.env.RECORDINGS_DIR ?? path.join(__dirname, "..", "recordings");
 const DATA_DIR = process.env.DATA_DIR ?? path.join(__dirname, "..", "data");
-const DRM_TZ = process.env.DRM_TZ ?? "Europe/Berlin";
+const DRM_TZ = studyConfig.study.timezone; // same config as the server
 
 const PASSWORD = process.argv[2] ?? "demo12345";
 const USERS: { username: string; device: string }[] = [
@@ -296,7 +299,7 @@ const main = async (): Promise<void> => {
 Done. Log into drm-web:
   demo  / '${PASSWORD}'  -> step 1 self, step 2 VLM-assisted
   demo2 / '${PASSWORD}'  -> step 1 self, step 2 VLM-assisted
-Run the server with DRM_AVAILABLE_FROM_HOUR=0 to test today before 19:00.`);
+To test today before 19:00, start the server with a config whose schedule.reconstructionOpensAt is "00:00" (a copy of config/study.example.yaml via BLINKS_STUDY_CONFIG, see COMMANDS.md).`);
   } finally {
     db.close();
   }

@@ -11,9 +11,11 @@
 // open). Sent at most once per day (participants.last_reminder_day).
 //
 // A bedtime shortly after midnight cannot fire on the study day itself (the
-// local date flips first), so bedtimes before 12:00 clamp the reminder to
-// 23:50. Participants without a stored bedtime fall back to
-// DRM_DEFAULT_BEDTIME (default 22:00).
+// local date flips first), so bedtimes before reminders.bedtime.
+// afterMidnightCutoff (paper: 12:00) clamp the reminder to latestAt (23:50).
+// Participants without a stored bedtime fall back to defaultBedtime (22:00).
+// All values and texts come from the study config (reminders.bedtime,
+// texts.push); reminders.bedtime.enabled=false turns the scheduler off.
 //
 // Delivery is a plain fetch to the Expo push service (which fronts FCM); a
 // batch array of messages is allowed in one request. Failures are logged and
@@ -26,13 +28,18 @@ import {
   listPushParticipants,
   setLastReminderDay,
 } from "./db";
+import { minutesOfTimeOfDay, studyConfig } from "./study-config";
 import { currentLocalMinutes, timeOfDayToMinutes, todayKey } from "./time";
 
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
 const WEB_URL = process.env.WEB_URL ?? "https://blinks.win.kit.edu";
-const DEFAULT_BEDTIME = process.env.DRM_DEFAULT_BEDTIME ?? "22:00";
-export const BEDTIME_REMINDER_LEAD_MIN = 30;
-const LATEST_REMINDER_MINUTES = 23 * 60 + 50; // 23:50, see header comment
+const BEDTIME_CONFIG = studyConfig.reminders.bedtime;
+const DEFAULT_BEDTIME = BEDTIME_CONFIG.defaultBedtime;
+export const BEDTIME_REMINDER_LEAD_MIN = BEDTIME_CONFIG.leadMinutes;
+const LATEST_REMINDER_MINUTES = minutesOfTimeOfDay(BEDTIME_CONFIG.latestAt);
+const AFTER_MIDNIGHT_CUTOFF_MINUTES = minutesOfTimeOfDay(
+  BEDTIME_CONFIG.afterMidnightCutoff,
+);
 const TICK_INTERVAL_MS = 60_000;
 const PUSH_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -74,11 +81,11 @@ export function acceptedExpoPushTickets(
 // fires.
 export function reminderMinutesFor(bedTime: string | null | undefined): number {
   const bedMinutes =
-    timeOfDayToMinutes(bedTime) ?? timeOfDayToMinutes(DEFAULT_BEDTIME) ?? 22 * 60;
+    timeOfDayToMinutes(bedTime) ?? minutesOfTimeOfDay(DEFAULT_BEDTIME);
   // Bedtime after midnight (heuristic: before noon) -> last chance is 23:50
   // of the study day; firing at bedMinutes-lead would go off in the MORNING of
   // the field day once frames exist.
-  if (bedMinutes < 12 * 60) return LATEST_REMINDER_MINUTES;
+  if (bedMinutes < AFTER_MIDNIGHT_CUTOFF_MINUTES) return LATEST_REMINDER_MINUTES;
   return Math.min(
     bedMinutes - BEDTIME_REMINDER_LEAD_MIN,
     LATEST_REMINDER_MINUTES,
@@ -154,8 +161,8 @@ const runSchedulerTick = async (): Promise<void> => {
         participant: participant.username,
         message: {
           to: participant.push_token,
-          title: "Before you go to bed",
-          body: "Please open the study website and reconstruct today before going to sleep.",
+          title: studyConfig.texts.push.bedtimeTitle,
+          body: studyConfig.texts.push.bedtimeBody,
           data: { url: WEB_URL },
           priority: "high",
           channelId: "default",
@@ -183,6 +190,10 @@ export function startPushScheduler(): void {
     console.log("Push scheduler disabled (DISABLE_PUSH=1)");
     return;
   }
+  if (!BEDTIME_CONFIG.enabled) {
+    console.log("Push scheduler disabled (reminders.bedtime.enabled=false)");
+    return;
+  }
   let tickRunning = false;
   setInterval(() => {
     if (tickRunning) {
@@ -200,6 +211,6 @@ export function startPushScheduler(): void {
 }
 
 export const getPushSchedulerStatus = () => ({
-  enabled: process.env.DISABLE_PUSH !== "1",
+  enabled: process.env.DISABLE_PUSH !== "1" && BEDTIME_CONFIG.enabled,
   leadMinutes: BEDTIME_REMINDER_LEAD_MIN,
 });
