@@ -162,11 +162,6 @@ def _cross_check_issues(config: dict[str, Any]) -> list[tuple[str, str]]:
     unique(config["devices"]["formFactors"], "devices.formFactors")
 
     window_minutes = config["windowing"]["windowMinutes"]
-    for key, interval_ms in config["capture"]["intervalMsByFormFactor"].items():
-        if interval_ms >= window_minutes * 60_000:
-            issues.append(
-                (f"capture.intervalMsByFormFactor.{key}", "must be shorter than windowing.windowMinutes")
-            )
     time_zone = config["study"]["timezone"]
     try:
         allowed_windows: list[int] | None = allowed_window_minutes(time_zone)

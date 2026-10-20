@@ -64,9 +64,6 @@ const appConfigResponse = (config = index_1.studyConfig) => ({
             displayLabel,
         })),
     },
-    capture: {
-        intervalMsByFormFactor: { ...config.capture.intervalMsByFormFactor },
-    },
     texts: {
         app: {
             recordingNotificationTitle: config.texts.app.recordingNotificationTitle,

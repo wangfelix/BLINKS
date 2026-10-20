@@ -17,7 +17,6 @@ the API. Prompts, VLM settings and overreliance values never reach a client.
 | `server/src/study-config/load.ts`, `server/blinks_study_config.py` | loaders (Node, Python) |
 | `server/scripts/test-study-config-schema.ts` | schema fresh, example valid, example values, invalid cases |
 | `server/vlm/test_study_example_prompts.py` | golden test: prompts rendered from the example are byte-identical to the reference prompts |
-| `docs/ble-protocol.md` | camera BLE protocol (`0x03` interval, `…0004` device info) |
 
 ## 1. File, path and loading
 
@@ -52,8 +51,6 @@ no version field and no hash; values apply from process start.
 | `[py]` keys unique in `activities`, `categories`, `experienceItems`, `devices.formFactors` | `<list>.<i>.key` |
 | `experienceItems[].appliesTo` refers to existing category keys | `experienceItems.<i>.appliesTo.<j>` |
 | `scale.min < scale.max` and `max − min <= 10` | `experienceItems.<i>.scale` |
-| `capture.intervalMsByFormFactor` has exactly the keys of `devices.formFactors` | `capture.intervalMsByFormFactor.<key>` |
-| `[py]` every capture interval is shorter than `windowing.windowMinutes` | `capture.intervalMsByFormFactor.<key>` |
 | `[py]` **window rule:** `windowMinutes` divides 60 **and** every UTC offset of `study.timezone` (offsets sampled on the 1st and 15th of every month of the current and the next year). The message lists the allowed values | `windowing.windowMinutes` |
 | `idleCloseMinutes >= windowMinutes` | `windowing.idleCloseMinutes` |
 | `[py]` prompts use only the allowed placeholders (section 3) | `vlm.prompts.<name>` |
@@ -96,7 +93,6 @@ See `config/study.example.yaml` (commented) and `schema.ts`. Keys are
 | `windowing.windowMinutes` | int 1–120, window rule (1.2) | `5` | VLM chunk and segmentation grid |
 | `windowing.idleCloseMinutes` | int 1–240, ≥ window | `10` | idle sweep closing a session's last chunk |
 | `devices.formFactors[]` | `{key, displayLabel}`, ≥ 1 | `necklace`, `glasses` | camera types in Study Settings; stored in `participants.camera_form_factor` |
-| `capture.intervalMsByFormFactor` | map form factor → int 5000–600000 | `{necklace: 15000, glasses: 30000}` | sent to the camera with BLE `0x03` |
 | `schedule.reconstructionOpensAt` | time | `"19:00"` | reconstruction of today opens (server-enforced) |
 | `schedule.endSessionAvailableAt` | time | `"19:00"` | app enables "End session" on the session's start day, in `study.timezone` |
 | `schedule.dayOverrunHours` | int 0–12 | `4` | study day extends past local midnight |
@@ -256,15 +252,12 @@ drm-web links to the same-origin `/api/payout`.
 ### 4.3 `GET /api/app-config` (app, after login)
 
 - Auth: participant bearer; an admin token → `401`.
-- Contains the **complete** interval map, so a form factor changed in Study
-  Settings applies immediately, also offline.
 
 ```ts
 export interface AppConfigResponse {
   timezone: string;                                  // "Europe/Berlin"
   schedule: { endSessionAvailableAt: string };       // "19:00", in `timezone`
   devices: { formFactors: { key: string; displayLabel: string }[] };
-  capture: { intervalMsByFormFactor: Record<string, number> }; // { necklace: 15000, glasses: 30000 }
   texts: {
     app: {
       recordingNotificationTitle: string;
@@ -317,8 +310,7 @@ Every successful response replaces the client's copy completely.
 - Caches the last successful `GET /api/app-config` **per user**: the PIN in
   SecureStore, the rest as a file. Refreshed on sign-in, on returning to the
   foreground and when Study Settings opens. Sign-out deletes that user's cache.
-- Recording never fails because of the config. **Without a cache** the camera
-  records with its firmware default, the app sends **no** `0x03`, and Study
+- Recording never fails because of the config. **Without a cache** Study
   Settings stays locked until the config was loaded once. There is no fallback
   PIN in the code.
 
@@ -363,64 +355,8 @@ Errors (`400`, `{ "error": string }`, one per request):
   `schedule.reconstructionOpensAt`).
 - Study Settings (`PUT` form factor): validated against `devices.formFactors[].key`;
   the database has no CHECK on `camera_form_factor`.
-- Admin: `activity_ratings` and `device_info_reports` are admin tables (table
+- Admin: `activity_ratings` is an admin table (table
   view and CSV download, server-side whitelist `ADMIN_TABLE_NAMES`).
-
-### 4.8 `POST /api/recording/device-info`
-
-After every camera connection (`docs/ble-protocol.md`, section 6, step 5) the
-app reports the camera's device info. Append-only and best-effort: the app
-queues reports per participant (SecureStore) like recording events and retries
-idempotently; failures never block recording.
-
-- Auth: participant bearer; admin token → `401`.
-- Only for the **main session**, not for test recordings. The server does not
-  require a `start` event for the session.
-- `settingsFormFactor` and `info.formFactor` are **not** rejected when they are
-  not in `devices.formFactors`; the server logs a warning. Device-provided
-  strings appear in the log without control characters and truncated to 32
-  characters; the database stores them unchanged.
-
-Request (`Content-Type: application/json`):
-
-```ts
-export interface DeviceInfoReportRequest {
-  eventId: string;            // client-generated, 1-128 chars, unique per participant (idempotency)
-  session: number;            // session id (epoch seconds of the Start tap), as for /ingest
-  device: string;             // camera BLE MAC without colons, as for /ingest (1-64 chars [A-Za-z0-9])
-  clientEpochMs: number;      // phone time of the measurement (after the second …0004 read)
-  requestedIntervalMs: number | null;  // written with 0x03; null = no 0x03 (old firmware / no cached config)
-  settingsFormFactor: string | null;   // form factor from Study Settings (null = not set)
-  info: {                     // JSON from …0004; null = characteristic missing (old firmware) or unreadable
-    v: number;
-    fw: string;
-    formFactor: string;
-    intervalMs: number;
-    defaultMs: number;
-    minMs: number;
-    maxMs: number;
-    [extra: string]: unknown; // unknown fields are stored, not rejected
-  } | null;
-}
-```
-
-| Status | Body | When |
-|---|---|---|
-| `201` | `{ "ok": true, "duplicate": false }` | stored |
-| `200` | `{ "ok": true, "duplicate": true }` | same `eventId` with identical content again (retry) |
-| `200` | `{ "ok": true, "duplicate": false, "stored": false }` | cap of 5000 stored reports per participant reached; acknowledged, not stored, logged once |
-| `400` | `{ "error": "<field>: <reason>" }` | validation, e.g. `session must be a positive integer`, `info.intervalMs must be an integer`, `info must be an object or null` |
-| `401` | `{ "error": "unauthorized" }` | token missing/invalid/admin |
-| `409` | `{ "error": "eventId already used with a different payload" }` | `eventId` reused with different content |
-
-The app treats `200`/`201`/`400`/`409` as done (removes the report from the
-queue, logs `400`/`409`) and retries only on network errors and `5xx`.
-
-Storage: table `device_info_reports` (append-only, admin table + CSV):
-`participant, event_id, session, device, client_epoch_ms, server_received_epoch_ms,
-requested_interval_ms, settings_form_factor, firmware_version, form_factor,
-interval_ms, default_ms, info_json`, `PRIMARY KEY (participant, event_id)`.
-`info_json` is the sent `info` object unchanged (or `NULL`).
 
 ## 5. Overreliance
 
@@ -490,10 +426,9 @@ pre-migration database snapshot (`deploy/README.md`, "Rollback").
 `server/scripts/check-ratings-migration-copy.ts` dry-runs the migration on a
 copy of a database.
 
-## 8. Camera capture interval (BLE)
+## 8. Camera capture interval
 
-The app writes `capture.intervalMsByFormFactor[<Study Settings form factor>]`
-to the camera with opcode `0x03` on every connection and reads the effective
-value back from the device-info characteristic `…0004`. Bounds, clamping,
-defaults, connect order and the device-info JSON: `docs/ble-protocol.md`. The
-report to the server: section 4.8.
+The capture interval is not part of the study config. It is the firmware
+constant `CAPTURE_INTERVAL_MS` in `camera-firmware/camera-firmware.ino`
+(necklace, 15000 ms) and `glasses-camera-firmware/glasses-camera-firmware.ino`
+(glasses, 30000 ms); change it there and reflash the camera.

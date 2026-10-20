@@ -47,8 +47,6 @@ Check at least:
   `study.timezone`; otherwise start-up stops with exit 2 and lists the allowed
   values. Europe/Berlin: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Time zones
   with a half-hour offset (e.g. Asia/Kolkata) allow at most 30.
-- `capture.intervalMsByFormFactor`: at least 5000 ms (firmware lower bound);
-  the app sends the interval to the camera on every connect.
 - `schedule.reconstructionOpensAt` / `endSessionAvailableAt` (study time zone)
 - `vlm.model`, `vlm.prompts` (placeholders: see the study config documentation, section 3)
 - `overreliance.enabled` / `rate`: needs at least 2 categories when it
@@ -145,7 +143,6 @@ Never use `study.example.yaml` or `study.test.yaml` for a real study.
 | `surveys.onboarding/final` | survey links including the participant parameter (`participantParameter`) |
 | `surveys.payoutUrl` | target of `/api/payout` ("Payout" link on the survey page). Redirects only when signed in with completed onboarding, otherwise 401/403 |
 | `devices.formFactors` | "Camera type" selection in the app's Study Settings |
-| `capture.intervalMsByFormFactor` | capture interval the app sets via BLE `0x03` on every camera connection (5000–600000 ms) |
 | `schedule.endSessionAvailableAt` | when "End session" becomes available in the app (study time zone) |
 | `texts.app` | notification and onboarding texts of the app, "Available from {{time}}" |
 | `app.studySettingsPin` | Study Settings PIN (4–8 digits). **Set a new one for every study**. Production refuses the placeholder PIN |
@@ -188,11 +185,11 @@ with "[TEST]").
    fields `workloadRating`/`recoveryRating` gets `400` on save and must be
    reloaded.
 3. App: every phone must **sign in online once** after the change (or open
-   Study Settings while connected). Only then is the PIN known and the capture
-   interval set. Before that, Study Settings is locked and the camera records
-   with its firmware default (15 s necklace, 30 s glasses). Afterwards
-   everything also works offline from the cache. Signing out deletes that
-   user's cache.
-4. After the first camera connection, check in Study Settings that no warning
-   is shown (clamped interval or different form factor). In the admin area,
-   every connection is listed in the "Camera device info" table.
+   Study Settings while connected). Only then is the PIN known. Before that,
+   Study Settings is locked. Afterwards everything also works offline from the
+   cache. Signing out deletes that user's cache.
+
+The capture interval is not part of the study config: it is the firmware
+constant `CAPTURE_INTERVAL_MS` in `camera-firmware/camera-firmware.ino`
+(necklace, 15000 ms) and `glasses-camera-firmware/glasses-camera-firmware.ino`
+(glasses, 30000 ms).

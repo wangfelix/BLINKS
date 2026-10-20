@@ -15,7 +15,6 @@ export const ADMIN_TABLE_NAMES = [
   "activity_lists",
   "activities",
   "activity_ratings",
-  "device_info_reports",
 ] as const;
 export type AdminTableName = (typeof ADMIN_TABLE_NAMES)[number];
 export type AdminCellValue = string | number | null;
@@ -885,27 +884,6 @@ export function initDb(dbPath: string): void {
     );
     CREATE INDEX IF NOT EXISTS idx_recording_events_session
       ON recording_events (participant, session, sequence_number);
-  `);
-
-  // Camera device info reported by the app after each BLE connect
-  // (documentation 4.8). Append-only; PK makes app retries idempotent.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS device_info_reports (
-      participant              TEXT    NOT NULL,
-      event_id                 TEXT    NOT NULL,
-      session                  INTEGER NOT NULL,
-      device                   TEXT    NOT NULL,
-      client_epoch_ms          INTEGER NOT NULL,
-      server_received_epoch_ms INTEGER NOT NULL,
-      requested_interval_ms    INTEGER,
-      settings_form_factor     TEXT,
-      firmware_version         TEXT,
-      form_factor              TEXT,
-      interval_ms              INTEGER,
-      default_ms               INTEGER,
-      info_json                TEXT,
-      PRIMARY KEY (participant, event_id)
-    );
   `);
 
   // DRM schema discovery. Workflow state used to live in a separate
@@ -2766,82 +2744,6 @@ export function exportFramesCsv(q: ExportQuery): string {
 }
 
 // --- Research admin read model ---------------------------------------------
-
-// --- Device info reports (documentation 4.8) ---------------------------------
-
-export interface DeviceInfoReportInput {
-  event_id: string;
-  session: number;
-  device: string;
-  client_epoch_ms: number;
-  requested_interval_ms: number | null;
-  settings_form_factor: string | null;
-  firmware_version: string | null;
-  form_factor: string | null;
-  interval_ms: number | null;
-  default_ms: number | null;
-  info_json: string | null;
-}
-
-const DEVICE_INFO_COMPARED_COLUMNS = [
-  "session",
-  "device",
-  "client_epoch_ms",
-  "requested_interval_ms",
-  "settings_form_factor",
-  "info_json",
-] as const;
-
-/**
- * Inserts a report. "duplicate" = same eventId with identical content
- * (retry); "conflict" = same eventId with different content.
- */
-/**
- * Upper bound per participant (append-only table). The app sends
- * one report per BLE connect; a study day with frequent reconnects stays far
- * below this. Further reports are acknowledged but not stored ("capped").
- */
-export const MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT = 5000;
-
-export function recordDeviceInfoReport(
-  participant: string,
-  report: DeviceInfoReportInput,
-  now: number = Date.now(),
-  maxReports: number = MAX_DEVICE_INFO_REPORTS_PER_PARTICIPANT,
-): "created" | "duplicate" | "conflict" | "capped" {
-  return db.transaction((): "created" | "duplicate" | "conflict" | "capped" => {
-    const existing = db
-      .prepare(
-        `SELECT ${DEVICE_INFO_COMPARED_COLUMNS.join(", ")}
-         FROM device_info_reports WHERE participant = ? AND event_id = ?`,
-      )
-      .get(participant, report.event_id) as Record<string, unknown> | undefined;
-    if (existing !== undefined) {
-      const same = DEVICE_INFO_COMPARED_COLUMNS.every(
-        (column) => existing[column] === report[column],
-      );
-      return same ? "duplicate" : "conflict";
-    }
-    const stored = (
-      db
-        .prepare(`SELECT COUNT(*) AS n FROM device_info_reports WHERE participant = ?`)
-        .get(participant) as { n: number }
-    ).n;
-    if (stored >= maxReports) return "capped";
-    db.prepare(
-      `INSERT INTO device_info_reports (
-         participant, event_id, session, device, client_epoch_ms,
-         server_received_epoch_ms, requested_interval_ms, settings_form_factor,
-         firmware_version, form_factor, interval_ms, default_ms, info_json
-       ) VALUES (
-         @participant, @event_id, @session, @device, @client_epoch_ms,
-         @server_received_epoch_ms, @requested_interval_ms, @settings_form_factor,
-         @firmware_version, @form_factor, @interval_ms, @default_ms, @info_json
-       )`,
-    ).run({ ...report, participant, server_received_epoch_ms: now });
-    return "created";
-  })();
-}
 
 export const isAdminTableName = (value: string): value is AdminTableName =>
   (ADMIN_TABLE_NAMES as readonly string[]).includes(value);

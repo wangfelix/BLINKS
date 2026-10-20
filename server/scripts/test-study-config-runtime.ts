@@ -1,9 +1,8 @@
 // Runtime tests for the study config:
 //   - loader: exit 2 on invalid/missing files, production rules
 //   - client projections + ratings rules against both tracked configs (pure)
-//   - HTTP: /api/study-config, /api/app-config, /api/payout,
-//     /api/recording/device-info against a server started with
-//     config/study.test.yaml
+//   - HTTP: /api/study-config, /api/app-config and /api/payout against a
+//     server started with config/study.test.yaml
 //
 //   npm run build && npx tsx scripts/test-study-config-runtime.ts
 
@@ -221,31 +220,6 @@ test("face blur off: frames are stored as done/disabled (documentation 6)", () =
   });
 });
 
-test("device-info: per-participant cap acknowledges but does not store", () => {
-  const script = `
-    const { initDb, recordDeviceInfoReport } = require(${JSON.stringify(path.join(SERVER_DIR, "dist", "db.js"))});
-    initDb(process.argv[1]);
-    const report = (id) => ({ event_id: id, session: 1, device: "D", client_epoch_ms: 1,
-      requested_interval_ms: null, settings_form_factor: null, firmware_version: null,
-      form_factor: null, interval_ms: null, default_ms: null, info_json: null });
-    console.log(JSON.stringify([
-      recordDeviceInfoReport("p", report("a"), 1, 2),
-      recordDeviceInfoReport("p", report("b"), 1, 2),
-      recordDeviceInfoReport("p", report("c"), 1, 2),
-      recordDeviceInfoReport("p", report("a"), 1, 2),
-      recordDeviceInfoReport("q", report("a"), 1, 2),
-    ]));
-  `;
-  const result = childProcess.spawnSync(process.execPath, ["-e", script, path.join(tmp, "cap.db")], {
-    env: { PATH: process.env.PATH, BLINKS_STUDY_CONFIG: TEST_CONFIG },
-    encoding: "utf8",
-  });
-  assert.strictEqual(result.status, 0, result.stderr);
-  assert.deepStrictEqual(JSON.parse(result.stdout.trim().split("\n").pop()!), [
-    "created", "created", "capped", "duplicate", "created",
-  ]);
-});
-
 test("face blur back on: requeue-unblurred-frames resets 'disabled' frames", () => {
   const recordings = path.join(tmp, "requeue");
   fs.mkdirSync(recordings, { recursive: true });
@@ -306,12 +280,12 @@ test("study-config response: whitelist only, surveys only for participants", () 
   assert.strictEqual(studyConfigResponse(true, testConfig).texts.rounds.assistedReminderIncorrectLabelsNotice, null);
 });
 
-test("app-config response: interval map, timezone, PIN; nothing else secret", () => {
+test("app-config response: form factors, timezone, PIN; nothing else secret", () => {
   const app = appConfigResponse(testConfig);
-  assert.deepStrictEqual(app.capture.intervalMsByFormFactor, { necklace: 10000, glasses: 20000, clip: 5000 });
+  assert.deepStrictEqual(app.devices.formFactors.map((formFactor) => formFactor.key), ["necklace", "glasses", "clip"]);
   assert.strictEqual(app.timezone, "Europe/Berlin");
   assert.strictEqual(app.studySettingsPin, "123456");
-  assert.deepStrictEqual(Object.keys(app).sort(), ["capture", "devices", "schedule", "studySettingsPin", "texts", "timezone"]);
+  assert.deepStrictEqual(Object.keys(app).sort(), ["devices", "schedule", "studySettingsPin", "texts", "timezone"]);
   assert.ok(!/vlmDefinition|prompts|overreliance|payoutUrl|surveys/.test(JSON.stringify(app)));
 });
 
@@ -489,75 +463,6 @@ test("http: GET /api/payout needs a participant session with completed onboardin
     assert.strictEqual(response.headers.get("location"), "https://payout.example.org/test");
     assert.strictEqual(response.headers.get("cache-control"), "no-store");
   }
-});
-
-test("http: POST /api/recording/device-info (201, 200 replay, 409, 400, 401)", async () => {
-  const body = {
-    eventId: "dev-1",
-    session: 1792260000,
-    device: "AABBCCDDEEFF",
-    clientEpochMs: 1792260001234,
-    requestedIntervalMs: 5000,
-    settingsFormFactor: "clip",
-    info: { v: 1, fw: "1.2.0", formFactor: "glasses", intervalMs: 5000, defaultMs: 30000, minMs: 5000, maxMs: 600000, battery: 80 },
-  };
-  const created = await request("POST", "/api/recording/device-info", participantToken, body);
-  assert.deepStrictEqual([created.status, created.json], [201, { ok: true, duplicate: false }]);
-  const replay = await request("POST", "/api/recording/device-info", participantToken, body);
-  assert.deepStrictEqual([replay.status, replay.json], [200, { ok: true, duplicate: true }]);
-  const conflict = await request("POST", "/api/recording/device-info", participantToken, { ...body, requestedIntervalMs: 6000 });
-  assert.deepStrictEqual([conflict.status, conflict.json], [409, { error: "eventId already used with a different payload" }]);
-  const oldFirmware = await request("POST", "/api/recording/device-info", participantToken, {
-    ...body, eventId: "dev-2", requestedIntervalMs: null, settingsFormFactor: null, info: null,
-  });
-  assert.strictEqual(oldFirmware.status, 201);
-  const badCases: [Record<string, unknown>, string][] = [
-    [{ session: 0 }, "session must be a positive integer"],
-    [{ eventId: "" }, "eventId must be a string of 1-128 characters"],
-    [{ device: "AA:BB" }, "device must be 1-64 characters [A-Za-z0-9]"],
-    [{ info: [] }, "info must be an object or null"],
-    [{ info: undefined }, "info must be an object or null"],
-    [{ info: { ...body.info, intervalMs: "5000" } }, "info.intervalMs must be an integer"],
-    [{ info: { ...body.info, fw: 1 } }, "info.fw must be a string"],
-    [{ requestedIntervalMs: -1 }, "requestedIntervalMs must be a positive integer or null"],
-  ];
-  for (const [patch, error] of badCases) {
-    const response = await request("POST", "/api/recording/device-info", participantToken, { ...body, eventId: "bad", ...patch });
-    assert.deepStrictEqual([response.status, response.json], [400, { error }], JSON.stringify(patch));
-  }
-  assert.strictEqual((await request("POST", "/api/recording/device-info", adminToken, body)).status, 401);
-
-  const Database = require("better-sqlite3");
-  const db = new Database(path.join(serverEnv.RECORDINGS_DIR!, "recordings.db"), { readonly: true });
-  const rows = db.prepare("SELECT * FROM device_info_reports ORDER BY event_id").all();
-  db.close();
-  assert.strictEqual(rows.length, 2);
-  // (dev-log is added below)
-  assert.strictEqual(rows[0].firmware_version, "1.2.0");
-  assert.strictEqual(rows[0].form_factor, "glasses");
-  assert.strictEqual(rows[0].settings_form_factor, "clip");
-  assert.strictEqual(rows[0].interval_ms, 5000);
-  assert.strictEqual(rows[0].default_ms, 30000);
-  assert.deepStrictEqual(JSON.parse(rows[0].info_json), body.info, "info stored verbatim incl. extra fields");
-  assert.strictEqual(rows[1].info_json, null);
-
-  // Device strings are logged sanitized; unknown form factors warned, not rejected
-  const injected = await request("POST", "/api/recording/device-info", participantToken, {
-    ...body,
-    eventId: "dev-log",
-    settingsFormFactor: "pendant",
-    info: { ...body.info, fw: "1.0\nFAKE LOG LINE" + "x".repeat(100) },
-  });
-  assert.strictEqual(injected.status, 201);
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  assert.ok(!serverLog.includes("\nFAKE LOG LINE"), "no raw newline from the device in the log");
-  assert.match(serverLog, /fw="1\.0\?FAKE LOG LINEx{15}"/);
-  assert.ok(!serverLog.includes("x".repeat(16)), "capped at 32 characters");
-  assert.match(serverLog, /WARNING: form factor "pendant" not in devices\.formFactors/);
-
-  const tables = await request("GET", "/api/admin/tables/device_info_reports?limit=10&offset=0", adminToken);
-  assert.strictEqual(tables.status, 200);
-  assert.strictEqual(tables.json.total, 3);
 });
 
 test("http: form factor validated against devices.formFactors", async () => {

@@ -3,8 +3,8 @@
 //
 // 1. config/study-config.schema.json is fresh (generated from the zod schema).
 // 2. config/study.example.yaml validates (shape + cross-field checks).
-// 3. The example matches the default study values kept as literals here and
-//    in the firmware (server constants, push texts).
+// 3. The example matches the default study values kept as literals here
+//    (server constants, push texts).
 //    The prompt golden test lives in server/vlm/test_study_example_prompts.py.
 // 4. Representative invalid configs fail with `path: reason`.
 
@@ -26,9 +26,6 @@ import {
 
 const REPO_ROOT = path.join(__dirname, "..", "..");
 const EXAMPLE_PATH = path.join(REPO_ROOT, "config", "study.example.yaml");
-
-const readRepoFile = (relativePath: string): string =>
-  fs.readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
 
 /** Validation as the loader will do it: shape first, then cross-checks. */
 const validate = (raw: unknown): string[] => {
@@ -138,19 +135,6 @@ test("example = today's server constants", () => {
     blurKernel: 0,
     margin: 0.12,
   });
-
-  assert.match(
-    readRepoFile("camera-firmware/camera-firmware.ino"),
-    new RegExp(
-      `#define CAPTURE_INTERVAL_MS ${example.capture.intervalMsByFormFactor.necklace}\\b`,
-    ),
-  );
-  assert.match(
-    readRepoFile("glasses-camera-firmware/glasses-camera-firmware.ino"),
-    new RegExp(
-      `#define CAPTURE_INTERVAL_MS ${example.capture.intervalMsByFormFactor.glasses}\\b`,
-    ),
-  );
 });
 
 // drm-web and the app read the study config at runtime, so their texts are not
@@ -215,21 +199,6 @@ expectInvalid(
   "windowing.idleCloseMinutes:",
 );
 expectInvalid(
-  "interval not shorter than window",
-  (raw) => (raw.capture.intervalMsByFormFactor.glasses = 300_000),
-  "capture.intervalMsByFormFactor.glasses: must be shorter",
-);
-expectInvalid(
-  "interval below firmware minimum",
-  (raw) => (raw.capture.intervalMsByFormFactor.necklace = 500),
-  "capture.intervalMsByFormFactor.necklace:",
-);
-expectInvalid(
-  "interval below 5 s",
-  (raw) => (raw.capture.intervalMsByFormFactor.necklace = 4_999),
-  "capture.intervalMsByFormFactor.necklace:",
-);
-expectInvalid(
   "incorrect-labels notice while overreliance disabled",
   (raw) => (raw.overreliance.enabled = false),
   "texts.rounds.assistedReminderIncorrectLabelsNotice: must be null",
@@ -255,9 +224,9 @@ expectInvalid(
   "experienceItems.1.shortLabel:",
 );
 expectInvalid(
-  "interval for unknown form factor",
-  (raw) => (raw.capture.intervalMsByFormFactor.wristband = 15_000),
-  "capture.intervalMsByFormFactor.wristband: unknown form factor",
+  "unknown top-level section",
+  (raw) => (raw.extraSection = {}),
+  ': Unrecognized key: "extraSection"',
 );
 expectInvalid(
   "unknown prompt placeholder",

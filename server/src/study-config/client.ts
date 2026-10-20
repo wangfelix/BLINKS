@@ -72,9 +72,6 @@ export const appConfigResponse = (config: StudyConfig = loadedStudyConfig) => ({
       displayLabel,
     })),
   },
-  capture: {
-    intervalMsByFormFactor: { ...config.capture.intervalMsByFormFactor },
-  },
   texts: {
     app: {
       recordingNotificationTitle: config.texts.app.recordingNotificationTitle,

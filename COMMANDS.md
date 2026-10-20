@@ -144,7 +144,7 @@ npm run test-auth-onboarding  # legacy migration + first-run state transitions
 npm run test-admin-data       # admin table/CSV/photo read model
 npm run test-push             # bedtime math + Expo ticket acceptance
 npm run test-study-config-schema   # schema, example, generated JSON Schema in sync
-npm run build && npm run test-study-config-runtime  # loader exit 2/production rules, endpoints, ratings, device-info (study.test.yaml)
+npm run build && npm run test-study-config-runtime  # loader exit 2/production rules, endpoints, ratings (study.test.yaml)
 npm run test-ratings-migration     # workload/recovery -> activity_ratings (counts, idempotent, rollback)
 # dry run of the migration on a COPY of a real DB (refuses paths outside /tmp, aggregated output only):
 #   mkdir -p /tmp/mig-test && cp <copy>.db /tmp/mig-test/work.db
@@ -152,8 +152,6 @@ npm run test-ratings-migration     # workload/recovery -> activity_ratings (coun
 # Python (worker venv or any venv with requirements.txt):
 #   cd vlm && python -m unittest test_study_example_prompts test_vlm_contract test_vlm_retry
 #   cd face-blur && python -m unittest test_blur_config
-# Firmware host tests (g++):
-#   cd glasses-camera-firmware-pio && g++ -std=c++17 -o /tmp/ci tests/capture_interval_test.cpp && /tmp/ci
 
 # inspect/backfill probability columns on legacy demo rows only (also maps
 # old democtl free-text fixture labels to the current closed enum):
@@ -363,17 +361,16 @@ EXPO_PUBLIC_SERVER_URL=https://<name>.ngrok-free.dev        # ngrok-tunneled ser
 - `EXPO_PUBLIC_*` is inlined at bundle time → after editing `.env.local`, run
   `npx expo start --dev-client --clear` and reload the app.
 - Find your LAN IP: `ipconfig getifaddr en0`.
-- Study values (Study Settings PIN, camera types + capture intervals, end-session
-  time, texts) come from `GET /api/app-config` and are cached per user. A fresh
-  install needs one online login; until then Study Settings stays locked and no
-  `0x03` is sent (camera uses its firmware default).
+- Study values (Study Settings PIN, camera types, end-session time, texts) come
+  from `GET /api/app-config` and are cached per user. A fresh install needs one
+  online login; until then Study Settings stays locked. The capture interval is
+  a firmware constant (`CAPTURE_INTERVAL_MS`, see AGENTS.md).
 - App logic tests without a phone:
 
 ```bash
-npx tsx scripts/test-study-config.ts      # pure helpers (0x03 bytes, 0004 parsing, end session)
+npx tsx scripts/test-study-config.ts      # pure helpers (end session)
 # against a running server (in-memory SecureStore/file/BLE stubs): config cache,
-# PIN rule, BLE connect order incl. pause-first, handshake timeout/disconnect abort,
-# queued form-factor rewrite, device-info POST:
+# PIN rule, BLE connect order incl. pause-first:
 BLINKS_TEST_SERVER=http://localhost:3000 BLINKS_TEST_USER=demo BLINKS_TEST_PASSWORD=demo12345 \
   npx tsx --tsconfig scripts/tsconfig.node.json scripts/test-app-integration.ts
 ```
