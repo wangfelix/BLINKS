@@ -136,6 +136,22 @@ check; actual battery recording sleep and overnight runtime remain to be measure
 
 NimBLE-Arduino 2.5.1 needed no special handling under `arduino, espidf`.
 
+**Capture interval `0x03` and device info `…0004`** (`docs/ble-protocol.md`):
+the shared logic lives in
+`capture_interval_config.h` (identical copies in `camera-firmware/` and
+`glasses-camera-firmware/`) and is host-tested:
+
+```bash
+g++ -std=c++17 -Wall -Wextra -o /tmp/ci tests/capture_interval_test.cpp && /tmp/ci
+g++ -std=c++17 -Wall -Wextra \
+  -DCAPTURE_INTERVAL_HEADER='"../../camera-firmware/capture_interval_config.h"' \
+  -o /tmp/ci tests/capture_interval_test.cpp && /tmp/ci
+```
+
+Both sketches compile with arduino-cli (esp32 core 3.3.8, NimBLE-Arduino
+2.5.1, ESP32S3, PSRAM on, huge_app). For this PlatformIO/IDF build, run the
+hardware test in `docs/ble-protocol.md`, section 7, after flashing.
+
 The 6 September connected-idle experiment verified that this board/phone can
 stay connected while entering light sleep at 50 ms. It did not capture photos.
 The recording update above requires a photo-delivery check and an overnight

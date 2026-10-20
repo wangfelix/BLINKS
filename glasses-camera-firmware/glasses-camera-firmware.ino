@@ -21,6 +21,11 @@
 #include "status_led.h"
 #include "battery_log.h"   // diagnostic only; see the header
 #include "recording_power_log.h"
+#include "capture_interval_config.h"
+
+// Reported in the device info characteristic (...0004), semver.
+#define FIRMWARE_VERSION "1.1.0"
+#define FORM_FACTOR      "glasses"  // devices.formFactors[].key in the study config
 
 // esp_pm_configure's verdict, kept so the battery dump can repeat it long after
 // the boot banner has scrolled away. -1 means this build has no power
@@ -40,18 +45,24 @@ int lightSleepStatus = -1;
 #define SERVICE_UUID      "9a8b7c6d-0001-4a5b-8c9d-0e1f2a3b4c5d"
 #define FRAME_CHAR_UUID   "9a8b7c6d-0002-4a5b-8c9d-0e1f2a3b4c5d"
 #define CONTROL_CHAR_UUID "9a8b7c6d-0003-4a5b-8c9d-0e1f2a3b4c5d"
+#define DEVICE_INFO_CHAR_UUID "9a8b7c6d-0004-4a5b-8c9d-0e1f2a3b4c5d"
 
-// Control opcodes (phone -> camera, single byte written to CONTROL_CHAR_UUID).
+// Control opcodes (phone -> camera, written to CONTROL_CHAR_UUID).
 #define CONTROL_OP_PAUSE  0x01
 #define CONTROL_OP_RESUME 0x02
+// 0x03 = SET_CAPTURE_INTERVAL, 5 bytes [0x03][uint32 BE intervalMs], see
+// capture_interval_config.h and docs/ble-protocol.md.
 
 // ---- Sampling rate --------------------------------------------------------
 // 30 s rather than the bodycam's 15 s: the glasses only reach about four hours
 // on the usable half of their 2x200 mAh pack. The server chunks frames into
 // clock-aligned 5-minute windows regardless of rate, so this yields ~10 frames
-// per VLM chunk instead of ~20 (VLM_CHUNK_MAX_FRAMES is a cap, not a
+// per VLM chunk instead of ~20 (vlm.maxFramesPerWindow is a cap, not a
 // requirement). That is a known, accepted difference in the visual evidence
 // behind glasses participants' VLM labels versus bodycam participants'.
+// Compiled-in DEFAULT since the study config rollout: the app sets the study interval
+// (capture.intervalMsByFormFactor) with opcode 0x03 on every connect; a
+// disconnect reverts to this default.
 #define CAPTURE_INTERVAL_MS 30000
 #define CAMERA_WARMUP_MS 500
 
@@ -123,6 +134,11 @@ int lightSleepStatus = -1;
 
 static_assert(CAMERA_WARMUP_MS < CAPTURE_INTERVAL_MS,
               "Camera warm-up must be shorter than the capture interval");
+static_assert(CAMERA_WARMUP_MS < blinks::kCaptureIntervalMinMs,
+              "Camera warm-up must be shorter than the minimum capture interval");
+static_assert(CAPTURE_INTERVAL_MS >= blinks::kCaptureIntervalMinMs &&
+                  CAPTURE_INTERVAL_MS <= blinks::kCaptureIntervalMaxMs,
+              "Default capture interval must lie within the 0x03 bounds");
 static_assert(BLE_CONN_TIMEOUT_UNITS * 4 >
                   BLE_CONN_INTERVAL_MAX_UNITS * (BLE_CONN_SLAVE_LATENCY + 1),
               "BLE supervision timeout is too short for the idle latency");
@@ -182,6 +198,9 @@ struct AwakeDuringTransfer {
 NimBLEServer*         server      = nullptr;
 NimBLECharacteristic* frameChar   = nullptr;
 NimBLECharacteristic* controlChar = nullptr;
+NimBLECharacteristic* deviceInfoChar = nullptr;
+// Effective interval (0x03, clamped); written by the NimBLE callback.
+std::atomic<uint32_t>  captureIntervalMs{CAPTURE_INTERVAL_MS};
 std::atomic<bool>      connected{false};
 std::atomic<bool>      paused{false};
 volatile uint16_t     currentMtu  = 23;   // updated on negotiation
@@ -487,12 +506,24 @@ static void printBleTxPower() {
   Serial.println(" (level 9=+3, 10=+6, 11=+9; 255=unavailable)");
 }
 
+// Refreshes the read-only device info JSON (...0004): at start-up, on connect,
+// after 0x03 and on disconnect.
+void updateDeviceInfo() {
+  if (deviceInfoChar == nullptr) return;
+  char json[160];
+  const size_t n = blinks::formatDeviceInfoJson(json, sizeof json, FIRMWARE_VERSION,
+                                                FORM_FACTOR, captureIntervalMs.load(),
+                                                CAPTURE_INTERVAL_MS);
+  if (n > 0) deviceInfoChar->setValue((const uint8_t*)json, n);
+}
+
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* s, NimBLEConnInfo& connInfo) override {
     activeConnHandle.store(connInfo.getConnHandle());
     frameSubscribed.store(false);
     connectionGeneration.fetch_add(1);
     connected = true;
+    updateDeviceInfo();
     Serial.printf("Central connected: interval=%.2f ms, latency=%u, timeout=%u ms\n",
                   connInfo.getConnInterval() * 1.25f,
                   connInfo.getConnLatency(),
@@ -516,6 +547,9 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     // A disconnected camera defaults to recording. If the app is paused, it
     // sends the pause command again after reconnecting.
     paused = false;
+    // Same for the interval: back to the default; the app sets it again.
+    captureIntervalMs.store(CAPTURE_INTERVAL_MS);
+    updateDeviceInfo();
     Serial.printf("Central disconnected (reason %d), re-advertising\n", reason);
     NimBLEDevice::startAdvertising();
   }
@@ -567,7 +601,7 @@ static void maintainConnectionParameters() {
 #endif
 }
 
-// The app writes a single pause or resume opcode to CONTROL_CHAR_UUID.
+// The app writes a single pause/resume opcode or the 5-byte 0x03 command.
 class ControlCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c, NimBLEConnInfo& connInfo) override {
     NimBLEAttValue value = c->getValue();
@@ -581,6 +615,25 @@ class ControlCallbacks : public NimBLECharacteristicCallbacks {
         paused = false;
         Serial.println("Control: resume");
         break;
+      case blinks::kControlOpSetCaptureInterval: {
+        uint32_t rawMs = 0, effectiveMs = 0;
+        switch (blinks::parseSetCaptureInterval(value.data(), value.size(), rawMs, effectiveMs)) {
+          case blinks::SetIntervalResult::BadLength:
+            Serial.printf("Control: bad 0x03 length %u\n", (unsigned)value.size());
+            return;
+          case blinks::SetIntervalResult::Clamped:
+            Serial.printf("Control: interval %lu ms clamped to %lu ms\n",
+                          (unsigned long)rawMs, (unsigned long)effectiveMs);
+            break;
+          default:
+            Serial.printf("Control: interval %lu ms\n", (unsigned long)effectiveMs);
+        }
+        // Takes effect immediately: the next capture is due at
+        // lastCapture + new interval (or right after warm-up if already past).
+        captureIntervalMs.store(effectiveMs);
+        updateDeviceInfo();
+        break;
+      }
       default:
         Serial.printf("Control: unknown opcode 0x%02x\n", value[0]);
     }
@@ -720,6 +773,8 @@ void setup() {
   controlChar = svc->createCharacteristic(
       CONTROL_CHAR_UUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
   controlChar->setCallbacks(new ControlCallbacks());
+  deviceInfoChar = svc->createCharacteristic(DEVICE_INFO_CHAR_UUID, NIMBLE_PROPERTY::READ);
+  updateDeviceInfo();
 
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   // The device name and 128-bit service UUID do not both fit in the 31-byte
@@ -758,7 +813,8 @@ void loop() {
   unsigned long now = millis();
   bool recording = connected && frameSubscribed.load() && !paused;
   unsigned long sinceLastCapture = now - lastCapture;
-  const unsigned long warmupThreshold = CAPTURE_INTERVAL_MS - CAMERA_WARMUP_MS;
+  const unsigned long intervalMs = captureIntervalMs.load();  // one snapshot per loop
+  const unsigned long warmupThreshold = intervalMs - CAMERA_WARMUP_MS;
 
   if (!recording) {
     cameraWarming = false;
@@ -788,7 +844,7 @@ void loop() {
       now - cameraWakeStarted >= CAMERA_WARMUP_MS;
 
   if (!cameraInStandby && warmupComplete &&
-      sinceLastCapture >= CAPTURE_INTERVAL_MS) {
+      sinceLastCapture >= intervalMs) {
     lastCapture = millis();
     cameraWarming = false;
 
