@@ -41,16 +41,20 @@ For local development against a laptop server:
 
 ```bash
 EXPO_PUBLIC_SERVER_URL=http://<laptop-ip>:3000 npm start
-EXPO_PUBLIC_STUDY_SETTINGS_PIN=2626 npm start
 ```
 
 Without the override the app talks to `https://blinks.win.kit.edu`
 (KIT-internal — phone must be on the KIT VPN).
 
-`EXPO_PUBLIC_STUDY_SETTINGS_PIN` controls access to the Study Settings page and
-defaults to `2626`. It is bundled into the participant app and is therefore an
-access deterrent, not a server-side security secret. The server still requires
-the participant's authenticated session for every persisted settings change.
+Study values (Study Settings PIN, camera types, end-session time and study
+timezone, notification and onboarding texts) come from `GET /api/app-config`
+after login, i.e. from the server's
+`config/study.yaml` (see `config/README.md`). The last response is cached per
+participant (PIN in SecureStore, the rest as a file) and deleted on sign-out.
+There is no PIN in the app code: until the config has been loaded once,
+Study Settings stays locked. The PIN is an access deterrent, not a server-side
+security secret; the server still requires the participant's authenticated
+session for every persisted settings change.
 
 ## Recording restoration
 

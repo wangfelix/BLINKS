@@ -7,6 +7,8 @@ import { AppText } from "@/application/components/app-text";
 import { AppTextInput } from "@/application/components/app-text-input";
 import { colors, spacing } from "@/application/theme/theme";
 import { useOnboardingModel } from "@/profile/model/use-onboarding-model";
+import { useAppConfig } from "@/study/model/use-app-config";
+import { FALLBACK_APP_TEXTS } from "@/study/utils/fallback-app-texts";
 
 // Blocking onboarding step shown after sign-in until the participant has
 // provided an occupation + work description (VLM classification context) and
@@ -30,6 +32,8 @@ const OnboardingScreen = () => {
     isSubmitting,
     submit,
   } = useOnboardingModel();
+  const texts = (useAppConfig().config?.texts.app ?? FALLBACK_APP_TEXTS)
+    .onboarding;
 
   return (
     <KeyboardAwareScrollView
@@ -45,19 +49,18 @@ const OnboardingScreen = () => {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.header}>
-        <AppText variant="title">Tell us about yourself</AppText>
+        <AppText variant="title">{texts.title}</AppText>
         <AppText variant="body" color={colors.textSecondary}>
-          The AI assistant uses your work description to distinguish work from
-          other activities; your usual schedule times the evening reminder.
+          {texts.intro}
         </AppText>
       </View>
 
       <View style={styles.form}>
         <AppTextInput
-          label="Occupation"
+          label={texts.occupationLabel}
           value={occupation}
           onChangeText={setOccupation}
-          placeholder="e.g. Master Student in Industrial Engineering"
+          placeholder={texts.occupationPlaceholder}
           autoCapitalize="sentences"
           multiline
           numberOfLines={2}
@@ -65,17 +68,17 @@ const OnboardingScreen = () => {
           style={styles.occupationInput}
         />
         <AppTextInput
-          label="What your work consists of"
+          label={texts.workDescriptionLabel}
           value={workDescription}
           onChangeText={setWorkDescription}
-          placeholder="e.g. writing reports, analyzing data, meetings, programming,..."
+          placeholder={texts.workDescriptionPlaceholder}
           autoCapitalize="sentences"
           multiline
         />
         <View style={styles.timeRow}>
           <View style={styles.timeField}>
             <AppTextInput
-              label="Usual wake-up time"
+              label={texts.wakeTimeLabel}
               value={wakeTime}
               onChangeText={setWakeTime}
               placeholder="07:30"
@@ -86,7 +89,7 @@ const OnboardingScreen = () => {
           </View>
           <View style={styles.timeField}>
             <AppTextInput
-              label="Usual bedtime"
+              label={texts.bedTimeLabel}
               value={bedTime}
               onChangeText={setBedTime}
               placeholder="23:00"
