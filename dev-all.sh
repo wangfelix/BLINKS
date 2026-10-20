@@ -217,8 +217,30 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap cleanup EXIT
 
+# Study config: the server and both workers read the same
+# file. Without BLINKS_STUDY_CONFIG the launcher copies config/study.yaml (or
+# study.example.yaml) with the evening gate opened ("00:00") into a temp file;
+# DEV_GATE_OPEN=0 keeps the configured opening time.
+if [[ -z "${BLINKS_STUDY_CONFIG:-}" ]]; then
+  base_config="$ROOT_DIR/config/study.yaml"
+  [[ -f "$base_config" ]] || base_config="$ROOT_DIR/config/study.example.yaml"
+  if [[ "${DEV_GATE_OPEN:-1}" == "1" ]]; then
+    BLINKS_STUDY_CONFIG="${TMPDIR:-/tmp}/blinks-dev-study.yaml"
+    sed -E 's/^([[:space:]]*reconstructionOpensAt:).*/\1 "00:00"/' \
+      "$base_config" > "$BLINKS_STUDY_CONFIG" || fail "Could not write $BLINKS_STUDY_CONFIG"
+  else
+    BLINKS_STUDY_CONFIG="$base_config"
+  fi
+fi
+case "$BLINKS_STUDY_CONFIG" in
+  /*) ;;
+  *) BLINKS_STUDY_CONFIG="$PWD/$BLINKS_STUDY_CONFIG" ;;
+esac
+export BLINKS_STUDY_CONFIG
+
 info "Starting BLINKS local development stack..."
-printf '%sServer%s   http://localhost:3000  (DRM gate open, push disabled)\n' "$CYAN" "$RESET"
+info "Study config: $BLINKS_STUDY_CONFIG"
+printf '%sServer%s   http://localhost:3000  (study config below, push disabled)\n' "$CYAN" "$RESET"
 printf '%sProxy%s    http://localhost:%s  (API + Metro on one origin)\n' "$YELLOW" "$RESET" "$PROXY_PORT"
 printf '%sBackend%s  ngrok http %s\n' "$MAGENTA" "$RESET" "$PROXY_PORT"
 printf '%sDRM web%s  http://localhost:3002\n' "$BLUE" "$RESET"
@@ -227,7 +249,6 @@ printf '%sStop everything with Ctrl+C.%s\n\n' "$DIM" "$RESET"
 
 start_prefixed "SERVER" "$CYAN" "server" \
   env PATH="$SERVER_NODE_BIN:$PATH" \
-  DRM_AVAILABLE_FROM_HOUR="${DRM_AVAILABLE_FROM_HOUR:-0}" \
   DISABLE_PUSH="${DISABLE_PUSH:-1}" \
   "$SERVER_NODE_BIN/npm" run dev
 

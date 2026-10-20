@@ -175,8 +175,32 @@ check(
   },
 );
 
+// segmentation.mergeAcrossCaptureGaps (study config): equal labels on both
+// sides of a capture gap merge by default and split when off.
+const gapDay = [chunk(0, "computer_or_monitor_use", "work"), chunk(2, "computer_or_monitor_use", "work")];
+check(
+  "mergeAcrossCaptureGaps=true merges equal labels across a gap",
+  segmentDay(gapDay, { mergeAcrossCaptureGaps: true }).map((a) => [a.startMs - BASE, a.endMs - BASE]),
+  [[0, 3 * WINDOW]],
+);
+check(
+  "mergeAcrossCaptureGaps=false splits at every capture gap",
+  segmentDay(gapDay, { mergeAcrossCaptureGaps: false }).map((a) => [a.startMs - BASE, a.endMs - BASE]),
+  [
+    [0, WINDOW],
+    [2 * WINDOW, 3 * WINDOW],
+  ],
+);
+check(
+  "mergeAcrossCaptureGaps=false still merges adjacent windows",
+  segmentDay([chunk(0, "eating_drinking", "break"), chunk(1, "eating_drinking", "break")], {
+    mergeAcrossCaptureGaps: false,
+  }).map((a) => [a.startMs - BASE, a.endMs - BASE]),
+  [[0, 2 * WINDOW]],
+);
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
 }
-console.log(`\nSEGMENTATION TESTS PASSED (10 cases)`);
+console.log(`\nSEGMENTATION TESTS PASSED (13 cases)`);

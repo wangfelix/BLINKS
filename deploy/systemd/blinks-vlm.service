@@ -9,6 +9,7 @@ ExecStart=/root/BLINKS/server/vlm/.venv/bin/python vlm_worker.py
 # KIT_API_KEY lives here; the file is gitignored and must never be committed.
 EnvironmentFile=/root/BLINKS/server/vlm/.env
 Environment=RECORDINGS_DIR=/root/BLINKS/server/recordings
+Environment=BLINKS_ENV=production
 Restart=always
 RestartSec=10
 UMask=0077
