@@ -82,11 +82,9 @@ const parseTimeOfDay = (
 
 /**
  * Ending the main session becomes available at schedule.endSessionAvailableAt
- * on the study-timezone calendar day on which the session started. Comparing
- * timestamps, instead of only the current hour, keeps the action available
- * after midnight and during morning-after recovery. Without a loaded config
- * the action is available: the app must never trap a participant in a
- * recording because it could not reach the server.
+ * on the study-timezone calendar day on which the session started and stays
+ * available after midnight and the next morning. Without a loaded config the
+ * action is available.
  */
 export const isStudySessionEndAvailable = (
   nowMs: number,

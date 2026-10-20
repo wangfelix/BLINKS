@@ -1,5 +1,5 @@
-// App logic against a RUNNING server (no phone, no camera): config fetch and
-// per-user cache, offline start, PIN rule, BLE connect sequence with a fake
+// App logic against a running server (no phone, no camera): config fetch and
+// per-user cache, offline start, PIN check, BLE connect sequence with a fake
 // camera, and the device-info POST queue. Native modules are replaced by the
 // in-memory stubs in scripts/stubs (scripts/tsconfig.node.json).
 //

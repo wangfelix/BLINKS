@@ -23,7 +23,7 @@ const yaml = parse(
   readFileSync(join(__dirname, "../../config/study.example.yaml"), "utf8"),
 );
 
-// Same mapping as GET /api/app-config (documentation 4.3), without the PIN.
+// Same mapping as GET /api/app-config, without the PIN.
 const config: CachedAppConfig = {
   timezone: yaml.study.timezone,
   schedule: { endSessionAvailableAt: yaml.schedule.endSessionAvailableAt },

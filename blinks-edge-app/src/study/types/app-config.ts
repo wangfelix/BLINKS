@@ -1,5 +1,4 @@
 // Shape of GET /api/app-config (docs/study-config-documentation.md, section 4.3).
-// Keep in sync with the server when the documented shape changes.
 export interface AppConfigFormFactor {
   key: string;
   displayLabel: string;

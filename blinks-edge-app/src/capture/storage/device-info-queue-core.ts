@@ -1,9 +1,9 @@
 import { isApiError } from "@/application/api/api-error";
 import type { DeviceInfoReportRequest } from "@/capture/api/capture-api";
 
-// Best-effort, per-participant queue for camera device-info reports (documentation
-// 4.8). Kept free of native modules so it can be tested in Node; the app
-// instance in device-info-queue.ts wires it to SecureStore and the API client.
+// Best-effort, per-participant queue for camera device-info reports, without
+// native modules. The app instance in device-info-queue.ts wires it to
+// SecureStore and the API client.
 export interface DeviceInfoQueueStorage {
   get: (key: string) => Promise<string | null>;
   set: (key: string, value: string) => Promise<void>;
@@ -17,12 +17,11 @@ export interface DeviceInfoQueueDependencies {
 }
 
 const QUEUE_KEY_PREFIX = "blinks.device-info-reports";
-// Reports are diagnostics: drop the oldest instead of growing without bound.
-// SecureStore values above ~2 KB can fail; one report is ~300 bytes.
+// Maximum queued reports; when full, the oldest report is dropped.
 export const MAX_PENDING_DEVICE_INFO_REPORTS = 4;
 
 // 201 = stored, 200 = duplicate or over the server cap (stored: false),
-// 400/409 = will never succeed: all of them leave the queue.
+// 400/409 = rejected: all of them leave the queue.
 // Only network errors (status 0) and 5xx are retried; anything else (e.g. 401
 // before the sign-out completes) stays queued for the next attempt as well.
 const isFinalResponse = (error: unknown): boolean =>

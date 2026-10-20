@@ -59,7 +59,7 @@ const StudySettingsScreen = () => {
   };
 
   if (!isUnlocked && studySettingsPin === null) {
-    // No PIN in code: this account has never loaded the study config.
+    // This account has not loaded the study config yet.
     return (
       <ScreenContainer
         scrollable

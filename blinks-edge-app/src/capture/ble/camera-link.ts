@@ -34,7 +34,7 @@ const SCAN_RESTART_MS = 30_000;
 const SCAN_RETRY_INITIAL_MS = 2_000;
 const SCAN_RETRY_MAX_MS = 30_000;
 const RECONNECT_RETRY_MS = 3_000;
-// The capture-interval handshake must never delay frame monitoring for long.
+// Upper bound of the capture-interval handshake before frame monitoring.
 const CAPTURE_INTERVAL_TIMEOUT_MS = 5_000;
 
 class HandshakeAbortedError extends Error {
@@ -45,8 +45,7 @@ class HandshakeAbortedError extends Error {
 }
 
 // AbortController whose signal also fires when the parent aborts (the
-// connection's controller), or after timeoutMs. AbortSignal.any/timeout are
-// not available on Hermes, hence by hand.
+// connection's controller), or after timeoutMs.
 const childController = (
   parent: AbortSignal,
   timeoutMs: number,
@@ -94,8 +93,8 @@ interface CameraLinkEvents {
   onFrame: (frame: AssembledFrame, deviceId: string) => void;
   onStatusChange: (status: CameraLinkStatus) => void;
   onDeviceIdentified: (deviceId: string) => void;
-  // Result of the capture-interval handshake (BLE doc section 3, step 4),
-  // reported to the server as device info (documentation 4.8).
+  // Result of the capture-interval handshake, reported to the server as
+  // device info.
   onCaptureConfigReport?: (
     report: CaptureConfigReport,
     deviceId: string,
@@ -131,7 +130,7 @@ export class CameraLink {
   private appConfigUnsubscribe: (() => void) | null = null;
   private connection: ConnectionContext | null = null;
   private transactionCounter = 0;
-  // Instance field so the Node integration test can shorten it.
+  // Instance field; the Node integration test shortens it.
   private captureIntervalTimeoutMs = CAPTURE_INTERVAL_TIMEOUT_MS;
   // Firmware with characteristic 0004 accepts the 0x03 set-interval command.
   private supportsInterval = false;

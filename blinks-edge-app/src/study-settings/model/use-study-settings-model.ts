@@ -73,8 +73,8 @@ export const useStudySettingsModel = () => {
       ? "Checking recording state…"
       : "Start test recording";
 
-  // Opening Study Settings online is how a device without a cached config
-  // gets one (documentation 4.5: locked until loaded once).
+  // Opening Study Settings online loads the config on a device without a
+  // cached one.
   useEffect(() => {
     void appConfigStore.refresh();
   }, []);

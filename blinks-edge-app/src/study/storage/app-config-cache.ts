@@ -3,11 +3,10 @@ import * as SecureStore from "expo-secure-store";
 
 import type { CachedAppConfig } from "@/study/types/app-config";
 
-// Last successful GET /api/app-config, cached per participant account so the
-// app works offline (documentation section 4.5). The PIN lives in SecureStore; the
-// rest is a file because SecureStore values above ~2 KB can fail on Android.
-// The participant's camera form factor (from GET /api/profile) is cached next
-// to it so the BLE capture interval can be chosen without a connection.
+// Last successful GET /api/app-config, cached per participant account for
+// offline use. The PIN lives in SecureStore, the rest in a file. The
+// participant's camera form factor (from GET /api/profile) is cached next to
+// it and selects the BLE capture interval offline.
 export interface AppConfigCacheEntry {
   config: CachedAppConfig | null;
   cameraFormFactor: string | null;

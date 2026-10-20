@@ -19,7 +19,7 @@ export const parseCameraDeviceInfo = (
   bytes: Uint8Array,
 ): CameraDeviceInfo | null => {
   try {
-    // Compact ASCII JSON; avoids depending on TextDecoder in Hermes.
+    // Compact ASCII JSON, decoded byte by byte.
     const text = String.fromCharCode(...bytes);
     const value = JSON.parse(text) as Record<string, unknown>;
     if (
@@ -60,7 +60,8 @@ export const encodeSetIntervalCommand = (intervalMs: number): Uint8Array => {
 
 /**
  * Human-readable warning for Study Settings, or null when the camera applied
- * exactly what the app asked for. Study Settings always wins on mismatch.
+ * exactly what the app asked for. On a mismatch the Study Settings value stays
+ * in effect.
  */
 export const cameraIntervalWarning = (
   info: CameraDeviceInfo,
