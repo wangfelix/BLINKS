@@ -32,9 +32,9 @@ export interface EditableActivity {
   // The server exposes this only in DRM_DEV_MODE for visual verification.
   isIncorrectAnnotationInjected: boolean;
   // Experience-item answers keyed by item (every configured key present).
-  // All answers are kept independently so one survives the participant
-  // flipping the category back and forth; only the items that apply to the
-  // final category count, and the required ones must be answered to submit.
+  // Answers are kept for every item, including items that do not apply to the
+  // current category; only the items that apply to the final category count,
+  // and the required ones must be answered to submit.
   ratings: ExperienceRatings;
 }
 
@@ -276,7 +276,7 @@ export const mergeWithNextActivity = (
   const rawLabel = agreedValue(first.rawLabel, second.rawLabel);
   const categoryLabel = agreedValue(first.categoryLabel, second.categoryLabel);
   // Per item: kept only when it applies to the surviving category and both
-  // rows gave the same answer (documentation 4.6, rule 6).
+  // rows gave the same answer.
   const ratings: ExperienceRatings = {};
   for (const item of experienceItems()) {
     ratings[item.key] =
@@ -398,8 +398,8 @@ export interface RowIssue {
 
 /**
  * True once every activity has answered each required experience item of its
- * category. A missing rating blocks submit like any other issue, but gets no
- * row message — the rating scale itself turns red, which is signal enough.
+ * category. A missing rating blocks submit and marks the rating scale red; it
+ * adds no row message.
  */
 export const hasAllExperienceRatings = (rows: EditableActivity[]): boolean => {
   const items = experienceItems();

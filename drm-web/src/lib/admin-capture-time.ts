@@ -1,7 +1,7 @@
 // Capture-time formatting for the admin photo browser. Times are shown in the
 // configured study timezone (study.timezone), the zone the server derives
-// study days with. Without a loaded config there is no guessed zone: the
-// formatter returns a placeholder and the view shows why (loading or error).
+// study days with. Without a loaded config the formatter returns a placeholder
+// and the view shows the loading or error state.
 
 export const CAPTURE_TIME_PLACEHOLDER = "…";
 

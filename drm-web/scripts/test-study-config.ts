@@ -1,6 +1,5 @@
-// The editor model follows the study config: default (paper study) values and
-// an alternative study (5 labels, 2 categories, 3 items, 10-minute window)
-// without code changes.
+// The editor model with the default study config and an alternative study
+// (5 labels, 2 categories, 3 items, 10-minute window).
 // Run from drm-web/:  npx tsx scripts/test-study-config.ts
 
 import type { Activity } from "../src/lib/api-types";
@@ -51,7 +50,7 @@ const check = (name: string, actual: unknown, expected: unknown) => {
 const DAY = "2026-08-06";
 const at = (time: string) => dayTimeToEpochMs(DAY, time);
 
-// --- Default config (study.example.yaml, paper-study values) ---------------
+// --- Default config (study.example.yaml) ------------------------------------
 
 installStudyConfig(defaultStudyConfig());
 

@@ -1,4 +1,4 @@
-// The web model with configs other than the paper study:
+// The web model with alternative study configs:
 //   1. config/study.test.yaml as served (5 labels, 2 categories, items on 0-4
 //      and 1-5 scales with an optional one, 10-minute window, other surveys);
 //   2. another timezone/locale with a 15-minute window (DST day lengths,

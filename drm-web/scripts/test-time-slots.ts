@@ -1,5 +1,5 @@
-// Focused checks for the window picker model with the default (paper) config,
-// i.e. five-minute slots; other window sizes: test-alternative-configs.ts.
+// Focused checks for the window picker model with the default config
+// (five-minute slots); other window sizes: test-alternative-configs.ts.
 // Run from drm-web/:  npx tsx scripts/test-time-slots.ts
 
 import type { Frame } from "../src/lib/api-types";
