@@ -1,0 +1,5 @@
+# Generated files and frozen golden fixtures (collapsed in diffs)
+server/dist/** linguist-generated=true
+config/study-config.schema.json linguist-generated=true
+server/vlm/fixtures/golden-prompts.json linguist-generated=true
+server/scripts/fixtures/recordings-schema-pre-study-config.sql linguist-generated=true
