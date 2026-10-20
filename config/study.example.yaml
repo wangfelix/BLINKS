@@ -1,0 +1,285 @@
+# =============================================================================
+# BLINKS study configuration — EXAMPLE / DEFAULT
+#
+# Default study: a single field day, Self DRM then VLM-assisted DRM. Prompts
+# rendered from this file are compared byte for byte against
+# server/vlm/fixtures/golden-prompts.json (server/vlm/
+# test_study_example_prompts.py).
+#
+# For a real deployment copy it to config/study.yaml (gitignored) and fill in
+# the sensitive values (surveys.*, app.studySettingsPin). Path override:
+# env BLINKS_STUDY_CONFIG. Schema: config/study-config.schema.json (generated
+# from server/src/study-config/schema.ts). The server and both Python workers
+# validate this file at start-up and refuse to start if it is invalid.
+#
+# Infrastructure (ports, paths, API key, base URL, WEB_URL) stays in env vars.
+# =============================================================================
+
+study:
+  name: "BLINKS DRM study (paper default)"
+  timezone: "Europe/Berlin"
+
+ui:
+  locale: "en-GB"
+  thumbnailsPerActivity: 5
+
+windowing:
+  # Length of the clock-aligned VLM chunk / segmentation window in minutes.
+  # Allowed values: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60.
+  # vlm.prompts.system below says "about five minutes"; adapt the prompt text
+  # when you change the window.
+  windowMinutes: 5
+  # Minutes without a new frame after which the server closes a session's
+  # last open window and queues it for the VLM.
+  idleCloseMinutes: 10
+
+devices:
+  formFactors:
+    - key: necklace
+      displayLabel: "Necklace"
+    - key: glasses
+      displayLabel: "Glasses"
+
+capture:
+  # Sent by the app to the camera (BLE control opcode 0x03) on every connect.
+  # Allowed 5000..600000 ms (firmware clamps to the same bounds).
+  # Shorter intervals use more battery and can increase BLE frame loss.
+  intervalMsByFormFactor:
+    necklace: 15000
+    glasses: 30000
+
+schedule:
+  # Local time (study.timezone) from which the participant can reconstruct
+  # the current study day.
+  reconstructionOpensAt: "19:00"
+  # Local time from which the app enables "End session" on the session's
+  # start day.
+  endSessionAvailableAt: "19:00"
+  # Hours the study day extends past local midnight.
+  dayOverrunHours: 4
+
+# Closed, visually grounded activity vocabulary. The VLM and participants
+# choose from the same list.
+activities:
+  - key: computer_or_monitor_use
+    displayLabel: "Computer or monitor use"
+    vlmDefinition: "Attention directed to a computer, laptop, tablet used as a workstation, or monitor, with visible keyboard, mouse, touch, or screen interaction."
+  - key: watching_video
+    displayLabel: "Watching video or TV"
+    vlmDefinition: "A television or video interface is visibly the sustained focus, with little active input. Do not infer this from posture alone."
+  - key: paper_reading_writing
+    displayLabel: "Reading or handwriting on paper"
+    vlmDefinition: "Reading a book or printed document, or handwriting on paper with a pen or pencil, with no screen as the focus."
+  - key: handheld_device_use
+    displayLabel: "Handheld device use"
+    vlmDefinition: "A phone or other handheld device is held and visibly occupies attention."
+  - key: remote_meeting
+    displayLabel: "Remote meeting or video call"
+    vlmDefinition: "A video-conferencing interface or remote participants are visibly present on a screen. Do not infer a meeting from a headset alone."
+  - key: phone_call
+    displayLabel: "Phone call"
+    vlmDefinition: "A phone is held to the ear, a visible call interface is active, or a headset is used without another visually dominant task."
+  - key: in_person_interaction
+    displayLabel: "In-person interaction"
+    vlmDefinition: "Another person is physically present and repeatedly oriented toward or interacting with the wearer."
+  - key: tools_or_materials
+    displayLabel: "Handling tools or materials"
+    vlmDefinition: "Hands manipulate tools, equipment, components, or materials, unless a more specific food, cleaning, assistance, or personal-care label applies."
+  - key: eating_drinking
+    displayLabel: "Eating or drinking"
+    vlmDefinition: "Food or drink is visibly being consumed."
+  - key: food_preparation
+    displayLabel: "Preparing or serving food"
+    vlmDefinition: "Food or drink is being prepared, assembled, cooked, or served."
+  - key: cleaning_household
+    displayLabel: "Cleaning or household task"
+    vlmDefinition: "Visible cleaning, tidying, laundry, dishes, or household maintenance."
+  - key: assisting_person_animal
+    displayLabel: "Assisting a person or animal"
+    vlmDefinition: "Visible physical assistance or attentive handling of another person or animal."
+  - key: personal_care
+    displayLabel: "Personal care"
+    vlmDefinition: "Visible washing, grooming, dressing, or other personal care."
+  - key: walking_or_movement
+    displayLabel: "Walking, cycling, or sustained movement"
+    vlmDefinition: "Walking, cycling, exercise-like motion, or another sustained body movement."
+  - key: no_task_engagement
+    displayLabel: "No specific activity"
+    vlmDefinition: "No specific task, object interaction, or social interaction is visibly evident."
+  - key: other
+    displayLabel: "Other"
+    vlmDefinition: "The scene is legible, but the visible activity is outside this vocabulary."
+  - key: unclear
+    displayLabel: "Unclear / cannot determine"
+    vlmDefinition: "The frames are too dark, obscured, blurred, sparse, or otherwise uninformative to determine the activity."
+
+# Independent activity type, judged separately from the activity.
+categories:
+  - key: work
+    displayLabel: "Work"
+    icon: briefcase   # allowed: briefcase, pause, ellipsis, coffee, users, house, book-open, heart, circle
+    description: "Your own occupational work."
+    vlmDefinition: "the wearer's own occupation work (their occupation and work description above provide the context for what counts as work)."
+  - key: break
+    displayLabel: "Break"
+    icon: "pause"
+    description: "An intentional, restorative pause: coffee, resting, a deliberate walk, socializing to recover."
+    vlmDefinition: "an intentional restorative pause (\"erholsame Pause\": coffee, resting, a deliberate walk, socializing to recover)."
+  - key: other
+    displayLabel: "Other"
+    icon: "ellipsis"
+    description: "Neither work nor restorative: chores, errands, answering the door."
+    vlmDefinition: "neither work nor restorative (chores, personal administration, travel, or other non-restorative activity)."
+
+# Per-activity experience reporting items.
+# Shown in this order. Scale: min >= 0, max - min <= 10.
+# Keys are the stored item keys (activity_ratings.item_key).
+experienceItems:
+  - key: mental_demand
+    appliesTo: [work]
+    question: "How mentally demanding was this activity?"
+    shortLabel: "Mental demand"
+    scale: { min: 1, max: 7, lowAnchor: "Not at all", highAnchor: "Very much" }
+    requiredOnSubmit: true
+  - key: mental_recovery
+    appliesTo: [break]
+    question: "How mentally recovering was this activity?"
+    shortLabel: "Recovery"
+    scale: { min: 1, max: 7, lowAnchor: "Not at all", highAnchor: "Very much" }
+    requiredOnSubmit: true
+
+segmentation:
+  # Equal labelled chunks on both sides of a capture gap merge.
+  mergeAcrossCaptureGaps: true
+
+vlm:
+  model: "azure.gpt-5.6-terra"
+  request:
+    temperature: 0
+    reasoningEffort: high
+    maxCompletionTokens: 8192
+  maxFramesPerWindow: 20
+  # Templates. Allowed placeholders (anything else is a validation error):
+  #   system:            {{window_minutes}} {{activity_count}}
+  #   user:              {{occupation_context}} {{frame_count}} {{window_minutes}}
+  #                      {{activity_count}} {{activity_definitions}}
+  #                      {{category_keys}} {{category_definitions}}
+  #   occupationKnown:   {{occupation}}
+  #   workDescription:   {{work_description}}
+  #   occupationUnknown: (none)
+  # {{activity_definitions}} = one line per activity: - "<key>": <vlmDefinition>
+  # {{category_keys}}        = ["work", "break", "other"]
+  # {{category_definitions}} = "<key>" = <vlmDefinition>, joined by one space
+  # {{occupation_context}}   = occupationKnown (+ workDescription if non-empty)
+  #                            or occupationUnknown
+  prompts:
+    system: |-
+      You analyze short sequences of frames from a body-worn (first-person) camera for a research study on knowledge work. The frames are given in chronological order and together span about five minutes. Faces in the images are intentionally pixelated for privacy; describe the scene and activity, never attempt to identify people. Judge the sequence as a whole: classify the DOMINANT activity of the window, not any single frame. Use incremental probability elicitation: first determine the most likely label, then assess its confidence, then distribute probability across every allowed label. Do this independently for activity and category. Do not reveal your reasoning or output chosen-label fields; the server derives each label from the corresponding distribution. Activity describes visible behavior only. Purpose and restorative intent belong exclusively in category.
+    user: |-
+      {{occupation_context}}
+
+      You see {{frame_count}} frames in chronological order spanning a {{window_minutes}}-minute window of the wearer's day. Judge the window as a whole and return the requested structured classification.
+
+      Activity definitions:
+      {{activity_definitions}}
+
+      Follow these steps internally for activity:
+      1. Determine the single most likely activity key using the definitions.
+      2. Assess confidence in that choice.
+      3. Return the full probability distribution over all {{activity_count}} activity keys.
+      Choose the most specific visibly supported activity. A specific label such as remote_meeting, phone_call, eating_drinking, or food_preparation takes precedence over a broader device or material-handling label. Base dominance on what is most consistently visible across the sequence. Do not infer activity from posture, location, clothing, or occupation alone.
+
+      Follow the same steps independently for category: determine the most likely category, assess confidence, then return the full probability distribution over {{category_keys}}. {{category_definitions}}
+        "activity_probabilities": one numeric probability from 0 to 1 for every activity key above.
+        "category_probabilities": one numeric probability from 0 to 1 for each category.
+      Each distribution must sum to 1. Use at least two decimal places of precision where useful rather than limiting scores to tenths.
+      Return only the JSON object required by the response schema, with no reasoning, selected-label fields, or additional text.
+    occupationKnown: "The camera wearer's occupation: {{occupation}}."
+    workDescription: " Description of their work: {{work_description}}."
+    occupationUnknown: "The camera wearer's occupation is unknown."
+
+# Incorrect labels injected into the assisted round (overreliance measure).
+# rate: share of VLM-labelled activities, rounded up; rate 0 = never inject
+# (like enabled: false, no fallback label). With enabled: false or rate 0,
+# texts.rounds.assistedReminderIncorrectLabelsNotice must be null.
+overreliance:
+  enabled: true
+  rate: 0.1
+  minConfidence: 0.8
+  fallbackToTopWhenNoneAboveThreshold: true
+
+privacy:
+  faceBlur:
+    # enabled: false means faces of bystanders are not pixelated. Unblurred
+    # images are then stored on the server, shown to participants and admins,
+    # and sent to the (possibly external, e.g. cloud-hosted) VLM provider.
+    # Only disable this with a matching ethics approval and GDPR/DSGVO basis
+    # for the study. Frames then bypass the blur worker and are marked
+    # face_method='disabled'.
+    enabled: true
+    threshold: 0.2
+    method: mosaic
+    blocks: 8
+    blurKernel: 0
+    margin: 0.12
+
+reminders:
+  bedtime:
+    # Single fallback push at the participant's bedtime minus leadMinutes.
+    enabled: true
+    leadMinutes: 30
+    defaultBedtime: "22:00"
+    latestAt: "23:50"
+    # Bedtimes before this count as after midnight -> remind at latestAt.
+    afterMidnightCutoff: "12:00"
+
+texts:
+  push:
+    bedtimeTitle: "Before you go to bed"
+    bedtimeBody: "Please open the study website and reconstruct today before going to sleep."
+  rounds:
+    selfIntroTitle: "Welcome back!"
+    selfIntroDescription: "In the following, you will reconstruct your day. Please specify the time frame of each activity, select a suitable description from a list of options, and specify whether the activity was a work or break activity, or neither. A description of each term is available on the next page."
+    assistedIntroTitle: "Review the automated suggestion"
+    assistedIntroDescription: "In the next step, you will see an automatically generated suggestion of a reconstruction of your day. Please adjust the suggested list of entries until it matches your day. You can delete entries, adjust their times, activity types and descriptions. You can also add activities for which no images have been recorded, e.g. when you paused the recording during the day."
+    assistedReminderTitle: "Reconstruct your whole day, not just the photos"
+    assistedReminderBody: "Your task is to submit as accurate a reconstruction of your day as you can using this assistance. If you remember an activity that is missing from this list, use “Insert activity” to add it, e.g. if the camera was paused or no photos were captured at that time. You do not need to add activities you do not remember."
+    # Must be null when overreliance.enabled is false or overreliance.rate is 0
+    # (rate 0 = never inject; validation error otherwise).
+    assistedReminderIncorrectLabelsNotice: "Also note: Some activity labels and activity types are deliberately incorrect. Review and correct anything that does not match your day."
+    selfEditorHint: "Reconstruct your day from memory, one activity at a time."
+    assistedEditorHint: "Review the proposed activities, correct the labels, time spans and add missing activities until they match your day."
+    selfEmptyStateHint: "Start with your first activity of the day — what did you do, and roughly from when to when?"
+  progress:
+    selfRound: "DRM From memory"
+    assistedRound: "DRM With photos"
+  app:
+    recordingNotificationTitle: "BLINKS is recording"
+    recordingNotificationBody: "Receiving camera frames over Bluetooth"
+    testRecordingNotificationTitle: "BLINKS test recording"
+    testRecordingNotificationBody: "Checking the camera connection"
+    endSessionAvailableFrom: "Available from {{time}}"
+    onboarding:
+      title: "Tell us about yourself"
+      intro: "The AI assistant uses your work description to distinguish work from other activities; your usual schedule times the evening reminder."
+      occupationLabel: "Occupation"
+      occupationPlaceholder: "e.g. Master Student in Industrial Engineering"
+      workDescriptionLabel: "What your work consists of"
+      workDescriptionPlaceholder: "e.g. writing reports, analyzing data, meetings, programming,..."
+      wakeTimeLabel: "Usual wake-up time"
+      bedTimeLabel: "Usual bedtime"
+
+# ---------------------------------------------------------------------------
+# Sensitive values: placeholders only. Real values belong in config/study.yaml.
+# ---------------------------------------------------------------------------
+surveys:
+  onboarding:
+    url: "https://survey.example.org/index.php/000000"
+    participantParameter: participant_id
+  final:
+    url: "https://survey.example.org/index.php/111111"
+    participantParameter: participantId
+  payoutUrl: "https://payout.example.org/form"
+
+app:
+  studySettingsPin: "0000"
