@@ -14,8 +14,7 @@ RestartSec=5
 Environment=NODE_ENV=production
 Environment=PORT=3001
 Environment=HOSTNAME=127.0.0.1
-# Optional ("-"): survey/payout links come from config/study.yaml via
-# GET /api/study-config and /api/payout. Used for NEXT_PUBLIC_API_URL overrides.
+# Optional ("-"): the service also starts without this file.
 EnvironmentFile=-/root/BLINKS/drm-web/.env.local
 
 [Install]

@@ -97,11 +97,8 @@ echo "    rollback: see deploy/README.md#rollback (stop services, restore the ol
 echo "    pre-migration snapshot from $BACKUP_ROOT/, check its schema, delete -wal/-shm,"
 echo "    deploy the old commit)"
 
-# Study config: every study setting, the survey/payout links
-# and the Study Settings PIN live in the gitignored config/study.yaml. The
-# server and both workers refuse to start without a valid file in production
-# (no fallback to study.example.yaml), so check it before building anything.
-# It is validated after the builds below (same loaders as at runtime).
+# Checks config/study.yaml before building anything; it is validated with the
+# runtime loaders after the builds below.
 STUDY_CONFIG="$REPO/config/study.yaml"
 [ -f "$STUDY_CONFIG" ] && [ ! -L "$STUDY_CONFIG" ] \
   || die "config/study.yaml is missing (or a symlink) — the server would not start.
