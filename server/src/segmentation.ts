@@ -1,7 +1,7 @@
 // ===========================================================================
 // Initial VLM-assisted day segmentation (DRM subproject) — CHUNK-BASED
 //
-// Pure function: turns one day's ordered, clock-aligned window chunks (windowing.windowMinutes, paper: 5 min) into
+// Pure function: turns one day's ordered, clock-aligned window chunks (windowing.windowMinutes) into
 // the initial activity list that the participant edits on the reconstruction
 // website.
 //
@@ -11,7 +11,7 @@
 //      both their normalized activity enum and category match.
 //   3. Capture gaps receive no special treatment. Equal labelled chunks before
 //      and after a period with no chunks merge into one activity
-//      (segmentation.mergeAcrossCaptureGaps=true, the paper default; false
+//      (segmentation.mergeAcrossCaptureGaps=true; false
 //      makes every gap a boundary).
 //   4. Failed/unlabelled chunks each remain a separate null/null activity for
 //      participant correction. They are never assigned a neighbor's label.
@@ -71,7 +71,7 @@ const storedLabel = (label: string | null): string | null => {
 
 export interface SegmentationOptions {
   /**
-   * segmentation.mergeAcrossCaptureGaps in the study config (paper: true).
+   * segmentation.mergeAcrossCaptureGaps in the study config.
    * false: a period without chunks always starts a new activity.
    */
   mergeAcrossCaptureGaps: boolean;

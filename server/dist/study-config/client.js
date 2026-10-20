@@ -80,7 +80,6 @@ const appConfigResponse = (config = index_1.studyConfig) => ({
     studySettingsPin: config.app.studySettingsPin,
 });
 exports.appConfigResponse = appConfigResponse;
-/** Documentation 4.6 rule 1: every configured item key, null when unanswered. */
 const ratingsResponse = (stored, config = index_1.studyConfig) => Object.fromEntries(config.experienceItems.map((item) => [
     item.key,
     Object.prototype.hasOwnProperty.call(stored, item.key)
@@ -88,11 +87,6 @@ const ratingsResponse = (stored, config = index_1.studyConfig) => Object.fromEnt
         : null,
 ]));
 exports.ratingsResponse = ratingsResponse;
-/**
- * Documentation 4.6 rules 2-4. submitCategory: undefined = draft save (no
- * required check); string|null = final category on submit. Errors are
- * returned WITHOUT the "activity <i>: " prefix.
- */
 const parseRatingsInput = (raw, submitCategory, config = index_1.studyConfig) => {
     const ratings = {};
     if (raw !== undefined && raw !== null) {

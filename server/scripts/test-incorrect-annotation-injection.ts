@@ -1,5 +1,5 @@
-// Runs under ANY active study config (BLINKS_STUDY_CONFIG): the behaviour
-// tests pass explicit settings (paper values loaded from study.example.yaml),
+// Runs under any active study config (BLINKS_STUDY_CONFIG): the behaviour
+// tests pass explicit settings (values loaded from study.example.yaml),
 // the CONFIGURED_* exports are compared against the active config.
 import assert = require("assert");
 import path = require("path");
@@ -50,7 +50,7 @@ const activity = (
 
 assert.equal(PAPER.rate, 0.1);
 assert.equal(PAPER.minConfidence, 0.8);
-// the module reads the ACTIVE config, whatever it is
+// the module reads the active config
 assert.equal(INCORRECT_ANNOTATION_RATE, studyConfig.overreliance.rate);
 assert.equal(INCORRECT_ANNOTATION_MIN_MEAN_CONFIDENCE, studyConfig.overreliance.minConfidence);
 assert.deepStrictEqual(CONFIGURED_OVERRELIANCE, {
@@ -146,7 +146,7 @@ assert.ok(
   "replacement labels come from the configured vocabulary",
 );
 
-// A single category must not crash (crypto.randomInt(0) threw).
+// A single category must not crash.
 // The loader refuses enabled + 1 category; the module keeps the original.
 const oneCategory = { ...PAPER, categoryKeys: ["work"] };
 const single = injectIncorrectAnnotations([activity(0, 0.95)], undefined, oneCategory)[0];
@@ -154,7 +154,7 @@ assert.equal(single.isIncorrectAnnotationInjected, true);
 assert.equal(single.presentedCategoryLabel, "work", "no alternative category: unchanged");
 assert.notEqual(single.presentedRawLabel, single.rawLabel, "activity still swapped");
 
-// rate 0 = never inject: no rate-based selection AND no
+// rate 0 = never inject: no rate-based selection and no
 // fallback, for many activities and for the smallest possible input.
 const allBelow = Array.from({ length: 200 }, (_, index) => activity(index, 0.5 - index * 0.001));
 const allAbove = Array.from({ length: 200 }, (_, index) => activity(index, 0.99));
@@ -185,7 +185,7 @@ assert.equal(
   "paper: fallback when none reaches 0.8",
 );
 
-// non-paper threshold/rate: 0.5 / 0.5 over 6 activities -> ceil(3) of those >= 0.6
+// other threshold/rate: 0.5 / 0.5 over 6 activities -> ceil(3) of those >= 0.6
 const custom = { ...PAPER, rate: 0.5, minConfidence: 0.6 };
 const mixed = [0.9, 0.55, 0.7, 0.65, 0.3, 0.61].map((c, index) => activity(index, c));
 assert.deepStrictEqual(
