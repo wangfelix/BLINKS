@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2Icon, ImagesIcon } from "lucide-react";
+import { StudyConfigGate } from "@/components/study-config-gate";
 
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { StudyWorkspaceShell } from "@/components/study-workspace-shell";
@@ -37,7 +38,11 @@ const DoneContent = () => {
 const DonePage = () => {
   const ready = useRequireAuth("completed");
   if (!ready) return null;
-  return <DoneContent />;
+  return (
+    <StudyConfigGate>
+      <DoneContent />
+    </StudyConfigGate>
+  );
 };
 
 export default DonePage;

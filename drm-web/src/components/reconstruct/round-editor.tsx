@@ -15,7 +15,6 @@ import type {
   ActivityLabel,
   ActivityInput,
   CategoryLabel,
-  ExperienceRating,
   Frame,
 } from "@/lib/api-types";
 import { ApiError, saveRoundDraft, submitRound } from "@/lib/api-client";
@@ -58,7 +57,11 @@ import {
 } from "@/components/reconstruct/editor-types";
 import { FramePickerDialog } from "@/components/reconstruct/frame-picker-dialog";
 import type { StudyDayBounds } from "@/components/reconstruct/time-slots";
-import type { RatedCategory } from "@/components/reconstruct/experience-rating-scale";
+import {
+  emptyRatings,
+  getStudyConfig,
+  windowMinuteAdjective,
+} from "@/lib/study-config-store";
 import { PhotoManagementDialog } from "@/components/photos/photo-management-dialog";
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
 
@@ -428,8 +431,7 @@ export const RoundEditor = ({
         source: "user",
         proposalActivityId: null,
         isIncorrectAnnotationInjected: false,
-        workloadRating: null,
-        recoveryRating: null,
+        ratings: emptyRatings(),
       },
     ]);
     markEdited();
@@ -488,8 +490,7 @@ export const RoundEditor = ({
       source: "user",
       proposalActivityId: null,
       isIncorrectAnnotationInjected: false,
-      workloadRating: null,
-      recoveryRating: null,
+      ratings: emptyRatings(),
     };
     const resolution = claimActivitySpan(
       [...rowsRef.current, inserted],
@@ -510,18 +511,20 @@ export const RoundEditor = ({
     markEdited();
   };
 
-  /** Store a Likert answer under the field matching the rated category. */
+  /** Store an experience-item answer under its item key. */
   const setExperienceRating = (
     localId: string,
-    category: RatedCategory,
-    rating: ExperienceRating,
+    itemKey: string,
+    rating: number,
   ) => {
-    updateRow(
-      localId,
-      category === "work"
-        ? { workloadRating: rating }
-        : { recoveryRating: rating },
+    setRows((previous) =>
+      previous.map((row) =>
+        row.localId === localId
+          ? { ...row, ratings: { ...row.ratings, [itemKey]: rating } }
+          : row,
+      ),
     );
+    markEdited();
   };
 
   /** Set a new time span on one activity; see resolveSpanOverlaps. */
@@ -610,8 +613,7 @@ export const RoundEditor = ({
     if (row === undefined) return null;
     return {
       title: "Adjust the activity's time span",
-      description:
-        "Choose the start and end in five-minute intervals. You can extend this activity across other activities — they shorten, split, or are removed to make room.",
+      description: `Choose the start and end in ${windowMinuteAdjective()} intervals. You can extend this activity across other activities — they shorten, split, or are removed to make room.`,
       currentActivityId: row.localId,
       initialStartMs: row.startMs ?? undefined,
       initialEndMs: row.endMs ?? undefined,
@@ -623,7 +625,7 @@ export const RoundEditor = ({
   /**
    * Picker for "Insert activity" between two existing activities (or before
    * the first / after the last one). The button location supplies the initial
-   * scroll target, while the participant may choose any five-minute span.
+   * scroll target, while the participant may choose any window-aligned span.
    */
   const buildInsertActivityPicker = (
     afterLocalId: string | null,
@@ -656,8 +658,7 @@ export const RoundEditor = ({
     );
     return {
       title: "Insert an activity",
-      description:
-        "Choose any start and end in five-minute intervals, including times with no images. Overlapping activities will shorten, split, or be removed to make room.",
+      description: `Choose any start and end in ${windowMinuteAdjective()} intervals, including times with no images. Overlapping activities will shorten, split, or be removed to make room.`,
       initialFocusMs:
         firstUnassignedFrame?.captureEpochMs ??
         (Number.isFinite(gapStartMs)
@@ -701,9 +702,10 @@ export const RoundEditor = ({
 
   // --- Render ------------------------------------------------------------------
 
+  const roundTexts = getStudyConfig().texts.rounds;
   const editorHint = isAssistedRound
-    ? "Review the proposed activities, correct the labels, time spans and add missing activities until they match your day."
-    : "Reconstruct your day from memory, one activity at a time.";
+    ? roundTexts.assistedEditorHint
+    : roundTexts.selfEditorHint;
   const hasUnassignedImagesAfter = (afterLocalId: string | null): boolean =>
     frames !== null && gapHasUnassignedImages(rows, frames, afterLocalId);
 
@@ -762,8 +764,8 @@ export const RoundEditor = ({
                 onChangeCategory={(categoryLabel: CategoryLabel) =>
                   updateRow(row.localId, { categoryLabel })
                 }
-                onChangeExperienceRating={(category, rating) =>
-                  setExperienceRating(row.localId, category, rating)
+                onChangeExperienceRating={(itemKey, rating) =>
+                  setExperienceRating(row.localId, itemKey, rating)
                 }
                 onDelete={() => setDeleteCandidateLocalId(row.localId)}
                 onAdjustBoundaries={() =>
@@ -803,8 +805,7 @@ export const RoundEditor = ({
         <Column gap="md">
           {hasNoActivities && (
             <Text variant="secondary" className="py-4 text-center">
-              Start with your first activity of the day — what did you do, and
-              roughly from when to when?
+              {roundTexts.selfEmptyStateHint}
             </Text>
           )}
           {rows.map((row) => (
@@ -825,8 +826,8 @@ export const RoundEditor = ({
               onChangeCategory={(categoryLabel: CategoryLabel) =>
                 updateRow(row.localId, { categoryLabel })
               }
-              onChangeExperienceRating={(category, rating) =>
-                setExperienceRating(row.localId, category, rating)
+              onChangeExperienceRating={(itemKey, rating) =>
+                setExperienceRating(row.localId, itemKey, rating)
               }
               onDelete={() => setDeleteCandidateLocalId(row.localId)}
             />

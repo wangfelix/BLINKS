@@ -1,13 +1,17 @@
-// Focused checks for the five-minute picker model.
-// Run from drm-web/:  ../server/node_modules/.bin/tsx scripts/test-time-slots.ts
+// Focused checks for the window picker model with the default (paper) config,
+// i.e. five-minute slots; other window sizes: test-alternative-configs.ts.
+// Run from drm-web/:  npx tsx scripts/test-time-slots.ts
 
 import type { Frame } from "../src/lib/api-types";
 import { dayTimeToEpochMs, nextDayKey } from "../src/lib/time";
 import type { EditableActivity } from "../src/components/reconstruct/editor-types";
 import {
-  buildFiveMinuteSlots,
-  groupFiveMinuteSlots,
+  buildWindowSlots,
+  groupWindowSlots,
 } from "../src/components/reconstruct/time-slots";
+import { installDefaultStudyConfig } from "./fixtures/study-config";
+
+installDefaultStudyConfig();
 
 const DAY = "2026-08-06";
 // The server sends the day's epoch extent; an ordinary day is its calendar day.
@@ -29,8 +33,7 @@ const activity = (
   source: "vlm",
   proposalActivityId: 1,
   isIncorrectAnnotationInjected: false,
-  workloadRating: 4,
-  recoveryRating: null,
+  ratings: { mental_demand: 4, mental_recovery: null },
 });
 
 const frame = (
@@ -61,7 +64,7 @@ const check = (name: string, actual: unknown, expected: unknown) => {
 };
 
 const rows = [activity("work", "09:00", "09:15")];
-const slots = buildFiveMinuteSlots(
+const slots = buildWindowSlots(
   DAY_BOUNDS,
   [
     frame("09:01", 1),
@@ -109,7 +112,7 @@ check(
 const displaySlots = ["09:00", "09:05", "09:10", "09:15", "09:20"].map(slotAt);
 check(
   "add mode never mistakes ownerless slots for a current activity",
-  groupFiveMinuteSlots(displaySlots, undefined).map((group) => [
+  groupWindowSlots(displaySlots, undefined).map((group) => [
     group.kind,
     group.slots.length,
   ]),
@@ -121,7 +124,7 @@ check(
 );
 check(
   "one activity receives one shared visual group",
-  groupFiveMinuteSlots(displaySlots.slice(0, 3), "work").map((group) => [
+  groupWindowSlots(displaySlots.slice(0, 3), "work").map((group) => [
     group.kind,
     group.owner?.localId,
     group.slots.length,
@@ -130,7 +133,7 @@ check(
 );
 check(
   "selection-independent groups keep every slot in a stable container",
-  groupFiveMinuteSlots(displaySlots, undefined).map((group) => [
+  groupWindowSlots(displaySlots, undefined).map((group) => [
     group.kind,
     group.slots.length,
   ]),
@@ -156,11 +159,7 @@ const overnightFrame: Frame = {
   imageUrl: "/frames/99.jpg",
   deletedAt: null,
 };
-const overnightSlots = buildFiveMinuteSlots(
-  overnightBounds,
-  [overnightFrame],
-  [],
-);
+const overnightSlots = buildWindowSlots(overnightBounds, [overnightFrame], []);
 check(
   "a past-midnight recording extends the grid instead of clipping",
   overnightSlots.length,
