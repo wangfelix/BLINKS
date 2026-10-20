@@ -1,5 +1,5 @@
-// Generates config/study-config.schema.json from the zod schema (the single
-// source of truth, src/study-config/schema.ts) for the Python workers.
+// Generates config/study-config.schema.json from the zod schema
+// (src/study-config/schema.ts) for the Python workers.
 //
 //   npm run generate-study-config-schema          # write the file
 //   npm run generate-study-config-schema -- --check  # exit 1 if stale
@@ -23,8 +23,8 @@ export const STUDY_CONFIG_SCHEMA_PATH = path.join(
 
 export const renderStudyConfigJsonSchema = (): string => {
   const jsonSchema = z.toJSONSchema(StudyConfigSchema, {
-    // The YAML is the INPUT: fields with a default (privacy.faceBlur.enabled)
-    // are optional in the file. Python workers apply the same defaults.
+    // Input shape: fields with a default (privacy.faceBlur.enabled) are
+    // optional in the file. The Python workers apply the same defaults.
     io: "input",
     target: "draft-2020-12",
   });

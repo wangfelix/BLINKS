@@ -1,18 +1,17 @@
 # =============================================================================
 # BLINKS study configuration — EXAMPLE / DEFAULT
 #
-# This file reproduces the DRM paper study exactly (single field day, Self DRM
-# then VLM-assisted DRM). It is the golden reference: prompts rendered from it
-# must be byte-identical to the pre-config worker (server/vlm/
+# Default study: a single field day, Self DRM then VLM-assisted DRM. Prompts
+# rendered from this file are compared byte for byte against
+# server/vlm/fixtures/golden-prompts.json (server/vlm/
 # test_study_example_prompts.py).
 #
 # For a real deployment copy it to config/study.yaml (gitignored) and fill in
-# the SENSITIVE values (surveys.*, app.studySettingsPin). Path override:
+# the sensitive values (surveys.*, app.studySettingsPin). Path override:
 # env BLINKS_STUDY_CONFIG. Schema: config/study-config.schema.json (generated
 # from server/src/study-config/schema.ts). The server and both Python workers
 # validate this file at start-up and refuse to start if it is invalid.
 #
-# There is intentionally no config version or hash.
 # Infrastructure (ports, paths, API key, base URL, WEB_URL) stays in env vars.
 # =============================================================================
 
@@ -25,13 +24,13 @@ ui:
   thumbnailsPerActivity: 5
 
 windowing:
-  # Clock-aligned VLM chunk / segmentation grid. Must divide 60 and every UTC
-  # offset of study.timezone, so no window crosses local midnight or a DST
-  # switch. Allowed for Europe/Berlin: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60
-  # (the loader error lists the allowed values for other time zones).
-  # NOTE: vlm.prompts.system below says "about five minutes" literally; adapt
-  # the prompt text when you change the window.
+  # Length of the clock-aligned VLM chunk / segmentation window in minutes.
+  # Allowed values: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60.
+  # vlm.prompts.system below says "about five minutes"; adapt the prompt text
+  # when you change the window.
   windowMinutes: 5
+  # Minutes without a new frame after which the server closes a session's
+  # last open window and queues it for the VLM.
   idleCloseMinutes: 10
 
 devices:
@@ -44,18 +43,23 @@ devices:
 capture:
   # Sent by the app to the camera (BLE control opcode 0x03) on every connect.
   # Allowed 5000..600000 ms (firmware clamps to the same bounds).
-  # Shorter intervals cost battery (glasses!) and may worsen BLE frame loss.
+  # Shorter intervals use more battery and can increase BLE frame loss.
   intervalMsByFormFactor:
     necklace: 15000
     glasses: 30000
 
 schedule:
+  # Local time (study.timezone) from which the participant can reconstruct
+  # the current study day.
   reconstructionOpensAt: "19:00"
+  # Local time from which the app enables "End session" on the session's
+  # start day.
   endSessionAvailableAt: "19:00"
+  # Hours the study day extends past local midnight.
   dayOverrunHours: 4
 
 # Closed, visually grounded activity vocabulary. The VLM and participants
-# choose from the same list. vlmDefinition is never sent to any client.
+# choose from the same list.
 activities:
   - key: computer_or_monitor_use
     displayLabel: "Computer or monitor use"
@@ -127,10 +131,9 @@ categories:
     description: "Neither work nor restorative: chores, errands, answering the door."
     vlmDefinition: "neither work nor restorative (chores, personal administration, travel, or other non-restorative activity)."
 
-# Per-activity experience items (wording fixed by Michael, 2026-07-19).
+# Per-activity experience reporting items.
 # Shown in this order. Scale: min >= 0, max - min <= 10.
-# Keys are the stored item keys (activity_ratings.item_key); migration maps
-# workload_rating -> mental_demand and recovery_rating -> mental_recovery.
+# Keys are the stored item keys (activity_ratings.item_key).
 experienceItems:
   - key: mental_demand
     appliesTo: [work]
@@ -146,7 +149,7 @@ experienceItems:
     requiredOnSubmit: true
 
 segmentation:
-  # Equal labelled chunks on both sides of a capture gap merge (paper rule 3).
+  # Equal labelled chunks on both sides of a capture gap merge.
   mergeAcrossCaptureGaps: true
 
 vlm:
@@ -195,11 +198,10 @@ vlm:
     workDescription: " Description of their work: {{work_description}}."
     occupationUnknown: "The camera wearer's occupation is unknown."
 
-# Deliberately incorrect labels in the assisted round (overreliance measure).
-# Never sent to any client. rate: share of VLM-labelled activities, rounded up;
-# rate 0 = never inject (like enabled: false, no fallback label). With
-# enabled: false or rate 0, texts.rounds.assistedReminderIncorrectLabelsNotice
-# must be null.
+# Incorrect labels injected into the assisted round (overreliance measure).
+# rate: share of VLM-labelled activities, rounded up; rate 0 = never inject
+# (like enabled: false, no fallback label). With enabled: false or rate 0,
+# texts.rounds.assistedReminderIncorrectLabelsNotice must be null.
 overreliance:
   enabled: true
   rate: 0.1
@@ -208,14 +210,12 @@ overreliance:
 
 privacy:
   faceBlur:
-    # !!! PRIVACY / DATA PROTECTION !!!
-    # enabled: false means faces of bystanders are NOT pixelated. Unblurred
+    # enabled: false means faces of bystanders are not pixelated. Unblurred
     # images are then stored on the server, shown to participants and admins,
     # and sent to the (possibly external, e.g. cloud-hosted) VLM provider.
     # Only disable this with a matching ethics approval and GDPR/DSGVO basis
     # for the study. Frames then bypass the blur worker and are marked
-    # face_method='disabled'. Frames already 'pending' when you switch stay in
-    # the worker path (they are not released automatically).
+    # face_method='disabled'.
     enabled: true
     threshold: 0.2
     method: mosaic
@@ -270,7 +270,7 @@ texts:
       bedTimeLabel: "Usual bedtime"
 
 # ---------------------------------------------------------------------------
-# SENSITIVE — placeholders only. Real values belong in config/study.yaml.
+# Sensitive values: placeholders only. Real values belong in config/study.yaml.
 # ---------------------------------------------------------------------------
 surveys:
   onboarding:
