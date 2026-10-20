@@ -219,7 +219,7 @@ trap cleanup EXIT
 
 # Study config: the server and both workers read the same
 # file. Without BLINKS_STUDY_CONFIG the launcher copies config/study.yaml (or
-# the paper example) with the evening gate opened ("00:00") into a temp file;
+# study.example.yaml) with the evening gate opened ("00:00") into a temp file;
 # DEV_GATE_OPEN=0 keeps the configured opening time.
 if [[ -z "${BLINKS_STUDY_CONFIG:-}" ]]; then
   base_config="$ROOT_DIR/config/study.yaml"

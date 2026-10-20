@@ -78,7 +78,7 @@ function requireAdmin(req, res, next) {
     req.participant = username;
     next();
 }
-// Participant OR admin bearer (GET /api/study-config). Sets req.authRole so
+// Participant or admin bearer (GET /api/study-config). Sets req.authRole so
 // the route can withhold participant-only fields from admins.
 function requireParticipantOrAdmin(req, res, next) {
     const username = usernameFromAuthHeader(req.headers.authorization);
@@ -144,7 +144,7 @@ const tokenFromCookieHeader = (cookieHeader, cookieName = "blinks_token") => {
     return undefined;
 };
 // Like requireAuth, but additionally accepts the token from a blinks_token
-// cookie. ONLY for GET /frames/* image serving and the GET /api/payout
+// cookie. Only for GET /frames/* image serving and the GET /api/payout
 // redirect (both browser navigations): the DRM website renders the
 // frames via <img> tags, which cannot send an Authorization header. JSON APIs
 // stay header-only (CSRF hygiene: a cookie must never authorize a mutation).

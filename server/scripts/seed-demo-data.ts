@@ -20,7 +20,7 @@ import {
 } from "../src/db";
 
 // Seeds a fully clickable demo state for testing drm-web locally (uses the
-// paper vocabulary, so run it with config/study.example.yaml or a copy):
+// example vocabulary, so run it with config/study.example.yaml or a copy):
 //
 //   npx tsx scripts/seed-demo-data.ts
 //

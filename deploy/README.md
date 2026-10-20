@@ -80,7 +80,7 @@ Design points worth knowing:
   before building, and `deploy/deploy.sh` itself must have arrived through Git.
 - **`config/study.yaml` is checked first and validated before any restart.**
   Missing, tracked by git, or still containing `example.org`/`example.com`
-  placeholder links or a placeholder/retired Study Settings PIN aborts the
+  placeholder links or the placeholder Study Settings PIN aborts the
   deploy; a mode other than owner-only (e.g. 640/644) prints a warning; after the builds it is validated with the
   server loader and the Python worker loader under production rules (exit 2 =
   abort, nothing restarted). Transitional: as long as `drm-web/src` still reads

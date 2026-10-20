@@ -166,8 +166,8 @@ BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "8"))
 
 CHUNK_WINDOW_MS = STUDY_CONFIG["windowing"]["windowMinutes"] * 60 * 1000
 
-# Former study env vars. They are ignored now; warn so a stale .env or
-# systemd Environment= line cannot silently suggest it still applies.
+# Study env vars that are not read; a warning is printed at start-up when any
+# of them is set.
 RETIRED_STUDY_ENV_VARS = (
     "VLM_MODEL",
     "VLM_TEMPERATURE",

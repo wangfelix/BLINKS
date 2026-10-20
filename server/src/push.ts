@@ -12,7 +12,7 @@
 //
 // A bedtime shortly after midnight cannot fire on the study day itself (the
 // local date flips first), so bedtimes before reminders.bedtime.
-// afterMidnightCutoff (paper: 12:00) clamp the reminder to latestAt (23:50).
+// afterMidnightCutoff clamp the reminder to latestAt.
 // Participants without a stored bedtime fall back to defaultBedtime (22:00).
 // All values and texts come from the study config (reminders.bedtime,
 // texts.push); reminders.bedtime.enabled=false turns the scheduler off.

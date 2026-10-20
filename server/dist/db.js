@@ -77,27 +77,26 @@ class RecordingEventConflictError extends Error {
 exports.RecordingEventConflictError = RecordingEventConflictError;
 // --- DRM row shapes ---------------------------------------------------------
 // devices.formFactors[].key in the study config. Validated by the server on
-// write; the DB no longer pins the list with a CHECK constraint.
+// write; the DB has no CHECK constraint on the list.
 exports.CAMERA_FORM_FACTORS = study_config_1.FORM_FACTOR_KEYS;
 exports.ACTIVITY_LIST_KINDS = [
     "self",
     "vlm_proposal",
     "assisted",
 ];
-// --- Chunks (windowing.windowMinutes, paper: 5 min) ---------------------------
+// --- Chunks (windowing.windowMinutes) ---------------------------------------
 // The chunk is the VLM inference unit: frames are grouped into clock-aligned
 // windows at ingestion, and the VLM worker labels whole chunks (not
 // individual frames). Windows are epoch-aligned (t - t % W). The config
 // loader only accepts a window W that divides 60 and every UTC offset of
 // study.timezone, so every window starts on a local
-// W-minute mark and none crosses local midnight, also on DST days (Europe/
-// Berlin, 5 min: 276 windows on 2026-03-29, 300 on 2026-10-25).
+// W-minute mark and none crosses local midnight, also on DST days.
 // scripts/test-window-alignment.ts covers this.
 exports.CHUNK_WINDOW_MS = study_config_1.WINDOW_MS;
 // privacy.faceBlur.enabled=false (documentation section 6): new frames are stored
 // as already anonymized (face_method='disabled', face_count=NULL) so the
 // three face_status='done' gates stay unchanged. Existing pending frames are
-// NOT touched.
+// not changed.
 exports.FACE_BLUR_ENABLED = study_config_1.studyConfig.privacy.faceBlur.enabled;
 /** Clock-aligned window start containing the given capture time. */
 function chunkStartOf(captureEpochMs) {
@@ -186,8 +185,7 @@ function migrateDropColumn(table, column) {
 }
 // --- Generic experience ratings (study config, documentation section 7) ------
 // One row per answered item; unanswered = no row. item_key is validated by the
-// server against experienceItems[] in the study config, not by the DB (the
-// config is deliberately not stored in the DB).
+// server against experienceItems[] in the study config, not by the DB.
 const ACTIVITY_RATINGS_SCHEMA = `
   CREATE TABLE IF NOT EXISTS activity_ratings (
     activity_id INTEGER NOT NULL
@@ -198,8 +196,8 @@ const ACTIVITY_RATINGS_SCHEMA = `
   )
 `;
 /**
- * Fixed mapping for the LEGACY columns. It describes what the old columns
- * meant in the paper study and is independent of the current config.
+ * Fixed mapping from the legacy rating columns to item keys, independent of
+ * the current config.
  */
 exports.LEGACY_RATING_COLUMN_KEYS = {
     workload_rating: "mental_demand",
@@ -211,7 +209,7 @@ exports.LEGACY_RATING_COLUMN_KEYS = {
  * migration sits between them in initDb). Each is idempotent and rolls back
  * on its own; a failure in the ratings migration leaves the already
  * committed form-factor rebuild in place, which changes no values and is
- * compatible with the old code (it only drops the CHECK).
+ * only drops the CHECK.
  */
 exports.ratingsMigrationTestHooks = {
     failBeforeCommit: false,
@@ -222,7 +220,7 @@ const getLastRatingsMigrationReport = () => lastRatingsMigrationReport;
 exports.getLastRatingsMigrationReport = getLastRatingsMigrationReport;
 /**
  * Moves activities.workload_rating/recovery_rating into activity_ratings and
- * rebuilds activities without them, in ONE transaction. Idempotent: a no-op
+ * rebuilds activities without them, in one transaction. Idempotent: a no-op
  * once the legacy columns are gone. Must run with foreign_keys=OFF (initDb),
  * so dropping the old table cannot cascade into activity_ratings.
  */
@@ -263,7 +261,7 @@ function migrateRatingsToItemTable(finalActivitiesSchema) {
             ratingsByKey[key] = inserted;
         }
         // SQLite 12-step rebuild: create new, copy, drop old, rename new. Renaming
-        // the OLD table instead would repoint activity_ratings' foreign key.
+        // the old table instead would repoint activity_ratings' foreign key.
         const finalColumns = db.prepare(`PRAGMA table_info(activities)`).all()
             .map((column) => column.name)
             .filter((name) => !(name in exports.LEGACY_RATING_COLUMN_KEYS));
@@ -642,8 +640,8 @@ function initDb(dbPath) {
         REFERENCES activities(id) ON DELETE SET NULL
     )
   `;
-    // Legacy rebuilds below still target the pre-2026-10 shape with the two
-    // fixed rating columns; migrateRatingsToItemTable() then moves them into
+    // Legacy rebuilds below target the shape with the two fixed rating
+    // columns; migrateRatingsToItemTable() then moves them into
     // activity_ratings. Fresh databases get the final shape directly.
     const legacyActivitiesSchemaWithRatings = activitiesSchema.replace("      created_at       INTEGER NOT NULL,", "      workload_rating INTEGER,\n      recovery_rating INTEGER,\n      created_at       INTEGER NOT NULL,");
     const activityListsExist = tableExists("activity_lists");

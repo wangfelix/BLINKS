@@ -3,8 +3,8 @@
 //
 // 1. config/study-config.schema.json is fresh (generated from the zod schema).
 // 2. config/study.example.yaml validates (shape + cross-field checks).
-// 3. The example equals today's hard-coded paper study wherever the value
-//    still lives in TypeScript or firmware (server constants, push texts).
+// 3. The example matches the default study values kept as literals here and
+//    in the firmware (server constants, push texts).
 //    The prompt golden test lives in server/vlm/test_study_example_prompts.py.
 // 4. Representative invalid configs fail with `path: reason`.
 
@@ -70,10 +70,9 @@ test("study.example.yaml is valid", () => {
 
 const example: StudyConfig = StudyConfigSchema.parse(exampleRaw);
 
-// Paper-study values (the defaults the code used before the study config
-// existed), kept as literals: the runtime modules derive these values from the
-// ACTIVE config, so importing them would tie this test to BLINKS_STUDY_CONFIG.
-// This file only reads study.example.yaml and runs under any active config.
+// Default study values as literals. This file only reads study.example.yaml
+// and does not import the runtime modules, so it runs under any
+// BLINKS_STUDY_CONFIG.
 const PAPER_ACTIVITY_KEYS = [
   "computer_or_monitor_use",
   "watching_video",
@@ -122,8 +121,7 @@ test("example = today's server constants", () => {
   assert.equal(example.study.timezone, "Europe/Berlin");
   assert.equal(example.privacy.faceBlur.enabled, true);
 
-  // Paper-study values that used to be hardcoded in push.ts / blur_worker.py
-  // (both read the study config, so the values are frozen here).
+  // Default bedtime reminder and face-blur values.
   assert.deepEqual(example.reminders.bedtime, {
     enabled: true,
     leadMinutes: 30,
@@ -159,7 +157,7 @@ test("example = today's server constants", () => {
 // compared here; the app's offline fallback texts are checked by
 // blinks-edge-app/scripts/test-study-config.ts.
 test("example = frozen paper push texts", () => {
-  // push.ts reads texts.push from the study config; frozen paper-study wording:
+  // Default push texts:
   assert.equal(example.texts.push.bedtimeTitle, "Before you go to bed");
   assert.equal(
     example.texts.push.bedtimeBody,
