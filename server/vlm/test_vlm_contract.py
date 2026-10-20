@@ -14,6 +14,14 @@ openai_stub.OpenAI = object
 sys.modules.setdefault("dotenv", dotenv_stub)
 sys.modules.setdefault("openai", openai_stub)
 
+# The tests assume the example vocabulary: pin the example config regardless of
+# a local config/study.yaml (the config is loaded at import time).
+import os as _os  # noqa: E402
+from pathlib import Path as _Path  # noqa: E402
+
+_os.environ["BLINKS_STUDY_CONFIG"] = str(
+    _Path(__file__).resolve().parents[2] / "config" / "study.example.yaml"
+)
 import vlm_worker  # noqa: E402
 
 

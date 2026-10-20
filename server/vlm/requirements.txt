@@ -3,3 +3,6 @@
 # talks to it directly (same pattern as the sibling KARMA project).
 openai>=1.40.0
 python-dotenv>=1.0.0
+# Study config validation (config/study.yaml against config/study-config.schema.json)
+PyYAML>=6.0
+jsonschema>=4.20
