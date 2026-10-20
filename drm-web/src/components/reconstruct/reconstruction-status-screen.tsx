@@ -6,11 +6,9 @@ import { CalendarX2Icon, Clock3Icon, LogOutIcon } from "lucide-react";
 import { StudyFlowShell } from "@/components/study-flow-shell";
 import { StudyProgress } from "@/components/study-progress";
 import { Button } from "@/components/ui/button";
-import { formatHour } from "@/lib/time";
 
 type ReconstructionStatus =
-  | { kind: "no-recorded-day" }
-  | { kind: "opens-later"; availableFromHour: number };
+  { kind: "no-recorded-day" } | { kind: "opens-later"; availableFrom: string };
 
 export const ReconstructionStatusScreen = ({
   status,
@@ -63,8 +61,8 @@ export const ReconstructionStatusScreen = ({
           ) : (
             <>
               Please return in the evening, before you go to bed. Your
-              reconstruction will be available from{" "}
-              {formatHour(status.availableFromHour)} at the earliest.
+              reconstruction will be available from {status.availableFrom} at
+              the earliest.
             </>
           )}
         </p>

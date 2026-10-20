@@ -4,10 +4,15 @@ import type {
   ActivityInput,
   ActivitySource,
   CategoryLabel,
-  ExperienceRating,
+  ExperienceRatings,
   Frame,
 } from "@/lib/api-types";
 import { isActivityLabel } from "@/lib/activity-vocabulary";
+import {
+  emptyRatings,
+  experienceItems,
+  isCategoryLabel,
+} from "@/lib/study-config-store";
 
 /**
  * Local editing model for one activity row. Self-round rows start with no
@@ -26,14 +31,12 @@ export interface EditableActivity {
   proposalActivityId: number | null;
   // The server exposes this only in DRM_DEV_MODE for visual verification.
   isIncorrectAnnotationInjected: boolean;
-  // Experience ratings (7-point Likert). Both are kept independently so an
-  // answer survives the participant flipping the category back and forth;
-  // only the one matching the final category is required to submit.
-  workloadRating: ExperienceRating | null;
-  recoveryRating: ExperienceRating | null;
+  // Experience-item answers keyed by item (every configured key present).
+  // Answers are kept for every item, including items that do not apply to the
+  // current category; only the items that apply to the final category count,
+  // and the required ones must be answered to submit.
+  ratings: ExperienceRatings;
 }
-
-export const FIVE_MINUTE_MS = 5 * 60 * 1000;
 
 let localIdCounter = 0;
 export const makeLocalId = (): string => {
@@ -46,13 +49,14 @@ export const fromServerActivity = (activity: Activity): EditableActivity => ({
   startMs: activity.startMs,
   endMs: activity.endMs,
   rawLabel: isActivityLabel(activity.rawLabel) ? activity.rawLabel : null,
-  categoryLabel: activity.categoryLabel,
+  categoryLabel: isCategoryLabel(activity.categoryLabel)
+    ? activity.categoryLabel
+    : null,
   source: activity.source,
   proposalActivityId: activity.proposalActivityId,
   isIncorrectAnnotationInjected:
     activity.isIncorrectAnnotationInjected === true,
-  workloadRating: activity.workloadRating,
-  recoveryRating: activity.recoveryRating,
+  ratings: { ...emptyRatings(), ...activity.ratings },
 });
 
 /** Sorted by start time; rows without a start time sink to the end. */
@@ -79,8 +83,7 @@ export const toActivityInputs = (rows: EditableActivity[]): ActivityInput[] =>
       categoryLabel: row.categoryLabel,
       source: row.source,
       proposalActivityId: row.proposalActivityId,
-      workloadRating: row.workloadRating,
-      recoveryRating: row.recoveryRating,
+      ratings: { ...row.ratings },
     }));
 
 export const isEpochInActivitySpan = (
@@ -216,12 +219,12 @@ export interface MergeResolution {
 }
 
 /** Keep an answer only when both merged activities already agreed on it. */
-const agreedValue = <T,>(first: T, second: T): T | null =>
+const agreedValue = <T>(first: T, second: T): T | null =>
   first === second ? first : null;
 
 /**
  * Merge one activity with the activity that follows it into a single span
- * [first.start, second.end). The 5-minute segmentation splits a continuous
+ * [first.start, second.end). The per-window segmentation splits a continuous
  * stretch of work whenever the VLM's argmax wobbles, so rejoining those rows
  * is the most common assisted-round correction.
  *
@@ -272,14 +275,18 @@ export const mergeWithNextActivity = (
 
   const rawLabel = agreedValue(first.rawLabel, second.rawLabel);
   const categoryLabel = agreedValue(first.categoryLabel, second.categoryLabel);
-  const workloadRating =
-    categoryLabel === "work"
-      ? agreedValue(first.workloadRating, second.workloadRating)
-      : null;
-  const recoveryRating =
-    categoryLabel === "break"
-      ? agreedValue(first.recoveryRating, second.recoveryRating)
-      : null;
+  // Per item: kept only when it applies to the surviving category and both
+  // rows gave the same answer.
+  const ratings: ExperienceRatings = {};
+  for (const item of experienceItems()) {
+    ratings[item.key] =
+      categoryLabel !== null && item.appliesTo.includes(categoryLabel)
+        ? agreedValue(
+            first.ratings[item.key] ?? null,
+            second.ratings[item.key] ?? null,
+          )
+        : null;
+  }
   const merged: EditableActivity = {
     ...first,
     // A gap between the two (left by an earlier deletion) is absorbed, so the
@@ -287,31 +294,37 @@ export const mergeWithNextActivity = (
     endMs: second.endMs,
     rawLabel,
     categoryLabel,
-    workloadRating,
-    recoveryRating,
+    ratings,
   };
 
   // "Cleared" means an answer existed on one of the two rows and did not
   // survive the merge. Two already-blank rows (an unlabelled chunk the VLM
   // failed on) lose nothing and need no extra explanation.
-  const wasCleared = <T,>(mergedValue: T | null, a: T | null, b: T | null) =>
+  const wasCleared = <T>(mergedValue: T | null, a: T | null, b: T | null) =>
     mergedValue === null && (a !== null || b !== null);
 
   // Only report a rating the participant now has to answer again. A rating
   // dropped from the field the surviving category does not use is not one of
   // them: nothing reads it, and naming it would send the participant looking
   // for a scale that is not on screen. An `other` activity is never rated.
-  const hadAnyRating =
-    first.workloadRating !== null ||
-    second.workloadRating !== null ||
-    first.recoveryRating !== null ||
-    second.recoveryRating !== null;
+  const items = experienceItems();
+  const hadAnyRating = items.some(
+    (item) =>
+      (first.ratings[item.key] ?? null) !== null ||
+      (second.ratings[item.key] ?? null) !== null,
+  );
   const clearedRating =
-    categoryLabel === "work"
-      ? wasCleared(workloadRating, first.workloadRating, second.workloadRating)
-      : categoryLabel === "break"
-        ? wasCleared(recoveryRating, first.recoveryRating, second.recoveryRating)
-        : categoryLabel === null && hadAnyRating;
+    categoryLabel === null
+      ? hadAnyRating
+      : items
+          .filter((item) => item.appliesTo.includes(categoryLabel))
+          .some((item) =>
+            wasCleared(
+              ratings[item.key],
+              first.ratings[item.key] ?? null,
+              second.ratings[item.key] ?? null,
+            ),
+          );
 
   return {
     rows: sorted
@@ -339,7 +352,7 @@ export const resolveSpanOverlaps = (
 /**
  * True only when the gap adjacent to one Insert button contains a live image
  * that is not covered by any activity. Image-free time never turns the button
- * red; it remains selectable in the five-minute picker.
+ * red; it remains selectable in the window picker.
  */
 export const gapHasUnassignedImages = (
   rows: EditableActivity[],
@@ -384,16 +397,23 @@ export interface RowIssue {
 }
 
 /**
- * True once every work/break activity has its experience rating. A missing
- * rating blocks submit like any other issue, but gets no row message — the
- * rating scale itself turns red, which is signal enough.
+ * True once every activity has answered each required experience item of its
+ * category. A missing rating blocks submit and marks the rating scale red; it
+ * adds no row message.
  */
-export const hasAllExperienceRatings = (rows: EditableActivity[]): boolean =>
-  rows.every((row) => {
-    if (row.categoryLabel === "work") return row.workloadRating !== null;
-    if (row.categoryLabel === "break") return row.recoveryRating !== null;
-    return true;
+export const hasAllExperienceRatings = (rows: EditableActivity[]): boolean => {
+  const items = experienceItems();
+  return rows.every((row) => {
+    const category = row.categoryLabel;
+    if (category === null) return true;
+    return items.every(
+      (item) =>
+        !item.requiredOnSubmit ||
+        !item.appliesTo.includes(category) ||
+        (row.ratings[item.key] ?? null) !== null,
+    );
   });
+};
 
 /**
  * The chronology anchor for a wall-clock time typed into row `index`: the
