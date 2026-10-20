@@ -91,7 +91,7 @@ Design points worth knowing:
   `privacy.faceBlur.enabled: false` a stopped `blinks-face-blur` is expected
   (it finishes the pending backlog and exits 3; the unit uses
   `Restart=always` with `SuccessExitStatus=3`/`RestartPreventExitStatus=3`, so
-  only that deliberate stop is not restarted) and the deploy prints a privacy
+  only that exit is not restarted) and the deploy prints a privacy
   warning instead.
 - **Standalone assets are removed before copying.** `cp -r public .next/standalone/`
   onto an existing directory nests it as `public/public` rather than merging, so
@@ -107,7 +107,7 @@ Design points worth knowing:
   migrations.
 - **Push behavior is deployment-checked.** The server push regression test runs
   during the build, and `/health` must report an enabled scheduler with the
-  `reminders.bedtime.leadMinutes` from `config/study.yaml` (paper: 30) before
+  `reminders.bedtime.leadMinutes` from `config/study.yaml` before
   the deploy succeeds.
 
 ## Rollback
@@ -123,7 +123,7 @@ cd /root/BLINKS && git checkout <previous-sha> && deploy/deploy.sh
 
 **Rollback across a schema migration needs a database restore.** The server
 migrates `recordings.db` on its first start, and older code cannot read the
-new schema. Example: the `activity_ratings` migration (study config rollout) drops
+new schema. Example: the `activity_ratings` migration drops
 `workload_rating`/`recovery_rating`; the pre-migration code then stops in
 `initDb` with `no such column: a.workload_rating`. Every rating, frame and
 round written after the deploy is lost by the restore, so keep a copy of the
