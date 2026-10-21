@@ -4,7 +4,7 @@
 // (see load.ts). All study-relevant values come from here, never from env.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.minutesOfTimeOfDay = exports.IDLE_CLOSE_MS = exports.WINDOW_MS = exports.EXPERIENCE_ITEMS = exports.FORM_FACTOR_KEYS = exports.CATEGORY_KEY_SET = exports.CATEGORY_KEYS = exports.ACTIVITY_KEY_SET = exports.ACTIVITY_KEYS = exports.studyConfig = void 0;
-const load_1 = require("./load");
+const load_1 = require("./load.js");
 exports.studyConfig = (0, load_1.getStudyConfig)();
 exports.ACTIVITY_KEYS = exports.studyConfig.activities.map((activity) => activity.key);
 exports.ACTIVITY_KEY_SET = new Set(exports.ACTIVITY_KEYS);

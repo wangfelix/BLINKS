@@ -22,7 +22,7 @@ import {
   getLastRatingsMigrationReport,
   initDb,
   ratingsMigrationTestHooks,
-} from "../src/db";
+} from "@/db";
 
 const dbPath = path.resolve(process.argv[2] ?? "");
 const rollback = process.argv.includes("--rollback");

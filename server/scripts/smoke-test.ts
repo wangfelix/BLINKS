@@ -3,8 +3,8 @@ import fs = require("fs");
 import path = require("path");
 import Database = require("better-sqlite3");
 import WebSocket = require("ws");
-import { ACTIVITY_LABELS } from "../src/activity-vocabulary";
-import { studyConfig } from "../src/study-config";
+import { ACTIVITY_LABELS } from "@/activity-vocabulary";
+import { studyConfig } from "@/study-config";
 
 // End-to-end smoke test against a locally running server. Expects:
 //   RECORDINGS_DIR/DATA_DIR pointing at a throwaway directory

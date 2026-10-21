@@ -5,7 +5,7 @@ import Database = require("better-sqlite3");
 import {
   ACTIVITY_LABELS,
   ACTIVITY_LABEL_SET,
-} from "../src/activity-vocabulary";
+} from "@/activity-vocabulary";
 
 const CATEGORY_LABELS = ["work", "break", "other"] as const;
 const CATEGORY_LABEL_SET: ReadonlySet<string> = new Set(CATEGORY_LABELS);

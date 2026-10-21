@@ -5,7 +5,7 @@
 // participants only (app-config) and is never logged.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseRatingsInput = exports.ratingsResponse = exports.appConfigResponse = exports.studyConfigResponse = void 0;
-const index_1 = require("./index");
+const index_1 = require("./index.js");
 const studyConfigResponse = (isParticipant, config = index_1.studyConfig) => ({
     study: { timezone: config.study.timezone },
     ui: {

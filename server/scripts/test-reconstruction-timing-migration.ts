@@ -8,7 +8,7 @@ import {
   getRoundResponseList,
   initDb,
   markVlmProposalViewed,
-} from "../src/db";
+} from "@/db";
 
 // Starts from the immediately preceding production shape: round workflow and
 // timing in reconstructions, stable activity-list parents, and FK children.

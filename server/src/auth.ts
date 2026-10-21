@@ -8,7 +8,7 @@ import {
   insertToken,
   isOnboardingComplete,
   isStudyComplete,
-} from "./auth-db";
+} from "@/auth-db";
 
 // argon2id is the OWASP-recommended password hash; library defaults are sane
 // (argon2id, 64 MiB memory, 3 iterations).

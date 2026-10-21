@@ -24,7 +24,7 @@ import {
   studyConfigCrossCheckIssues,
   type StudyConfig,
   type StudyConfigIssue,
-} from "./schema";
+} from "@/study-config/schema";
 
 // server/src/study-config and server/dist/study-config are both 3 levels deep.
 export const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");

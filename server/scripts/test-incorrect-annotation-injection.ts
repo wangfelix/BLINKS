@@ -9,10 +9,10 @@ import {
   INCORRECT_ANNOTATION_MIN_MEAN_CONFIDENCE,
   INCORRECT_ANNOTATION_RATE,
   injectIncorrectAnnotations,
-} from "../src/incorrect-annotation-injection";
-import type { SegmentedActivity } from "../src/segmentation";
-import { ACTIVITY_KEYS, CATEGORY_KEYS, studyConfig } from "../src/study-config";
-import { loadStudyConfigFile } from "../src/study-config/load";
+} from "@/incorrect-annotation-injection";
+import type { SegmentedActivity } from "@/segmentation";
+import { ACTIVITY_KEYS, CATEGORY_KEYS, studyConfig } from "@/study-config";
+import { loadStudyConfigFile } from "@/study-config/load";
 
 const paperConfig = loadStudyConfigFile(path.resolve(__dirname, "..", "..", "config", "study.example.yaml"));
 const PAPER = {

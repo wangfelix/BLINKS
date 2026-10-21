@@ -3,8 +3,8 @@
 // definitions, no overreliance values, no privacy settings. The PIN goes to
 // participants only (app-config) and is never logged.
 
-import { studyConfig as loadedStudyConfig } from "./index";
-import type { StudyConfig } from "./schema";
+import { studyConfig as loadedStudyConfig } from "@/study-config/index";
+import type { StudyConfig } from "@/study-config/schema";
 
 export interface SurveyLink {
   url: string;

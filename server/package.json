@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-    "build": "tsc",
+    "build": "tsc && tsc-alias",
     "create-admin": "tsx scripts/create-admin.ts",
     "create-user": "tsx scripts/create-user.ts",
     "reset-onboarding": "tsx scripts/reset-onboarding.ts",
@@ -36,6 +36,7 @@
     "@types/express": "^4.17.21",
     "@types/node": "^20.14.0",
     "@types/ws": "^8.5.10",
+    "tsc-alias": "^1.9.8",
     "tsx": "^4.16.0",
     "typescript": "^5.5.0"
   }

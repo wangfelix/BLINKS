@@ -1,9 +1,9 @@
 import path from "path";
 import fs from "fs";
 
-import { hashPassword } from "../src/auth";
-import { getUser, initAuthDb, insertUser, resetPassword } from "../src/auth-db";
-import { ensureParticipant, initDb } from "../src/db";
+import { hashPassword } from "@/auth";
+import { getUser, initAuthDb, insertUser, resetPassword } from "@/auth-db";
+import { ensureParticipant, initDb } from "@/db";
 
 // Creates a study participant account (or resets a password with --reset) and
 // provisions the matching participants row in recordings.db (occupation and

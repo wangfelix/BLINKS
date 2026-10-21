@@ -18,7 +18,7 @@ import {
   listActivitiesByKind,
   listStudyActivityLists,
   replaceActivities,
-} from "../src/db";
+} from "@/db";
 
 const day = "2026-07-25";
 const t0 = Date.parse(`${day}T10:00:00Z`);

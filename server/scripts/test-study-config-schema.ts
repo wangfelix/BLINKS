@@ -18,11 +18,11 @@ import {
   StudyConfigSchema,
   studyConfigCrossCheckIssues,
   type StudyConfig,
-} from "../src/study-config/schema";
+} from "@/study-config/schema";
 import {
   renderStudyConfigJsonSchema,
   STUDY_CONFIG_SCHEMA_PATH,
-} from "./generate-study-config-schema";
+} from "@scripts/generate-study-config-schema";
 
 const REPO_ROOT = path.join(__dirname, "..", "..");
 const EXAMPLE_PATH = path.join(REPO_ROOT, "config", "study.example.yaml");

@@ -17,7 +17,7 @@ import {
   initDb,
   insertFrame,
   softDeleteFrameRow,
-} from "../src/db";
+} from "@/db";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "blinks-chunk-test-"));
 initDb(path.join(dir, "recordings.db"));

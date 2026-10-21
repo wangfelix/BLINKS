@@ -27,9 +27,9 @@ import {
   getRoundResponseList,
   listPushParticipants,
   setLastReminderDay,
-} from "./db";
-import { minutesOfTimeOfDay, studyConfig } from "./study-config";
-import { currentLocalMinutes, timeOfDayToMinutes, todayKey } from "./time";
+} from "@/db";
+import { minutesOfTimeOfDay, studyConfig } from "@/study-config";
+import { currentLocalMinutes, timeOfDayToMinutes, todayKey } from "@/time";
 
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
 const WEB_URL = process.env.WEB_URL ?? "https://blinks.win.kit.edu";

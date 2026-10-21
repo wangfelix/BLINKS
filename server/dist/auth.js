@@ -17,7 +17,7 @@ exports.requireAdminWithCookieFallback = requireAdminWithCookieFallback;
 exports.verifyUserPassword = verifyUserPassword;
 const argon2_1 = __importDefault(require("argon2"));
 const crypto_1 = __importDefault(require("crypto"));
-const auth_db_1 = require("./auth-db");
+const auth_db_1 = require("./auth-db.js");
 // argon2id is the OWASP-recommended password hash; library defaults are sane
 // (argon2id, 64 MiB memory, 3 iterations).
 const hashPassword = (password) => argon2_1.default.hash(password);

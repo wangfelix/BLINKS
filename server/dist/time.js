@@ -17,7 +17,7 @@ exports.timeOfDayToMinutes = timeOfDayToMinutes;
 exports.todayKey = todayKey;
 exports.localDayStartMs = localDayStartMs;
 exports.nextDayKey = nextDayKey;
-const study_config_1 = require("./study-config");
+const study_config_1 = require("./study-config/index.js");
 const DRM_TZ = study_config_1.studyConfig.study.timezone;
 // A waking day does not end at midnight. Every study day therefore extends
 // past its calendar date by this much, so a participant reconstructing from

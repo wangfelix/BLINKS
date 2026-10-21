@@ -1,13 +1,13 @@
 import fs from "fs";
 import path from "path";
 
-import { hashPassword } from "../src/auth";
+import { hashPassword } from "@/auth";
 import {
   getUser,
   initAuthDb,
   insertAdmin,
   resetAdminPassword,
-} from "../src/auth-db";
+} from "@/auth-db";
 
 // Provisions a research administrator in auth.db only. Admin accounts are
 // deliberately not participants and therefore have no recordings.db profile.

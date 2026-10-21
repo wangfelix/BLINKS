@@ -19,7 +19,7 @@ import {
   requireAuthWithCookieFallback,
   verifyPassword,
   verifyUserPassword,
-} from "./auth";
+} from "@/auth";
 import {
   completeOnboarding,
   completeStudy,
@@ -29,7 +29,7 @@ import {
   insertUser,
   isStudyComplete,
   markPasswordChanged,
-} from "./auth-db";
+} from "@/auth-db";
 import {
   ActivityRow,
   ActivityWriteInput,
@@ -84,26 +84,26 @@ import {
   parseRatingsJson,
   softDeleteFrameRow,
   upsertParticipantProfile,
-} from "./db";
-import { ACTIVITY_LABEL_SET } from "./activity-vocabulary";
-import { injectIncorrectAnnotations } from "./incorrect-annotation-injection";
-import { segmentDay } from "./segmentation";
-import { getPushSchedulerStatus, startPushScheduler } from "./push";
-import { currentLocalMinutes, timeOfDayToMinutes, todayKey } from "./time";
+} from "@/db";
+import { ACTIVITY_LABEL_SET } from "@/activity-vocabulary";
+import { injectIncorrectAnnotations } from "@/incorrect-annotation-injection";
+import { segmentDay } from "@/segmentation";
+import { getPushSchedulerStatus, startPushScheduler } from "@/push";
+import { currentLocalMinutes, timeOfDayToMinutes, todayKey } from "@/time";
 import {
   CATEGORY_KEY_SET,
   EXPERIENCE_ITEMS,
   IDLE_CLOSE_MS,
   minutesOfTimeOfDay,
   studyConfig,
-} from "./study-config";
-import { getStudyConfigSource } from "./study-config/load";
+} from "@/study-config";
+import { getStudyConfigSource } from "@/study-config/load";
 import {
   appConfigResponse,
   parseRatingsInput,
   ratingsResponse,
   studyConfigResponse,
-} from "./study-config/client";
+} from "@/study-config/client";
 
 // ===========================================================================
 // BLINKS ingestion + API server (BLE phone-relay architecture).
