@@ -1,7 +1,7 @@
 // Focused checks for dating the wall-clock times typed into the Self editor.
 // The participant types "HH:MM" with no date, but a study day runs past local
 // midnight, so the chronology decides which calendar date a time belongs to.
-// Run from drm-web/:  ../server/node_modules/.bin/tsx scripts/test-self-time-entry.ts
+// Run from drm-web/:  npx tsx scripts/test-self-time-entry.ts
 
 import {
   dayTimeToEpochMs,
@@ -13,6 +13,9 @@ import {
   selfTimeAnchor,
   type EditableActivity,
 } from "../src/components/reconstruct/editor-types";
+import { installDefaultStudyConfig } from "./fixtures/study-config";
+
+installDefaultStudyConfig();
 
 const DAY = "2026-08-07";
 const NEXT = nextDayKey(DAY);
@@ -49,8 +52,7 @@ const row = (
   source: "user",
   proposalActivityId: null,
   isIncorrectAnnotationInjected: false,
-  workloadRating: 4,
-  recoveryRating: null,
+  ratings: { mental_demand: 4, mental_recovery: null },
 });
 
 // --- resolveTypedTimeOfDay ---------------------------------------------------
@@ -141,7 +143,11 @@ check(
   at("12:00"),
 );
 
-check("an unknown row index has no anchor", selfTimeAnchor(filled, -1, "startMs"), null);
+check(
+  "an unknown row index has no anchor",
+  selfTimeAnchor(filled, -1, "startMs"),
+  null,
+);
 
 // --- The two together: typing one evening in order ---------------------------
 

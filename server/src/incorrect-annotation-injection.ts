@@ -1,16 +1,27 @@
 import { randomInt } from "crypto";
 
-import {
-  ACTIVITY_LABELS,
-  type ActivityLabel,
-} from "./activity-vocabulary";
 import type { SegmentedActivity } from "./segmentation";
+import { ACTIVITY_KEYS, CATEGORY_KEYS, studyConfig } from "./study-config";
 
-export const INCORRECT_ANNOTATION_RATE = 0.1;
-export const INCORRECT_ANNOTATION_MIN_MEAN_CONFIDENCE = 0.8;
+/** overreliance.* from the study config. */
+export interface OverrelianceSettings {
+  enabled: boolean;
+  rate: number;
+  minConfidence: number;
+  fallbackToTopWhenNoneAboveThreshold: boolean;
+  activityKeys: readonly string[];
+  categoryKeys: readonly string[];
+}
 
-const CATEGORIES = ["work", "break", "other"] as const;
-type Category = (typeof CATEGORIES)[number];
+export const CONFIGURED_OVERRELIANCE: OverrelianceSettings = {
+  ...studyConfig.overreliance,
+  activityKeys: ACTIVITY_KEYS,
+  categoryKeys: CATEGORY_KEYS,
+};
+
+export const INCORRECT_ANNOTATION_RATE = CONFIGURED_OVERRELIANCE.rate;
+export const INCORRECT_ANNOTATION_MIN_MEAN_CONFIDENCE =
+  CONFIGURED_OVERRELIANCE.minConfidence;
 
 export interface PreparedProposalActivity extends SegmentedActivity {
   presentedRawLabel: string | null;
@@ -29,6 +40,8 @@ const chooseAlternative = <T>(
   randomIndex: RandomIndex,
 ): T => {
   const alternatives = values.filter((value) => value !== original);
+  // With fewer than 2 categories/activities the original label is kept.
+  if (alternatives.length === 0) return original;
   return alternatives[randomIndex(alternatives.length)];
 };
 
@@ -38,14 +51,17 @@ const chooseAlternative = <T>(
  * only presented* is changed for the selected high-confidence activities.
  *
  * Eligible count = valid labelled activities with a finite mean activity
- * argmax probability. Up to ceil(10%) of all valid labelled activities are
- * selected from scores >= 0.8. If none reaches 0.8, the single highest-scoring
- * activity is selected. Blank/legacy activities without confidence are not
- * candidates.
+ * argmax probability. Up to ceil(rate) of all valid labelled activities are
+ * selected from scores >= minConfidence. If none reaches
+ * the threshold and fallbackToTopWhenNoneAboveThreshold is set, the single
+ * highest-scoring activity is selected. Blank/legacy activities without
+ * confidence are not candidates. enabled=false or rate=0 injects nothing
+ * (rate=0 also skips the fallback).
  */
 export const injectIncorrectAnnotations = (
   activities: SegmentedActivity[],
   randomIndex: RandomIndex = defaultRandomIndex,
+  settings: OverrelianceSettings = CONFIGURED_OVERRELIANCE,
 ): PreparedProposalActivity[] => {
   const prepared = activities.map((activity) => ({
     ...activity,
@@ -53,14 +69,16 @@ export const injectIncorrectAnnotations = (
     presentedCategoryLabel: activity.categoryLabel,
     isIncorrectAnnotationInjected: false,
   }));
+  // rate 0 = never inject (no fallback label either).
+  if (!settings.enabled || settings.rate === 0) return prepared;
   const candidates = prepared
     .map((activity, index) => ({ activity, index }))
     .filter(
       ({ activity }) =>
         activity.rawLabel !== null &&
-        ACTIVITY_LABELS.includes(activity.rawLabel as ActivityLabel) &&
+        settings.activityKeys.includes(activity.rawLabel) &&
         activity.categoryLabel !== null &&
-        CATEGORIES.includes(activity.categoryLabel as Category) &&
+        settings.categoryKeys.includes(activity.categoryLabel) &&
         activity.vlmMeanActivityConfidence !== null &&
         Number.isFinite(activity.vlmMeanActivityConfidence),
     )
@@ -76,27 +94,29 @@ export const injectIncorrectAnnotations = (
   if (candidates.length === 0) return prepared;
 
   const targetCount = Math.ceil(
-    candidates.length * INCORRECT_ANNOTATION_RATE,
+    candidates.length * settings.rate,
   );
   const aboveThreshold = candidates.filter(
     ({ activity }) =>
       activity.vlmMeanActivityConfidence! >=
-      INCORRECT_ANNOTATION_MIN_MEAN_CONFIDENCE,
+      settings.minConfidence,
   );
   const selected =
     aboveThreshold.length > 0
       ? aboveThreshold.slice(0, targetCount)
-      : candidates.slice(0, 1);
+      : settings.fallbackToTopWhenNoneAboveThreshold
+        ? candidates.slice(0, 1)
+        : [];
 
   for (const { activity } of selected) {
     activity.presentedRawLabel = chooseAlternative(
-      ACTIVITY_LABELS,
-      activity.rawLabel as ActivityLabel,
+      settings.activityKeys,
+      activity.rawLabel as string,
       randomIndex,
     );
     activity.presentedCategoryLabel = chooseAlternative(
-      CATEGORIES,
-      activity.categoryLabel as Category,
+      settings.categoryKeys,
+      activity.categoryLabel as string,
       randomIndex,
     );
     activity.isIncorrectAnnotationInjected = true;

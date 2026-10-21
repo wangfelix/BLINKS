@@ -1,7 +1,7 @@
 "use client";
 
 import type { ActivityLabel } from "@/lib/api-types";
-import { ACTIVITY_ITEMS } from "@/lib/activity-vocabulary";
+import { activityItems } from "@/lib/activity-vocabulary";
 import {
   Select,
   SelectContent,
@@ -23,37 +23,40 @@ export const ActivitySelect = ({
   onChange: (value: ActivityLabel) => void;
   invalid?: boolean;
   triggerClassName?: string;
-}) => (
-  <Select
-    items={ACTIVITY_ITEMS}
-    value={value}
-    onValueChange={(newValue) => {
-      if (newValue !== null) onChange(newValue as ActivityLabel);
-    }}
-  >
-    <SelectTrigger
-      id={id}
-      className={mergeClassNames("w-full min-w-64", triggerClassName)}
-      aria-label="Activity"
-      aria-invalid={invalid || undefined}
+}) => {
+  const items = activityItems();
+  return (
+    <Select
+      items={items}
+      value={value}
+      onValueChange={(newValue) => {
+        if (newValue !== null) onChange(newValue as ActivityLabel);
+      }}
     >
-      <SelectValue placeholder="Choose an activity…" />
-    </SelectTrigger>
-    <SelectContent
-      align="start"
-      alignItemWithTrigger={false}
-      sideOffset={6}
-      className="p-1"
-    >
-      {ACTIVITY_ITEMS.map((item) => (
-        <SelectItem
-          key={item.value}
-          value={item.value}
-          className="py-1.5 pr-8 pl-2"
-        >
-          {item.label}
-        </SelectItem>
-      ))}
-    </SelectContent>
-  </Select>
-);
+      <SelectTrigger
+        id={id}
+        className={mergeClassNames("w-full min-w-64", triggerClassName)}
+        aria-label="Activity"
+        aria-invalid={invalid || undefined}
+      >
+        <SelectValue placeholder="Choose an activity…" />
+      </SelectTrigger>
+      <SelectContent
+        align="start"
+        alignItemWithTrigger={false}
+        sideOffset={6}
+        className="p-1"
+      >
+        {items.map((item) => (
+          <SelectItem
+            key={item.value}
+            value={item.value}
+            className="py-1.5 pr-8 pl-2"
+          >
+            {item.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+};

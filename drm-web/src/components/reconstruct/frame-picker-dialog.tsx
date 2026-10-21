@@ -12,6 +12,7 @@ import {
 import type { Frame } from "@/lib/api-types";
 import { frameImageSrc } from "@/lib/api-client";
 import { activityDisplayLabel } from "@/lib/activity-vocabulary";
+import { windowMinuteAdjective, windowMs } from "@/lib/study-config-store";
 import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,19 +24,18 @@ import {
 } from "@/components/ui/dialog";
 import { Column, Row } from "@/components/layout/flex";
 import {
-  FIVE_MINUTE_MS,
   sampleEvenly,
   type EditableActivity,
 } from "@/components/reconstruct/editor-types";
 import {
-  buildFiveMinuteSlots,
+  buildWindowSlots,
   type StudyDayBounds,
-  groupFiveMinuteSlots,
+  groupWindowSlots,
   slotOverlapsSpan,
   slotStartOf,
-  type FiveMinuteSlot,
-  type FiveMinuteSlotGroup,
-  type FiveMinuteSlotGroupKind,
+  type WindowSlot,
+  type WindowSlotGroup,
+  type WindowSlotGroupKind,
 } from "@/components/reconstruct/time-slots";
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
 import { mergeClassNames } from "@/lib/utils";
@@ -58,10 +58,10 @@ interface TimelineMark {
 
 const ceilToSlot = (epochMs: number): number => {
   const floor = slotStartOf(epochMs);
-  return floor === epochMs ? epochMs : floor + FIVE_MINUTE_MS;
+  return floor === epochMs ? epochMs : floor + windowMs();
 };
 
-const buildTimelineMarks = (slots: FiveMinuteSlot[]): TimelineMark[] =>
+const buildTimelineMarks = (slots: WindowSlot[]): TimelineMark[] =>
   slots
     .map((slot, slotIndex) => ({ slot, slotIndex }))
     .filter(({ slot }) => slot.startMs % HALF_HOUR_MS === 0)
@@ -76,7 +76,7 @@ const buildTimelineMarks = (slots: FiveMinuteSlot[]): TimelineMark[] =>
     });
 
 const slotAssignmentLabel = (
-  slot: FiveMinuteSlot,
+  slot: WindowSlot,
   currentActivityId: string | undefined,
 ): string => {
   if (
@@ -96,7 +96,7 @@ const slotAssignmentLabel = (
   return "No activity assigned";
 };
 
-const groupContainerClasses = (kind: FiveMinuteSlotGroupKind): string => {
+const groupContainerClasses = (kind: WindowSlotGroupKind): string => {
   if (kind === "current") {
     return "border border-teal-200/80 bg-teal-50/30 dark:border-teal-900/80 dark:bg-teal-950/15";
   }
@@ -109,7 +109,7 @@ const groupContainerClasses = (kind: FiveMinuteSlotGroupKind): string => {
   return "border border-border/60 bg-background";
 };
 
-const groupHeaderClasses = (kind: FiveMinuteSlotGroupKind): string => {
+const groupHeaderClasses = (kind: WindowSlotGroupKind): string => {
   if (kind === "current") {
     return "border-teal-200/70 bg-teal-100/45 text-teal-800 dark:border-teal-900 dark:bg-teal-900/25 dark:text-teal-200";
   }
@@ -122,7 +122,7 @@ const groupHeaderClasses = (kind: FiveMinuteSlotGroupKind): string => {
   return "border-border/50 bg-muted/20 text-muted-foreground";
 };
 
-const groupDividerClasses = (kind: FiveMinuteSlotGroupKind): string => {
+const groupDividerClasses = (kind: WindowSlotGroupKind): string => {
   if (kind === "current") return "border-teal-200/70 dark:border-teal-900";
   if (kind === "assigned") {
     return "border-violet-200/70 dark:border-violet-900";
@@ -131,7 +131,7 @@ const groupDividerClasses = (kind: FiveMinuteSlotGroupKind): string => {
   return "border-border/50";
 };
 
-const groupLabel = (group: FiveMinuteSlotGroup): string => {
+const groupLabel = (group: WindowSlotGroup): string => {
   if (group.kind === "current") return "Current activity";
   if (group.kind === "assigned") {
     return (
@@ -143,23 +143,21 @@ const groupLabel = (group: FiveMinuteSlotGroup): string => {
   return "No activity assigned";
 };
 
-const groupColumnCount = (
-  group: FiveMinuteSlotGroup,
-  columns: number,
-): number => Math.min(columns, group.slots.length);
+const groupColumnCount = (group: WindowSlotGroup, columns: number): number =>
+  Math.min(columns, group.slots.length);
 
-const groupHeight = (group: FiveMinuteSlotGroup, columns: number): number =>
+const groupHeight = (group: WindowSlotGroup, columns: number): number =>
   GROUP_HEADER_HEIGHT_PX +
   Math.ceil(group.slots.length / columns) * SLOT_CARD_HEIGHT_PX;
 
 /** Keep semantic groups whole; only long neutral gaps are row-sized. */
 const splitLongEmptyGroups = (
-  groups: FiveMinuteSlotGroup[],
+  groups: WindowSlotGroup[],
   columns: number,
-): FiveMinuteSlotGroup[] =>
+): WindowSlotGroup[] =>
   groups.flatMap((group) => {
     if (group.kind !== "empty" || group.slots.length <= columns) return [group];
-    const segments: FiveMinuteSlotGroup[] = [];
+    const segments: WindowSlotGroup[] = [];
     for (let index = 0; index < group.slots.length; index += columns) {
       segments.push({
         ...group,
@@ -171,7 +169,7 @@ const splitLongEmptyGroups = (
   });
 
 /**
- * Five-minute time picker shared by assisted insertion and boundary editing.
+ * Window time picker (`windowing.windowMinutes`) shared by assisted insertion and boundary editing.
  * The full pinned study day remains selectable even when no image was recorded.
  * Images are grouped into their clock-aligned slot and assignment state is
  * shown separately from image availability.
@@ -223,7 +221,7 @@ export const FramePickerDialog = ({
   const { startMs: dayStartMs, endMs: dayEndMs } = dayBounds;
   const slots = useMemo(
     () =>
-      buildFiveMinuteSlots(
+      buildWindowSlots(
         { startMs: dayStartMs, endMs: dayEndMs },
         frames,
         activities,
@@ -265,10 +263,7 @@ export const FramePickerDialog = ({
         );
   const visualGroups = useMemo(
     () =>
-      splitLongEmptyGroups(
-        groupFiveMinuteSlots(slots, currentActivityId),
-        columns,
-      ),
+      splitLongEmptyGroups(groupWindowSlots(slots, currentActivityId), columns),
     [columns, currentActivityId, slots],
   );
   const virtualizer = useVirtualizer({
@@ -417,7 +412,7 @@ export const FramePickerDialog = ({
     setActiveTimelineEpochMs(timelineEpochAtOrBefore(targetStartMs));
   };
 
-  const selectSlot = (slot: FiveMinuteSlot) => {
+  const selectSlot = (slot: WindowSlot) => {
     if (clickAnchorMs === null) {
       setClickAnchorMs(slot.startMs);
       setStartMs(slot.startMs);
@@ -426,7 +421,7 @@ export const FramePickerDialog = ({
     }
     setClickAnchorMs(null);
     setStartMs(Math.min(clickAnchorMs, slot.startMs));
-    setEndMs(Math.max(clickAnchorMs, slot.startMs) + FIVE_MINUTE_MS);
+    setEndMs(Math.max(clickAnchorMs, slot.startMs) + windowMs());
   };
 
   const setStartBoundary = (value: string) => {
@@ -434,7 +429,7 @@ export const FramePickerDialog = ({
     const nextStartMs = Number(value);
     setStartMs(nextStartMs);
     if (endMs === null || endMs <= nextStartMs) {
-      setEndMs(Math.min(nextStartMs + FIVE_MINUTE_MS, dayBounds.endMs));
+      setEndMs(Math.min(nextStartMs + windowMs(), dayBounds.endMs));
     }
   };
   const setEndBoundary = (value: string) => {
@@ -442,7 +437,7 @@ export const FramePickerDialog = ({
     const nextEndMs = Number(value);
     setEndMs(nextEndMs);
     if (startMs === null || startMs >= nextEndMs) {
-      setStartMs(Math.max(dayBounds.startMs, nextEndMs - FIVE_MINUTE_MS));
+      setStartMs(Math.max(dayBounds.startMs, nextEndMs - windowMs()));
     }
   };
 
@@ -455,8 +450,8 @@ export const FramePickerDialog = ({
     startMs < endMs;
   const selectionInstruction =
     clickAnchorMs === null
-      ? "Choose a five-minute slot, or set Start and End directly."
-      : "Choose another slot to extend the range, or apply this five-minute span.";
+      ? `Choose a ${windowMinuteAdjective()} slot, or set Start and End directly.`
+      : `Choose another slot to extend the range, or apply this ${windowMinuteAdjective()} span.`;
   // "24:00" reads better than "00:00" for an exclusive end on local midnight.
   // A day whose recording ran past midnight ends at a real wall-clock time
   // instead, which is already unambiguous.
@@ -737,7 +732,7 @@ export const FramePickerDialog = ({
                                     slot.owner === null
                                       ? ""
                                       : `Activity: ${ownerDetail}. `
-                                  }${imageSummary}. Select this five-minute interval.`}
+                                  }${imageSummary}. Select this ${windowMinuteAdjective()} interval.`}
                                   aria-pressed={isSelected}
                                   onClick={() => selectSlot(slot)}
                                   className={mergeClassNames(

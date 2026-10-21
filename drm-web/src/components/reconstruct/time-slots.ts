@@ -1,9 +1,9 @@
 import type { Frame } from "@/lib/api-types";
 import {
-  FIVE_MINUTE_MS,
   sortActivities,
   type EditableActivity,
 } from "@/components/reconstruct/editor-types";
+import { windowMs } from "@/lib/study-config-store";
 
 /** Server-authoritative epoch extent of the pinned study day. */
 export interface StudyDayBounds {
@@ -11,28 +11,28 @@ export interface StudyDayBounds {
   endMs: number;
 }
 
-export interface FiveMinuteSlot {
+export interface WindowSlot {
   startMs: number;
   endMs: number;
   frames: Frame[];
   owner: EditableActivity | null;
 }
 
-export type FiveMinuteSlotGroupKind =
+export type WindowSlotGroupKind =
   "current" | "assigned" | "unassigned" | "empty";
 
-export interface FiveMinuteSlotGroup {
+export interface WindowSlotGroup {
   key: string;
-  kind: FiveMinuteSlotGroupKind;
-  slots: FiveMinuteSlot[];
+  kind: WindowSlotGroupKind;
+  slots: WindowSlot[];
   owner: EditableActivity | null;
 }
 
 export const slotStartOf = (epochMs: number): number =>
-  epochMs - (epochMs % FIVE_MINUTE_MS);
+  epochMs - (epochMs % windowMs());
 
 export const slotOverlapsSpan = (
-  slot: Pick<FiveMinuteSlot, "startMs" | "endMs">,
+  slot: Pick<WindowSlot, "startMs" | "endMs">,
   startMs: number,
   endMs: number,
 ): boolean => slot.startMs < endMs && slot.endMs > startMs;
@@ -42,13 +42,13 @@ export const slotOverlapsSpan = (
  * intentionally not part of this grouping: choosing Start and End must never
  * move a slot or change the virtualized layout under the pointer.
  */
-export const groupFiveMinuteSlots = (
-  slots: FiveMinuteSlot[],
+export const groupWindowSlots = (
+  slots: WindowSlot[],
   currentActivityId: string | undefined,
-): FiveMinuteSlotGroup[] => {
+): WindowSlotGroup[] => {
   const descriptor = (
-    slot: FiveMinuteSlot,
-  ): Pick<FiveMinuteSlotGroup, "key" | "kind" | "owner"> => {
+    slot: WindowSlot,
+  ): Pick<WindowSlotGroup, "key" | "kind" | "owner"> => {
     if (slot.owner !== null) {
       const isCurrent =
         currentActivityId !== undefined &&
@@ -65,7 +65,7 @@ export const groupFiveMinuteSlots = (
     return { key: "empty", kind: "empty", owner: null };
   };
 
-  const groups: FiveMinuteSlotGroup[] = [];
+  const groups: WindowSlotGroup[] = [];
   for (const slot of slots) {
     const next = descriptor(slot);
     const previous = groups.at(-1);
@@ -79,17 +79,17 @@ export const groupFiveMinuteSlots = (
 };
 
 /**
- * Build the complete five-minute grid for the pinned study day. The bounds
+ * Build the complete window grid (`windowing.windowMinutes`) for the pinned study day. The bounds
  * come from the server: the day is anchored on the recording session, so a
  * recording that ran past local midnight spans more than its calendar date.
  * Live images are grouped into their clock-aligned slot; a slot with no live
  * image remains in the result so the picker can render "No images available".
  */
-export const buildFiveMinuteSlots = (
+export const buildWindowSlots = (
   bounds: StudyDayBounds,
   frames: Frame[],
   activities: EditableActivity[],
-): FiveMinuteSlot[] => {
+): WindowSlot[] => {
   const startMs = slotStartOf(bounds.startMs);
   const { endMs } = bounds;
   const liveFramesBySlot = new Map<number, Frame[]>();
@@ -105,13 +105,10 @@ export const buildFiveMinuteSlots = (
   const completeActivities = sortActivities(activities).filter(
     (activity) => activity.startMs !== null && activity.endMs !== null,
   );
-  const slots: FiveMinuteSlot[] = [];
-  for (
-    let slotStartMs = startMs;
-    slotStartMs < endMs;
-    slotStartMs += FIVE_MINUTE_MS
-  ) {
-    const slotEndMs = Math.min(slotStartMs + FIVE_MINUTE_MS, endMs);
+  const slotMs = windowMs();
+  const slots: WindowSlot[] = [];
+  for (let slotStartMs = startMs; slotStartMs < endMs; slotStartMs += slotMs) {
+    const slotEndMs = Math.min(slotStartMs + slotMs, endMs);
     const owner =
       completeActivities.find(
         (activity) =>

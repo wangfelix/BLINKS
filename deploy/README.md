@@ -30,8 +30,13 @@ install Node 20+ at `/usr/bin/node`, npm, Python 3 with `venv`, Apache, certbot,
 and curl; obtain the Let's Encrypt certificate before the first scripted
 deploy. Also create the two gitignored production files:
 
-- `drm-web/.env.local` with both real LimeSurvey URLs and the payout URL.
+- `config/study.yaml` (mode 600): copy of `config/study.example.yaml` with the
+  real LimeSurvey links, payout URL and a new Study Settings PIN (see
+  `config/README.md`). The server and both workers refuse to start in
+  production without a valid file; there is no fallback to the example.
 - `server/vlm/.env` with a non-empty `KIT_API_KEY`.
+- `drm-web/.env.local` is optional now (only for overrides such as
+  `NEXT_PUBLIC_API_URL`); survey/payout links are no longer read from it.
 
 The deploy script installs and enables the tracked systemd units, required
 Apache modules, and both sites. The equivalent manual setup is:
@@ -51,6 +56,7 @@ blinks.win.kit.edu`); `blinks-le-ssl.conf` references the paths certbot
 manages and renewal is handled by `certbot.timer`.
 
 Secrets are not in this repo: `KIT_API_KEY` lives in `server/vlm/.env`
+(gitignored), the survey links and Study Settings PIN in `config/study.yaml`
 (gitignored), and participant credentials live in `server/data/auth.db`.
 
 ## Routine redeploy
@@ -72,9 +78,21 @@ Design points worth knowing:
   production still serving the previous version.
 - **Only a clean, tracked checkout is deployable.** Local tracked edits abort
   before building, and `deploy/deploy.sh` itself must have arrived through Git.
-- **`drm-web/.env.local` is checked first.** `NEXT_PUBLIC_*` is inlined at build
-  time, while the payout redirect reads `PAYOUT_URL` from the web service's
-  environment at runtime. A missing file or required URL aborts deployment.
+- **`config/study.yaml` is checked first and validated before any restart.**
+  Missing, tracked by git, or still containing `example.org`/`example.com`
+  placeholder links or the placeholder Study Settings PIN aborts the
+  deploy; a mode other than owner-only (e.g. 640/644) prints a warning; after the builds it is validated with the
+  server loader and the Python worker loader under production rules (exit 2 =
+  abort, nothing restarted). Transitional: as long as `drm-web/src` still reads
+  `NEXT_PUBLIC_*_SURVEY_URL`/`PAYOUT_URL`, those are still required in
+  `drm-web/.env.local`; afterwards leftovers only produce a warning.
+- **Config-aware health checks.** The push check expects the
+  `reminders.bedtime` values from the config; with
+  `privacy.faceBlur.enabled: false` a stopped `blinks-face-blur` is expected
+  (it finishes the pending backlog and exits 3; the unit uses
+  `Restart=always` with `SuccessExitStatus=3`/`RestartPreventExitStatus=3`, so
+  only that exit is not restarted) and the deploy prints a privacy
+  warning instead.
 - **Standalone assets are removed before copying.** `cp -r public .next/standalone/`
   onto an existing directory nests it as `public/public` rather than merging, so
   the script deletes `public` and `.next/static` in the standalone tree first.
@@ -88,11 +106,67 @@ Design points worth knowing:
   `/root/BLINKS-backups/<UTC timestamp>-<git SHA>-<random>/` before startup
   migrations.
 - **Push behavior is deployment-checked.** The server push regression test runs
-  during the build, and `/health` must report an enabled scheduler with a
-  30-minute lead before the deploy succeeds.
+  during the build, and `/health` must report an enabled scheduler with the
+  `reminders.bedtime.leadMinutes` from `config/study.yaml` before
+  the deploy succeeds.
 
-To roll back, check out the previous commit and run it again; the script prints
-the deployed SHA at the start of every run.
+## Rollback
+
+The script prints the checked-out SHA before the pull and the deployed SHA at
+the start of every run.
+
+**Code-only rollback** (no startup schema migration between the two commits):
+
+```bash
+cd /root/BLINKS && git checkout <previous-sha> && deploy/deploy.sh
+```
+
+**Rollback across a schema migration needs a database restore.** The server
+migrates `recordings.db` on its first start, and older code cannot read the
+new schema. Example: the `activity_ratings` migration drops
+`workload_rating`/`recovery_rating`; the pre-migration code then stops in
+`initDb` with `no such column: a.workload_rating`. Every rating, frame and
+round written after the deploy is lost by the restore, so keep a copy of the
+current database for manual recovery.
+
+```bash
+cd /root/BLINKS
+systemctl stop blinks blinks-face-blur blinks-vlm blinks-web
+# 1. keep the current state (contains data written since the deploy)
+KEEP=/root/BLINKS-backups/pre-rollback-$(date -u +%Y%m%dT%H%M%SZ)
+install -d -m 700 "$KEEP"
+cp -p server/recordings/recordings.db* server/data/auth.db* "$KEEP"/
+# 2. pick the right snapshot: the OLDEST one written by the FIRST deploy of a
+#    commit that contains the migration. Each snapshot is taken before the
+#    restart of that run, so only the first deploy's snapshot still has the
+#    old schema. Every later snapshot (the same commit deployed again, e.g.
+#    after a failed health check, or newer commits deployed afterwards) is
+#    already migrated, and the old code fails on it again.
+#    Names are <UTC stamp>-<deployed sha>-<random>, so ls sorts by time:
+ls -d /root/BLINKS-backups/*/
+SNAP=/root/BLINKS-backups/<stamp>-<sha>-<random>   # oldest one with the old schema
+# 3. verify the snapshot still has the pre-migration schema BEFORE restoring.
+#    For the activity_ratings migration: both legacy rating columns present
+#    (must print 2) and no activity_ratings table (must print 0).
+sqlite3 "$SNAP/recordings.db" \
+  "SELECT COUNT(*) FROM pragma_table_info('activities') WHERE name IN ('workload_rating', 'recovery_rating')"
+sqlite3 "$SNAP/recordings.db" \
+  "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'activity_ratings'"
+#    Wrong result: take the next older snapshot. None left: there is no
+#    pre-migration copy, do not roll back the code.
+# 4. restore and drop the WAL/SHM files of the migrated database
+rm -f server/recordings/recordings.db-wal server/recordings/recordings.db-shm
+install -m 600 "$SNAP/recordings.db" server/recordings/recordings.db
+#    auth.db only if that deploy changed the auth schema:
+#    rm -f server/data/auth.db-wal server/data/auth.db-shm
+#    install -m 600 "$SNAP/auth.db" server/data/auth.db
+# 5. deploy the old code (it starts on the restored schema)
+git checkout <previous-sha> && deploy/deploy.sh
+```
+
+Never copy a snapshot over a database whose server is still running, and never
+leave the old `-wal`/`-shm` files next to a restored database: SQLite would try
+to replay them onto it.
 
 ## Verify
 

@@ -1,0 +1,186 @@
+# =============================================================================
+# BLINKS study configuration — test study (local development only)
+#
+# A study that differs from study.example.yaml, used to check that the server,
+# workers and clients read every study value from the config:
+#   - 5 activities, 2 categories (no "other"), 3 experience items
+#     (two for "work", one optional for "break"; 0-4 and 1-5 scales)
+#   - 10-minute window, reconstruction opens at 00:00 (always open locally)
+#   - additional form factor ("clip")
+#   - overreliance off (notice null), gap merge off, bedtime push off
+#   - texts prefixed with "[TEST]" so a leaked default is easy to spot
+#
+#   BLINKS_STUDY_CONFIG=config/study.test.yaml npm run dev      (in server/)
+#
+# Placeholders only, never use this for a real study.
+# =============================================================================
+
+study:
+  name: "BLINKS test study (local)"
+  timezone: "Europe/Berlin"
+
+ui:
+  locale: "en-GB"
+  thumbnailsPerActivity: 3
+
+windowing:
+  windowMinutes: 10
+  idleCloseMinutes: 15
+
+devices:
+  formFactors:
+    - key: necklace
+      displayLabel: "[TEST] Necklace"
+    - key: glasses
+      displayLabel: "[TEST] Glasses"
+    - key: clip
+      displayLabel: "[TEST] Clip-on"
+
+schedule:
+  reconstructionOpensAt: "00:00"
+  endSessionAvailableAt: "00:00"
+  dayOverrunHours: 2
+
+activities:
+  - key: screen_work
+    displayLabel: "[TEST] Screen work"
+    vlmDefinition: "A computer, laptop or monitor is the visible focus."
+  - key: conversation
+    displayLabel: "[TEST] Conversation"
+    vlmDefinition: "Another person is present and interacting with the wearer, in person or on a call."
+  - key: eating
+    displayLabel: "[TEST] Eating or drinking"
+    vlmDefinition: "Food or drink is visibly being consumed."
+  - key: moving
+    displayLabel: "[TEST] Moving"
+    vlmDefinition: "Walking, cycling or another sustained movement."
+  - key: unclear
+    displayLabel: "[TEST] Unclear"
+    vlmDefinition: "The frames are too dark, blurred or uninformative to determine the activity."
+
+categories:
+  - key: work
+    displayLabel: "[TEST] Work"
+    icon: briefcase
+    description: "[TEST] Anything you did for your job."
+    vlmDefinition: "the wearer's own occupational work."
+  - key: break
+    displayLabel: "[TEST] Not work"
+    icon: coffee
+    description: "[TEST] Everything else."
+    vlmDefinition: "anything that is not the wearer's occupational work."
+
+experienceItems:
+  - key: focus
+    appliesTo: [work]
+    question: "[TEST] How focused were you?"
+    shortLabel: "Focus"
+    scale: { min: 0, max: 4, lowAnchor: "Not at all", highAnchor: "Completely" }
+    requiredOnSubmit: true
+  - key: stress
+    appliesTo: [work]
+    question: "[TEST] How stressful was this activity?"
+    shortLabel: "Stress"
+    scale: { min: 1, max: 5, lowAnchor: "Not at all", highAnchor: "Extremely" }
+    requiredOnSubmit: true
+  - key: enjoyment
+    appliesTo: [break]
+    question: "[TEST] How much did you enjoy this?"
+    shortLabel: "Enjoyment"
+    scale: { min: 1, max: 5, lowAnchor: "Not at all", highAnchor: "Very much" }
+    requiredOnSubmit: false
+
+segmentation:
+  mergeAcrossCaptureGaps: false
+
+vlm:
+  model: "test-model"
+  request:
+    temperature: 0.2
+    reasoningEffort: low
+    maxCompletionTokens: 2048
+  maxFramesPerWindow: 8
+  prompts:
+    system: |-
+      [TEST] You classify {{window_minutes}}-minute sequences of first-person camera frames into one of {{activity_count}} activities. Faces are pixelated; never identify people.
+    user: |-
+      {{occupation_context}}
+
+      [TEST] {{frame_count}} frames, {{window_minutes}} minutes.
+
+      Activities:
+      {{activity_definitions}}
+
+      Return a probability for each of the {{activity_count}} activities and for each category in {{category_keys}}. {{category_definitions}}
+    occupationKnown: "[TEST] Occupation: {{occupation}}."
+    workDescription: " [TEST] Work: {{work_description}}."
+    occupationUnknown: "[TEST] Occupation unknown."
+
+overreliance:
+  enabled: false
+  rate: 0
+  minConfidence: 0.8
+  fallbackToTopWhenNoneAboveThreshold: false
+
+privacy:
+  faceBlur:
+    enabled: true
+    threshold: 0.3
+    method: blur
+    blocks: 6
+    blurKernel: 0
+    margin: 0.1
+
+reminders:
+  bedtime:
+    enabled: false
+    leadMinutes: 45
+    defaultBedtime: "23:00"
+    latestAt: "23:30"
+    afterMidnightCutoff: "10:00"
+
+texts:
+  push:
+    bedtimeTitle: "[TEST] Bedtime"
+    bedtimeBody: "[TEST] Please reconstruct your day."
+  rounds:
+    selfIntroTitle: "[TEST] Self intro"
+    selfIntroDescription: "[TEST] Reconstruct your day from memory."
+    assistedIntroTitle: "[TEST] Assisted intro"
+    assistedIntroDescription: "[TEST] Correct the suggestion."
+    assistedReminderTitle: "[TEST] Reminder"
+    assistedReminderBody: "[TEST] Add anything that is missing."
+    assistedReminderIncorrectLabelsNotice: null
+    selfEditorHint: "[TEST] Self editor hint"
+    assistedEditorHint: "[TEST] Assisted editor hint"
+    selfEmptyStateHint: "[TEST] Start with your first activity."
+  progress:
+    selfRound: "[TEST] Memory"
+    assistedRound: "[TEST] Photos"
+  app:
+    recordingNotificationTitle: "[TEST] Recording"
+    recordingNotificationBody: "[TEST] Receiving frames"
+    testRecordingNotificationTitle: "[TEST] Test recording"
+    testRecordingNotificationBody: "[TEST] Checking the camera"
+    endSessionAvailableFrom: "[TEST] Available from {{time}}"
+    onboarding:
+      title: "[TEST] About you"
+      intro: "[TEST] Intro"
+      occupationLabel: "[TEST] Occupation"
+      occupationPlaceholder: "[TEST] e.g. Researcher"
+      workDescriptionLabel: "[TEST] Your work"
+      workDescriptionPlaceholder: "[TEST] e.g. writing"
+      wakeTimeLabel: "[TEST] Wake-up time"
+      bedTimeLabel: "[TEST] Bedtime"
+
+surveys:
+  onboarding:
+    url: "https://survey.example.org/test/onboarding"
+    participantParameter: pid
+  final:
+    url: "https://survey.example.org/test/final"
+    participantParameter: pid
+  payoutUrl: "https://payout.example.org/test"
+
+app:
+  studySettingsPin: "123456"

@@ -3,6 +3,9 @@ import notifee, {
   AndroidImportance,
 } from "@notifee/react-native";
 
+import { appConfigStore } from "@/study/model/app-config-store";
+import { FALLBACK_APP_TEXTS } from "@/study/utils/fallback-app-texts";
+
 const CHANNEL_ID = "blinks-capture";
 const NOTIFICATION_ID = "blinks-fgs";
 
@@ -19,14 +22,16 @@ export const startCaptureForegroundService = async (
     name: "BLINKS recording",
     importance: AndroidImportance.LOW,
   });
+  const texts =
+    appConfigStore.getState().config?.texts.app ?? FALLBACK_APP_TEXTS;
   await notifee.displayNotification({
     id: NOTIFICATION_ID,
     title: isTestRecording
-      ? "BLINKS test recording"
-      : "BLINKS is recording",
+      ? texts.testRecordingNotificationTitle
+      : texts.recordingNotificationTitle,
     body: isTestRecording
-      ? "Checking the camera connection"
-      : "Receiving camera frames over Bluetooth",
+      ? texts.testRecordingNotificationBody
+      : texts.recordingNotificationBody,
     android: {
       channelId,
       asForegroundService: true,

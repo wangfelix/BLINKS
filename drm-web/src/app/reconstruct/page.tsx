@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { StudyConfigGate } from "@/components/study-config-gate";
 import { useRouter } from "next/navigation";
 import {
   useQuery,
@@ -16,7 +17,6 @@ import {
   getRound,
   getStudyState,
 } from "@/lib/api-client";
-import { formatHour } from "@/lib/time";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -93,15 +93,15 @@ const NoRecordedDayNotice = () => (
 );
 
 const OpensInTheEveningNotice = ({
-  availableFromHour,
+  availableFrom,
 }: {
-  availableFromHour: number;
+  availableFrom: string;
 }) => (
   <Alert>
     <AlertTitle>The survey opens in the evening</AlertTitle>
     <AlertDescription>
       Please start the survey in the evening, before you go to bed, but from{" "}
-      {formatHour(availableFromHour)} at the earliest.
+      {availableFrom} at the earliest.
     </AlertDescription>
   </Alert>
 );
@@ -324,9 +324,7 @@ const StudyStateView = ({
     return <NoRecordedDayNotice />;
   }
   if (!isOpenForReconstruction) {
-    return (
-      <OpensInTheEveningNotice availableFromHour={state.availableFromHour} />
-    );
+    return <OpensInTheEveningNotice availableFrom={state.availableFrom} />;
   }
   if (round1 === undefined || round2 === undefined) {
     // The server always sends both rounds; nothing sensible to render if not.
@@ -420,7 +418,7 @@ const ReconstructContent = () => {
       <ReconstructionStatusScreen
         status={{
           kind: "opens-later",
-          availableFromHour: state.availableFromHour,
+          availableFrom: state.availableFrom,
         }}
         onSignOut={handleSignOut}
       />
@@ -455,7 +453,11 @@ const ReconstructContent = () => {
 const ReconstructPage = () => {
   const ready = useRequireAuth();
   if (!ready) return null;
-  return <ReconstructContent />;
+  return (
+    <StudyConfigGate>
+      <ReconstructContent />
+    </StudyConfigGate>
+  );
 };
 
 export default ReconstructPage;
