@@ -7,4 +7,20 @@ module.exports = defineConfig([
   {
     ignores: ['dist/*'],
   },
+  {
+    // Imports use the tsconfig path aliases.
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '^\\.{1,2}/',
+              message: 'Use a tsconfig path alias instead of a relative import.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
