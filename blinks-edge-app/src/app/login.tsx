@@ -30,7 +30,7 @@ const LoginScreen = () => {
       <View style={styles.content}>
         <View style={styles.header}>
           <Image
-            source={require("../../assets/images/blinks-logo.png")}
+            source={require("@assets/images/blinks-logo.png")}
             style={styles.logo}
             contentFit="cover"
             accessibilityLabel="BLINKS"

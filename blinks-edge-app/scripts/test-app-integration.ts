@@ -69,7 +69,7 @@ const main = async () => {
     const cached = await loadAppConfigCache(username);
     assert.deepEqual(cached.config, state.config);
     assert.equal(cached.studySettingsPin, pin);
-    const { files } = await import("./stubs/expo-file-system");
+    const { files } = await import("@scripts/stubs/expo-file-system");
     for (const content of files.values()) {
       assert.ok(
         !content.includes(`"${pin}"`),

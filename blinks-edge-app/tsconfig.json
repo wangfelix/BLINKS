@@ -5,6 +5,12 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@assets/*": [
+        "./assets/*"
+      ],
+      "@scripts/*": [
+        "./scripts/*"
       ]
     }
   },
