@@ -4,7 +4,7 @@
 import {
   CAPTURE_TIME_PLACEHOLDER,
   captureTimeFormatter,
-} from "../src/lib/admin-capture-time";
+} from "@/lib/admin-capture-time";
 
 let failures = 0;
 const check = (name: string, actual: unknown, expected: unknown) => {

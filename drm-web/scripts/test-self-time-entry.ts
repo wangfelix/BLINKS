@@ -8,12 +8,12 @@ import {
   formatTimeOfDay,
   nextDayKey,
   resolveTypedTimeOfDay,
-} from "../src/lib/time";
+} from "@/lib/time";
 import {
   selfTimeAnchor,
   type EditableActivity,
-} from "../src/components/reconstruct/editor-types";
-import { installDefaultStudyConfig } from "./fixtures/study-config";
+} from "@/components/reconstruct/editor-types";
+import { installDefaultStudyConfig } from "@scripts/fixtures/study-config";
 
 installDefaultStudyConfig();
 

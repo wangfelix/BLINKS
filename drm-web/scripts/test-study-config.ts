@@ -2,36 +2,30 @@
 // (5 labels, 2 categories, 3 items, 10-minute window).
 // Run from drm-web/:  npx tsx scripts/test-study-config.ts
 
-import type { Activity } from "../src/lib/api-types";
+import type { Activity } from "@/lib/api-types";
 import {
   fromServerActivity,
   hasAllExperienceRatings,
   mergeWithNextActivity,
   type EditableActivity,
-} from "../src/components/reconstruct/editor-types";
-import { buildWindowSlots } from "../src/components/reconstruct/time-slots";
-import { experienceRatingSummaryLabel } from "../src/components/reconstruct/experience-rating-scale";
-import {
-  activityDisplayLabel,
-  activityItems,
-} from "../src/lib/activity-vocabulary";
-import {
-  categoryDisplayLabel,
-  categoryItems,
-} from "../src/lib/category-vocabulary";
+} from "@/components/reconstruct/editor-types";
+import { buildWindowSlots } from "@/components/reconstruct/time-slots";
+import { experienceRatingSummaryLabel } from "@/components/reconstruct/experience-rating-scale";
+import { activityDisplayLabel, activityItems } from "@/lib/activity-vocabulary";
+import { categoryDisplayLabel, categoryItems } from "@/lib/category-vocabulary";
 import {
   experienceItemsForCategory,
   installStudyConfig,
   thumbnailsPerActivity,
   windowMinuteAdjective,
   windowMs,
-} from "../src/lib/study-config-store";
-import { surveyUrlForParticipant } from "../src/lib/study-config";
-import { dayTimeToEpochMs, formatTimeSpan } from "../src/lib/time";
+} from "@/lib/study-config-store";
+import { surveyUrlForParticipant } from "@/lib/study-config";
+import { dayTimeToEpochMs, formatTimeSpan } from "@/lib/time";
 import {
   alternativeStudyConfig,
   defaultStudyConfig,
-} from "./fixtures/study-config";
+} from "@scripts/fixtures/study-config";
 
 let failures = 0;
 const check = (name: string, actual: unknown, expected: unknown) => {

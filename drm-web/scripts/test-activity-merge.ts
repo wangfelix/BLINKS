@@ -7,8 +7,8 @@ import {
   activitiesInviteMerge,
   mergeWithNextActivity,
   type EditableActivity,
-} from "../src/components/reconstruct/editor-types";
-import { installDefaultStudyConfig } from "./fixtures/study-config";
+} from "@/components/reconstruct/editor-types";
+import { installDefaultStudyConfig } from "@scripts/fixtures/study-config";
 
 installDefaultStudyConfig();
 

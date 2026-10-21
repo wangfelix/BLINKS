@@ -6,23 +6,20 @@
 //   3. the admin payload (surveys: null).
 // Run from drm-web/:  npx tsx scripts/test-alternative-configs.ts
 
-import type { EditableActivity } from "../src/components/reconstruct/editor-types";
+import type { EditableActivity } from "@/components/reconstruct/editor-types";
 import {
   hasAllExperienceRatings,
   mergeWithNextActivity,
-} from "../src/components/reconstruct/editor-types";
-import { experienceRatingSummaryLabel } from "../src/components/reconstruct/experience-rating-scale";
+} from "@/components/reconstruct/editor-types";
+import { experienceRatingSummaryLabel } from "@/components/reconstruct/experience-rating-scale";
 import {
   buildWindowSlots,
   slotStartOf,
-} from "../src/components/reconstruct/time-slots";
-import type { Frame } from "../src/lib/api-types";
-import {
-  activityDisplayLabel,
-  activityItems,
-} from "../src/lib/activity-vocabulary";
-import { categoryItems } from "../src/lib/category-vocabulary";
-import { surveyUrlForParticipant } from "../src/lib/study-config";
+} from "@/components/reconstruct/time-slots";
+import type { Frame } from "@/lib/api-types";
+import { activityDisplayLabel, activityItems } from "@/lib/activity-vocabulary";
+import { categoryItems } from "@/lib/category-vocabulary";
+import { surveyUrlForParticipant } from "@/lib/study-config";
 import {
   emptyRatings,
   experienceItemsForCategory,
@@ -31,14 +28,14 @@ import {
   thumbnailsPerActivity,
   windowMinuteAdjective,
   windowMs,
-} from "../src/lib/study-config-store";
+} from "@/lib/study-config-store";
 import {
   dayTimeToEpochMs,
   formatTimeOfDay,
   nextDayKey,
   resolveTypedTimeOfDay,
-} from "../src/lib/time";
-import { testStudyConfig } from "./fixtures/study-config";
+} from "@/lib/time";
+import { testStudyConfig } from "@scripts/fixtures/study-config";
 
 let failures = 0;
 const check = (name: string, actual: unknown, expected: unknown) => {

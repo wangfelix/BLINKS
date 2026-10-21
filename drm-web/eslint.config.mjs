@@ -6,6 +6,23 @@ import prettierConfig from "eslint-config-prettier";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    // Imports use the tsconfig path aliases (`@/`, `@scripts/`).
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "^\\.{1,2}/",
+              message:
+                "Use the @/ or @scripts/ path alias instead of a relative import.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   // Last preset, so it switches off stylistic rules that would fight Prettier.
   prettierConfig,
   // Override default ignores of eslint-config-next.
