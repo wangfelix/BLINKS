@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-import { initAuthDb, resetOnboarding } from "../src/auth-db";
+import { initAuthDb, resetOnboarding } from "@/auth-db";
 
 const username = process.argv[2];
 if (!username || process.argv.length !== 3) {

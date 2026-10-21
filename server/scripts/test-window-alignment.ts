@@ -11,9 +11,9 @@ import assert = require("assert");
 import fs = require("fs");
 import path = require("path");
 
-import { CHUNK_WINDOW_MS, chunkStartOf } from "../src/db";
-import { parseStudyConfig, StudyConfigError } from "../src/study-config/load";
-import { allowedWindowMinutes, timeZoneOffsetsMinutes } from "../src/study-config/schema";
+import { CHUNK_WINDOW_MS, chunkStartOf } from "@/db";
+import { parseStudyConfig, StudyConfigError } from "@/study-config/load";
+import { allowedWindowMinutes, timeZoneOffsetsMinutes } from "@/study-config/schema";
 
 const EXAMPLE = path.resolve(__dirname, "..", "..", "config", "study.example.yaml");
 const exampleSource = fs.readFileSync(EXAMPLE, "utf8");

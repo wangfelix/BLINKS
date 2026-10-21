@@ -17,7 +17,7 @@ import fs = require("fs");
 import path = require("path");
 import Database = require("better-sqlite3");
 
-import { studyConfig } from "../src/study-config";
+import { studyConfig } from "@/study-config";
 
 const apply = process.argv.includes("--apply");
 const recordingsDir = process.env.RECORDINGS_DIR ?? path.join(__dirname, "..", "recordings");

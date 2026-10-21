@@ -4,7 +4,7 @@
 
 import assert = require("assert");
 
-import { SegmentationChunk, segmentDay } from "../src/segmentation";
+import { SegmentationChunk, segmentDay } from "@/segmentation";
 
 const WINDOW = 5 * 60 * 1000;
 const BASE = 1_800_000_000_000; // any 5-min-aligned epoch

@@ -2,22 +2,22 @@ import fs = require("fs");
 import path = require("path");
 import Database = require("better-sqlite3");
 
-import { hashPassword } from "../src/auth";
+import { hashPassword } from "@/auth";
 import {
   completeOnboarding,
   getUser,
   initAuthDb,
   insertUser,
   markPasswordChanged,
-} from "../src/auth-db";
-import { ACTIVITY_LABELS } from "../src/activity-vocabulary";
-import { studyConfig } from "../src/study-config";
+} from "@/auth-db";
+import { ACTIVITY_LABELS } from "@/activity-vocabulary";
+import { studyConfig } from "@/study-config";
 import {
   chunkStartOf,
   initDb,
   insertFrame,
   recordRecordingEvent,
-} from "../src/db";
+} from "@/db";
 
 // Seeds a fully clickable demo state for testing drm-web locally (uses the
 // example vocabulary, so run it with config/study.example.yaml or a copy):

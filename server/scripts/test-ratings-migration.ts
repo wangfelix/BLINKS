@@ -19,7 +19,7 @@ import {
   ratingsMigrationTestHooks,
   replaceActivities,
   setCameraFormFactor,
-} from "../src/db";
+} from "@/db";
 
 const SCHEMA = fs.readFileSync(
   path.join(__dirname, "fixtures", "recordings-schema-pre-study-config.sql"),

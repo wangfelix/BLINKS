@@ -11,7 +11,7 @@ import path from "path";
 
 import { z } from "zod";
 
-import { StudyConfigSchema } from "../src/study-config/schema";
+import { StudyConfigSchema } from "@/study-config/schema";
 
 export const STUDY_CONFIG_SCHEMA_PATH = path.join(
   __dirname,

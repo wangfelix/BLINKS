@@ -24,13 +24,13 @@ import {
   listChunksOnDay,
   listFramesOnDay,
   listPhotoFramesOnDay,
-} from "../src/db";
+} from "@/db";
 import {
   DAY_OVERRUN_MS,
   localDayStartMs,
   nextDayKey,
   sessionDayKey,
-} from "../src/time";
+} from "@/time";
 
 process.env.TZ = process.env.TZ ?? "UTC"; // the study TZ comes from the study config
 

@@ -22,7 +22,7 @@ exports.getStudyConfigSource = exports.getStudyConfig = exports.loadStudyConfigF
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const yaml_1 = require("yaml");
-const schema_1 = require("./schema");
+const schema_1 = require("./schema.js");
 // server/src/study-config and server/dist/study-config are both 3 levels deep.
 exports.REPO_ROOT = path_1.default.resolve(__dirname, "..", "..", "..");
 exports.DEFAULT_STUDY_CONFIG_PATH = path_1.default.join(exports.REPO_ROOT, "config", "study.yaml");

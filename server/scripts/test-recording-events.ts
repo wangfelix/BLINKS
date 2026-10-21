@@ -21,7 +21,7 @@ import {
   listPausedParticipants,
   listRecordingEventsForSession,
   recordRecordingEvent,
-} from "../src/db";
+} from "@/db";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "blinks-events-test-"));
 const dbPath = path.join(dir, "recordings.db");

@@ -12,8 +12,8 @@ import fs = require("fs");
 import os = require("os");
 import path = require("path");
 
-import { parseRatingsInput, ratingsResponse, studyConfigResponse, appConfigResponse } from "../src/study-config/client";
-import { loadStudyConfigFile } from "../src/study-config/load";
+import { parseRatingsInput, ratingsResponse, studyConfigResponse, appConfigResponse } from "@/study-config/client";
+import { loadStudyConfigFile } from "@/study-config/load";
 
 const SERVER_DIR = path.resolve(__dirname, "..");
 const REPO_ROOT = path.resolve(SERVER_DIR, "..");

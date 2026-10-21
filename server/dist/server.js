@@ -9,17 +9,17 @@ const ws_1 = require("ws");
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const url_1 = require("url");
-const auth_1 = require("./auth");
-const auth_db_1 = require("./auth-db");
-const db_1 = require("./db");
-const activity_vocabulary_1 = require("./activity-vocabulary");
-const incorrect_annotation_injection_1 = require("./incorrect-annotation-injection");
-const segmentation_1 = require("./segmentation");
-const push_1 = require("./push");
-const time_1 = require("./time");
-const study_config_1 = require("./study-config");
-const load_1 = require("./study-config/load");
-const client_1 = require("./study-config/client");
+const auth_1 = require("./auth.js");
+const auth_db_1 = require("./auth-db.js");
+const db_1 = require("./db.js");
+const activity_vocabulary_1 = require("./activity-vocabulary.js");
+const incorrect_annotation_injection_1 = require("./incorrect-annotation-injection.js");
+const segmentation_1 = require("./segmentation.js");
+const push_1 = require("./push.js");
+const time_1 = require("./time.js");
+const study_config_1 = require("./study-config/index.js");
+const load_1 = require("./study-config/load.js");
+const client_1 = require("./study-config/client.js");
 // ===========================================================================
 // BLINKS ingestion + API server (BLE phone-relay architecture).
 //

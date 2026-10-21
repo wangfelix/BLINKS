@@ -8,7 +8,7 @@ import fs = require("fs");
 import path = require("path");
 import Database = require("better-sqlite3");
 
-import { chunkStartOf, initDb, insertFrame } from "../src/db";
+import { chunkStartOf, initDb, insertFrame } from "@/db";
 
 const RECORDINGS_DIR = process.env.RECORDINGS_DIR;
 if (!RECORDINGS_DIR) throw new Error("set RECORDINGS_DIR to a throwaway dir");

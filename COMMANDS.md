@@ -146,6 +146,7 @@ npm run test-push             # bedtime math + Expo ticket acceptance
 npm run test-study-config-schema   # schema, example, generated JSON Schema in sync
 npm run build && npm run test-study-config-runtime  # loader exit 2/production rules, endpoints, ratings (study.test.yaml)
 npm run test-ratings-migration     # workload/recovery -> activity_ratings (counts, idempotent, rollback)
+npx tsx scripts/test-import-aliases.ts  # no relative module imports in src/ and scripts/ (aliases @/ and @scripts/)
 # dry run of the migration on a COPY of a real DB (refuses paths outside /tmp, aggregated output only):
 #   mkdir -p /tmp/mig-test && cp <copy>.db /tmp/mig-test/work.db
 #   npm run check-ratings-migration-copy -- /tmp/mig-test/work.db [--rollback | --rollback-form-factor] && rm -rf /tmp/mig-test

@@ -17,7 +17,7 @@ import {
   listAdminPhotoSessions,
   listAdminTableRows,
   setCameraFormFactor,
-} from "../src/db";
+} from "@/db";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "blinks-admin-data-"));
 const dbPath = path.join(tempDir, "recordings.db");

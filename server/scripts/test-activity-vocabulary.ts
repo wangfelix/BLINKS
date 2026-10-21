@@ -10,8 +10,8 @@ import path = require("path");
 
 import { parse as parseYaml } from "yaml";
 
-import { ACTIVITY_LABELS } from "../src/activity-vocabulary";
-import { studyConfig } from "../src/study-config";
+import { ACTIVITY_LABELS } from "@/activity-vocabulary";
+import { studyConfig } from "@/study-config";
 
 const example = parseYaml(
   fs.readFileSync(path.resolve(__dirname, "../../config/study.example.yaml"), "utf8"),

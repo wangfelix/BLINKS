@@ -53,8 +53,8 @@ exports.listAdminPhotoSessions = listAdminPhotoSessions;
 exports.listAdminPhotos = listAdminPhotos;
 exports.getAdminFrameAvailabilityByPath = getAdminFrameAvailabilityByPath;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
-const study_config_1 = require("./study-config");
-const time_1 = require("./time");
+const study_config_1 = require("./study-config/index.js");
+const time_1 = require("./time.js");
 exports.ADMIN_TABLE_NAMES = [
     "participants",
     "frames",

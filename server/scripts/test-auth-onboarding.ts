@@ -18,7 +18,7 @@ import {
   resetOnboarding,
   resetAdminPassword,
   resetPassword,
-} from "../src/auth-db";
+} from "@/auth-db";
 
 const tempDir = fs.mkdtempSync(
   path.join(os.tmpdir(), "blinks-auth-onboarding-"),

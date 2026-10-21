@@ -7,7 +7,7 @@
 // so DST is handled by the platform; no date libraries.
 // ===========================================================================
 
-import { studyConfig } from "./study-config";
+import { studyConfig } from "@/study-config";
 
 const DRM_TZ = studyConfig.study.timezone;
 

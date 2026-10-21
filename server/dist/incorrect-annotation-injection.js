@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.injectIncorrectAnnotations = exports.INCORRECT_ANNOTATION_MIN_MEAN_CONFIDENCE = exports.INCORRECT_ANNOTATION_RATE = exports.CONFIGURED_OVERRELIANCE = void 0;
 const crypto_1 = require("crypto");
-const study_config_1 = require("./study-config");
+const study_config_1 = require("./study-config/index.js");
 exports.CONFIGURED_OVERRELIANCE = {
     ...study_config_1.studyConfig.overreliance,
     activityKeys: study_config_1.ACTIVITY_KEYS,

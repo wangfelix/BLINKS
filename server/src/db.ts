@@ -1,12 +1,12 @@
 import Database from "better-sqlite3";
 
-import { FORM_FACTOR_KEYS, WINDOW_MS, studyConfig } from "./study-config";
+import { FORM_FACTOR_KEYS, WINDOW_MS, studyConfig } from "@/study-config";
 import {
   DAY_OVERRUN_MS,
   localDayStartMs,
   nextDayKey,
   sessionDayKey,
-} from "./time";
+} from "@/time";
 
 export const ADMIN_TABLE_NAMES = [
   "participants",

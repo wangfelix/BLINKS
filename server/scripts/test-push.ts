@@ -4,9 +4,9 @@ import {
   acceptedExpoPushTickets,
   BEDTIME_REMINDER_LEAD_MIN,
   reminderMinutesFor,
-} from "../src/push";
+} from "@/push";
 
-import { studyConfig } from "../src/study-config";
+import { studyConfig } from "@/study-config";
 
 // Runs under any study config (BLINKS_STUDY_CONFIG). Concrete expectations for
 // the two tracked configs, the general rule for everything else.

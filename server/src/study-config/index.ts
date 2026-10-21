@@ -2,10 +2,10 @@
 // Loaded once on first import; an invalid file exits the process with code 2
 // (see load.ts). All study-relevant values come from here, never from env.
 
-import { getStudyConfig } from "./load";
-import type { StudyConfig } from "./schema";
+import { getStudyConfig } from "@/study-config/load";
+import type { StudyConfig } from "@/study-config/schema";
 
-export type { StudyConfig } from "./schema";
+export type { StudyConfig } from "@/study-config/schema";
 
 export const studyConfig: StudyConfig = getStudyConfig();
 

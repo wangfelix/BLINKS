@@ -1,7 +1,7 @@
 import { randomInt } from "crypto";
 
-import type { SegmentedActivity } from "./segmentation";
-import { ACTIVITY_KEYS, CATEGORY_KEYS, studyConfig } from "./study-config";
+import type { SegmentedActivity } from "@/segmentation";
+import { ACTIVITY_KEYS, CATEGORY_KEYS, studyConfig } from "@/study-config";
 
 /** overreliance.* from the study config. */
 export interface OverrelianceSettings {
