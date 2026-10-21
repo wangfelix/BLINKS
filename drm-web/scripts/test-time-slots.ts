@@ -2,14 +2,14 @@
 // (five-minute slots); other window sizes: test-alternative-configs.ts.
 // Run from drm-web/:  npx tsx scripts/test-time-slots.ts
 
-import type { Frame } from "../src/lib/api-types";
-import { dayTimeToEpochMs, nextDayKey } from "../src/lib/time";
-import type { EditableActivity } from "../src/components/reconstruct/editor-types";
+import type { Frame } from "@/lib/api-types";
+import { dayTimeToEpochMs, nextDayKey } from "@/lib/time";
+import type { EditableActivity } from "@/components/reconstruct/editor-types";
 import {
   buildWindowSlots,
   groupWindowSlots,
-} from "../src/components/reconstruct/time-slots";
-import { installDefaultStudyConfig } from "./fixtures/study-config";
+} from "@/components/reconstruct/time-slots";
+import { installDefaultStudyConfig } from "@scripts/fixtures/study-config";
 
 installDefaultStudyConfig();
 

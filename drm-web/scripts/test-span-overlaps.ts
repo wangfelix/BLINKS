@@ -6,9 +6,9 @@ import {
   gapHasUnassignedImages,
   resolveSpanOverlaps,
   type EditableActivity,
-} from "../src/components/reconstruct/editor-types";
-import type { Frame } from "../src/lib/api-types";
-import { installDefaultStudyConfig } from "./fixtures/study-config";
+} from "@/components/reconstruct/editor-types";
+import type { Frame } from "@/lib/api-types";
+import { installDefaultStudyConfig } from "@scripts/fixtures/study-config";
 
 installDefaultStudyConfig();
 

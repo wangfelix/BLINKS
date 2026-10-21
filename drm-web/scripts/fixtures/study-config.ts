@@ -10,8 +10,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { parse } from "yaml";
 
-import type { StudyConfigResponse } from "../../src/lib/api-types";
-import { installStudyConfig } from "../../src/lib/study-config-store";
+import type { StudyConfigResponse } from "@/lib/api-types";
+import { installStudyConfig } from "@/lib/study-config-store";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- raw YAML document */
 const studyConfigFromYaml = (fileName: string): StudyConfigResponse => {

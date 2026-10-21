@@ -3,13 +3,13 @@
 // highlights itself in place).
 // Run from drm-web/:  npx tsx scripts/test-experience-ratings.ts
 
-import type { CategoryLabel } from "../src/lib/api-types";
+import type { CategoryLabel } from "@/lib/api-types";
 import {
   computeRowIssues,
   hasAllExperienceRatings,
   type EditableActivity,
-} from "../src/components/reconstruct/editor-types";
-import { installDefaultStudyConfig } from "./fixtures/study-config";
+} from "@/components/reconstruct/editor-types";
+import { installDefaultStudyConfig } from "@scripts/fixtures/study-config";
 
 installDefaultStudyConfig();
 
