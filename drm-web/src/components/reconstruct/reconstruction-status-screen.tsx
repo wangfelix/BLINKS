@@ -39,7 +39,7 @@ export const ReconstructionStatusScreen = ({
       }
     >
       <div className="onboarding-step-enter onboarding-stagger mx-auto flex min-h-[350px] max-w-xl flex-col items-center justify-center text-center">
-        <span className="grid size-16 place-items-center rounded-2xl bg-sky-500/10 text-sky-700 ring-1 ring-sky-500/10 dark:text-sky-300">
+        <span className="grid size-16 place-items-center rounded-2xl bg-sky-500/10 text-sky-700 ring-1 ring-sky-500/10">
           <Icon className="size-7" aria-hidden />
         </span>
         <h1

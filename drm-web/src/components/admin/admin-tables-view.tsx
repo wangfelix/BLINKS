@@ -242,7 +242,7 @@ export const AdminTablesView = () => {
               "rounded-2xl border p-4 text-left shadow-sm transition-[border-color,background-color,box-shadow] outline-none focus-visible:ring-2 focus-visible:ring-ring",
               table === candidate
                 ? "border-foreground/20 bg-foreground text-background shadow-md"
-                : "border-white/50 bg-background/75 hover:border-border hover:bg-background dark:border-white/10",
+                : "border-white/50 bg-background/75 hover:border-border hover:bg-background",
             )}
             aria-pressed={table === candidate}
           >
@@ -366,12 +366,7 @@ export const AdminTablesView = () => {
               Apply filter
             </Button>
             {hasFilterControls && (
-              <Button
-                type="button"
-                variant="outline"
-                className="bg-background"
-                onClick={clearFilter}
-              >
+              <Button type="button" variant="outline" onClick={clearFilter}>
                 <XIcon aria-hidden />
                 Clear
               </Button>
@@ -441,7 +436,6 @@ export const AdminTablesView = () => {
             <Button
               variant="outline"
               size="sm"
-              className="bg-background"
               disabled={page <= 1 || tableQuery.data === undefined}
               onClick={() => setPage((current) => Math.max(1, current - 1))}
             >
@@ -451,7 +445,6 @@ export const AdminTablesView = () => {
             <Button
               variant="outline"
               size="sm"
-              className="bg-background"
               disabled={page >= totalPages || tableQuery.data === undefined}
               onClick={() => setPage((current) => current + 1)}
             >

@@ -8,9 +8,9 @@ export const StudyFlowBackground = () => (
     className="pointer-events-none absolute inset-0 overflow-hidden"
     aria-hidden
   >
-    <div className="onboarding-orb onboarding-orb-one absolute -top-24 -left-20 size-80 rounded-full bg-sky-300/35 blur-3xl dark:bg-sky-500/15" />
-    <div className="onboarding-orb onboarding-orb-two absolute top-1/4 -right-32 size-96 rounded-full bg-violet-300/30 blur-3xl dark:bg-violet-500/15" />
-    <div className="onboarding-orb onboarding-orb-three absolute -bottom-32 left-1/3 size-96 rounded-full bg-emerald-200/35 blur-3xl dark:bg-emerald-500/10" />
+    <div className="onboarding-orb onboarding-orb-one absolute -top-24 -left-20 size-80 rounded-full bg-sky-300/35 blur-3xl" />
+    <div className="onboarding-orb onboarding-orb-two absolute top-1/4 -right-32 size-96 rounded-full bg-violet-300/30 blur-3xl" />
+    <div className="onboarding-orb onboarding-orb-three absolute -bottom-32 left-1/3 size-96 rounded-full bg-emerald-200/35 blur-3xl" />
     <div className="absolute inset-0 bg-[linear-gradient(to_right,var(--border)_1px,transparent_1px),linear-gradient(to_bottom,var(--border)_1px,transparent_1px)] [mask-image:radial-gradient(ellipse_at_center,black,transparent_72%)] bg-[size:44px_44px] opacity-[0.16]" />
   </div>
 );
@@ -47,7 +47,7 @@ export const StudyFlowShell = ({
         maxWidthClassName,
       )}
     >
-      <div className="w-full overflow-hidden rounded-3xl border border-white/50 bg-background/80 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.35)] ring-1 ring-foreground/5 backdrop-blur-2xl dark:border-white/10">
+      <div className="w-full overflow-hidden rounded-3xl border border-white/50 bg-background/80 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.35)] ring-1 ring-foreground/5 backdrop-blur-2xl">
         {progress !== undefined && (
           <div className="border-b border-border/70 bg-muted/20 px-5 py-6 sm:px-10">
             {progress}

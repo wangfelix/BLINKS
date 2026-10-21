@@ -90,7 +90,7 @@ export const CategorySelect = ({
             <SelectItem
               key={item.value}
               value={item.value}
-              className="py-1.5 pr-8 pl-2"
+              className="py-1.5 pl-2"
             >
               <Icon aria-hidden="true" />
               {item.label}

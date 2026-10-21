@@ -149,7 +149,7 @@ const ActivityGapControls = ({
       size="xs"
       className={
         hasUnassignedImages
-          ? "h-9 border border-destructive/30 bg-destructive/10 px-3 text-destructive hover:bg-destructive/20"
+          ? "h-9 border-destructive/30 px-3"
           : "h-9 px-3 text-muted-foreground"
       }
       onClick={onInsert}
@@ -176,7 +176,7 @@ const ActivityGapControls = ({
         // Amber also keeps it clear of the yellow dev-mode injected-row tint.
         className={
           suggestsMerge
-            ? "h-9 border border-amber-300 bg-amber-100 px-3 font-medium text-amber-900 hover:bg-amber-200 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/60"
+            ? "h-9 border-amber-300 bg-amber-100 px-3 text-amber-900 hover:bg-amber-200"
             : "h-9 px-3 text-muted-foreground"
         }
         onClick={onMerge}
@@ -869,7 +869,6 @@ export const RoundEditor = ({
           <div className="flex flex-col-reverse gap-2 border-t bg-muted/30 p-4 sm:flex-row sm:justify-end">
             <Button
               variant="outline"
-              className="bg-background"
               onClick={() => setDeleteCandidateLocalId(null)}
             >
               Cancel

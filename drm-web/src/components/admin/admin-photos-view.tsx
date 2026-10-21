@@ -366,7 +366,6 @@ export const AdminPhotosView = () => {
             <Button
               variant="outline"
               size="sm"
-              className="bg-background"
               disabled={page <= 1 || photosQuery.data === undefined}
               onClick={() => setPage((current) => Math.max(1, current - 1))}
             >
@@ -376,7 +375,6 @@ export const AdminPhotosView = () => {
             <Button
               variant="outline"
               size="sm"
-              className="bg-background"
               disabled={page >= totalPages || photosQuery.data === undefined}
               onClick={() => setPage((current) => current + 1)}
             >
@@ -393,7 +391,7 @@ export const AdminPhotosView = () => {
           if (!open) setSelectedPhoto(null);
         }}
       >
-        <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl border-border/70 bg-background p-0 sm:max-w-6xl">
+        <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl bg-background p-0 sm:max-w-6xl">
           <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7">
             <DialogTitle>Study photo</DialogTitle>
             <DialogDescription>

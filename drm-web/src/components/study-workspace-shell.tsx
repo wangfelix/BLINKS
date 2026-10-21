@@ -45,7 +45,7 @@ export const StudyWorkspaceShell = ({
           className={mergeClassNames(
             "w-full self-start",
             !isPlain &&
-              "overflow-hidden rounded-3xl border border-white/50 bg-background/80 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.35)] ring-1 ring-foreground/5 backdrop-blur-2xl dark:border-white/10",
+              "overflow-hidden rounded-3xl border border-white/50 bg-background/80 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.35)] ring-1 ring-foreground/5 backdrop-blur-2xl",
           )}
         >
           {progress !== undefined && progressPosition === "card" && (

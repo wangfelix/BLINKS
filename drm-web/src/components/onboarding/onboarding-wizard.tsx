@@ -328,7 +328,7 @@ export const OnboardingWizard = ({
         <StudyFlowBackground />
         <Alert
           variant="destructive"
-          className="relative max-w-md bg-background/90 backdrop-blur-xl"
+          className="max-w-md bg-background/90 backdrop-blur-xl"
         >
           <AlertTitle>Onboarding unavailable</AlertTitle>
           <AlertDescription>
@@ -506,7 +506,7 @@ export const OnboardingWizard = ({
           className="onboarding-step-enter onboarding-stagger mx-auto max-w-xl"
         >
           <div className="mb-8 flex items-start gap-4">
-            <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-violet-500/10 text-violet-700 ring-1 ring-violet-500/10 dark:text-violet-300">
+            <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-violet-500/10 text-violet-700 ring-1 ring-violet-500/10">
               <ShieldCheckIcon className="size-5" aria-hidden />
             </span>
             <div>
