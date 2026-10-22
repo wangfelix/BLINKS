@@ -20,8 +20,10 @@ import { Text } from "@/components/layout/text";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -261,16 +263,14 @@ export const PhotoManagementDialog = ({
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-h-dialog gap-0 overflow-hidden rounded-3xl bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
-          <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7 sm:py-6 sm:pr-20">
+        <DialogContent variant="panel" closePosition="inset">
+          <DialogHeader variant="bar-spacious">
             <Row gap="md" align="start">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
                 <ImagesIcon className="size-5" aria-hidden />
               </div>
               <Column gap="xs" className="min-w-0">
-                <DialogTitle className="text-lg leading-tight font-semibold sm:text-xl">
-                  {title}
-                </DialogTitle>
+                <DialogTitle size="xl">{title}</DialogTitle>
                 <DialogDescription className="leading-relaxed">
                   {description}
                 </DialogDescription>
@@ -522,7 +522,7 @@ export const PhotoManagementDialog = ({
           )}
 
           {!isLoading && loadError === null && isSelectionMode && (
-            <div className="flex flex-col-reverse gap-2 border-t border-border/70 bg-background px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+            <DialogFooter variant="split">
               <Text variant="nudge" className="text-center sm:text-left">
                 Deleted files cannot be restored.
               </Text>
@@ -537,7 +537,7 @@ export const PhotoManagementDialog = ({
                 )}
                 Delete Selected ({selectedFrames.length})
               </Button>
-            </div>
+            </DialogFooter>
           )}
         </DialogContent>
       </Dialog>
@@ -548,13 +548,13 @@ export const PhotoManagementDialog = ({
           if (!nextOpen && !deletion.isPending) setConfirmFrames(null);
         }}
       >
-        <DialogContent className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-md">
-          <div className="px-5 py-6 pr-14 sm:px-6">
+        <DialogContent variant="confirm">
+          <DialogBody>
             <DialogHeader>
               <div className="mb-2 flex size-11 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
                 <Trash2Icon className="size-5" aria-hidden />
               </div>
-              <DialogTitle className="text-lg leading-tight font-semibold">
+              <DialogTitle size="lg">
                 Delete {confirmationCount} {confirmationNoun}?
               </DialogTitle>
               <DialogDescription className="leading-relaxed">
@@ -563,8 +563,8 @@ export const PhotoManagementDialog = ({
                 marked as deleted.
               </DialogDescription>
             </DialogHeader>
-          </div>
-          <div className="flex flex-col-reverse gap-2 border-t bg-muted/30 p-4 sm:flex-row sm:justify-end">
+          </DialogBody>
+          <DialogFooter variant="flush">
             <Button
               variant="outline"
               disabled={deletion.isPending}
@@ -582,7 +582,7 @@ export const PhotoManagementDialog = ({
               )}
               Delete
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

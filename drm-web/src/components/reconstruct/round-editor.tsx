@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -847,15 +848,13 @@ export const RoundEditor = ({
           if (!open) setDeleteCandidateLocalId(null);
         }}
       >
-        <DialogContent className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-md">
-          <div className="px-5 py-6 pr-14 sm:px-6">
+        <DialogContent variant="confirm">
+          <DialogBody>
             <DialogHeader>
               <div className="mb-2 flex size-11 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
                 <Trash2Icon className="size-5" aria-hidden />
               </div>
-              <DialogTitle className="text-lg leading-tight font-semibold">
-                Delete this activity?
-              </DialogTitle>
+              <DialogTitle size="lg">Delete this activity?</DialogTitle>
               <DialogDescription className="leading-relaxed">
                 {deleteCandidateTimeSpan === null
                   ? "This activity will be removed from your reconstruction."
@@ -865,8 +864,8 @@ export const RoundEditor = ({
                 adjusting their time spans.
               </DialogDescription>
             </DialogHeader>
-          </div>
-          <div className="flex flex-col-reverse gap-2 border-t bg-muted/30 p-4 sm:flex-row sm:justify-end">
+          </DialogBody>
+          <DialogFooter variant="flush">
             <Button
               variant="outline"
               onClick={() => setDeleteCandidateLocalId(null)}
@@ -877,7 +876,7 @@ export const RoundEditor = ({
               <Trash2Icon aria-hidden />
               Delete activity
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

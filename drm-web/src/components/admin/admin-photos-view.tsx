@@ -391,8 +391,8 @@ export const AdminPhotosView = () => {
           if (!open) setSelectedPhoto(null);
         }}
       >
-        <DialogContent className="max-h-dialog gap-0 overflow-hidden rounded-3xl bg-background p-0 sm:max-w-6xl">
-          <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7">
+        <DialogContent variant="panel">
+          <DialogHeader variant="bar">
             <DialogTitle>Study photo</DialogTitle>
             <DialogDescription>
               {selectedPhoto === null

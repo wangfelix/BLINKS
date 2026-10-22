@@ -19,6 +19,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -462,16 +463,14 @@ export const FramePickerDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-dialog gap-0 overflow-hidden rounded-3xl bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
-        <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7 sm:py-6 sm:pr-20">
+      <DialogContent variant="panel" closePosition="inset">
+        <DialogHeader variant="bar-spacious">
           <Row gap="md" align="start">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
               <Clock3Icon className="size-5" aria-hidden />
             </div>
             <Column gap="xs" className="min-w-0">
-              <DialogTitle className="text-lg leading-tight font-semibold sm:text-xl">
-                {title}
-              </DialogTitle>
+              <DialogTitle size="xl">{title}</DialogTitle>
               <DialogDescription className="leading-relaxed">
                 {description}
               </DialogDescription>
@@ -839,7 +838,7 @@ export const FramePickerDialog = ({
           </Row>
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-border/70 bg-background px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+        <DialogFooter variant="split" className="flex-col gap-3">
           <Button
             variant="ghost"
             className="self-start"
@@ -869,7 +868,7 @@ export const FramePickerDialog = ({
               {confirmLabel}
             </Button>
           </div>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
