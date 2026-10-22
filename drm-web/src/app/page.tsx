@@ -23,7 +23,7 @@ import {
 } from "@/lib/api-client";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Column } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
@@ -112,53 +112,51 @@ const LandingPage = () => {
           <form onSubmit={handleSubmit} className="mt-6 space-y-5">
             <Column gap="sm">
               <Label htmlFor="username">Participant ID</Label>
-              <div className="relative">
-                <UserRoundIcon
-                  className="pointer-events-none absolute top-1/2 left-4 z-10 size-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden
-                />
-                <Input
-                  id="username"
-                  name="username"
-                  autoComplete="username"
-                  autoFocus
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-4 pl-11 backdrop-blur-sm transition-[border-color,box-shadow,background-color] hover:bg-background/80 focus-visible:bg-background md:text-base"
-                />
-              </div>
+              <InputGroup
+                icon={<UserRoundIcon />}
+                size="xl"
+                surface="frosted"
+                id="username"
+                name="username"
+                autoComplete="username"
+                autoFocus
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+              />
             </Column>
 
             <Column gap="sm">
               <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <LockKeyholeIcon
-                  className="pointer-events-none absolute top-1/2 left-4 z-10 size-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden
-                />
-                <Input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-12 pl-11 backdrop-blur-sm transition-[border-color,box-shadow,background-color] hover:bg-background/80 focus-visible:bg-background md:text-base"
-                />
-                <button
-                  type="button"
-                  className="absolute top-1/2 right-2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  aria-pressed={showPassword}
-                  onClick={() => setShowPassword((visible) => !visible)}
-                >
-                  {showPassword ? (
-                    <EyeOffIcon className="size-4" aria-hidden />
-                  ) : (
-                    <EyeIcon className="size-4" aria-hidden />
-                  )}
-                </button>
-              </div>
+              <InputGroup
+                icon={<LockKeyholeIcon />}
+                action={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground"
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
+                    aria-pressed={showPassword}
+                    onClick={() => setShowPassword((visible) => !visible)}
+                  >
+                    {showPassword ? (
+                      <EyeOffIcon aria-hidden />
+                    ) : (
+                      <EyeIcon aria-hidden />
+                    )}
+                  </Button>
+                }
+                size="xl"
+                surface="frosted"
+                id="password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
             </Column>
 
             {loginMutation.isError && (

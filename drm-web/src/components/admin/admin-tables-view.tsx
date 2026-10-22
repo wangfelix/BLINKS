@@ -46,7 +46,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
+import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -350,24 +350,19 @@ export const AdminTablesView = () => {
 
           <div className="space-y-2">
             <Label htmlFor="admin-table-filter-value">Contains</Label>
-            <div className="relative">
-              <SearchIcon
-                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-              <Input
-                id="admin-table-filter-value"
-                value={filterInput}
-                onChange={(event) => setFilterInput(event.target.value)}
-                placeholder={
-                  filterColumn === "all"
-                    ? "Search every column…"
-                    : `Search ${filterColumn}…`
-                }
-                maxLength={200}
-                className="bg-background pl-9"
-              />
-            </div>
+            <InputGroup
+              icon={<SearchIcon />}
+              surface="solid"
+              id="admin-table-filter-value"
+              value={filterInput}
+              onChange={(event) => setFilterInput(event.target.value)}
+              placeholder={
+                filterColumn === "all"
+                  ? "Search every column…"
+                  : `Search ${filterColumn}…`
+              }
+              maxLength={200}
+            />
           </div>
 
           <div className="flex gap-2">

@@ -24,7 +24,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export const AdminParticipantsView = () => {
@@ -114,21 +114,18 @@ export const AdminParticipantsView = () => {
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="new-participant-id">Participant ID</Label>
-                <div className="relative">
-                  <UserRoundIcon
-                    className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground"
-                    aria-hidden
-                  />
-                  <Input
-                    id="new-participant-id"
-                    name="participantId"
-                    autoComplete="off"
-                    value={participantId}
-                    onChange={(event) => setParticipantId(event.target.value)}
-                    placeholder="participant21"
-                    className="h-11 rounded-xl bg-background pl-11"
-                  />
-                </div>
+                <InputGroup
+                  icon={<UserRoundIcon />}
+                  size="lg"
+                  surface="solid"
+                  className="rounded-xl"
+                  id="new-participant-id"
+                  name="participantId"
+                  autoComplete="off"
+                  value={participantId}
+                  onChange={(event) => setParticipantId(event.target.value)}
+                  placeholder="participant21"
+                />
                 <p className="text-xs text-muted-foreground">
                   Letters, digits, hyphens, and underscores only.
                 </p>
@@ -139,60 +136,56 @@ export const AdminParticipantsView = () => {
                   <Label htmlFor="new-participant-password">
                     Temporary password
                   </Label>
-                  <div className="relative">
-                    <LockKeyholeIcon
-                      className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground"
-                      aria-hidden
-                    />
-                    <Input
-                      id="new-participant-password"
-                      name="password"
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="new-password"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      className="h-11 rounded-xl bg-background pr-11 pl-11"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((visible) => !visible)}
-                      className="absolute top-1/2 right-2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                      aria-label={
-                        showPassword
-                          ? "Hide temporary password"
-                          : "Show temporary password"
-                      }
-                    >
-                      {showPassword ? (
-                        <EyeOffIcon className="size-4" aria-hidden />
-                      ) : (
-                        <EyeIcon className="size-4" aria-hidden />
-                      )}
-                    </button>
-                  </div>
+                  <InputGroup
+                    icon={<LockKeyholeIcon />}
+                    action={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground"
+                        onClick={() => setShowPassword((visible) => !visible)}
+                        aria-label={
+                          showPassword
+                            ? "Hide temporary password"
+                            : "Show temporary password"
+                        }
+                      >
+                        {showPassword ? (
+                          <EyeOffIcon aria-hidden />
+                        ) : (
+                          <EyeIcon aria-hidden />
+                        )}
+                      </Button>
+                    }
+                    size="lg"
+                    surface="solid"
+                    className="rounded-xl"
+                    id="new-participant-password"
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="confirm-participant-password">
                     Confirm password
                   </Label>
-                  <div className="relative">
-                    <KeyRoundIcon
-                      className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground"
-                      aria-hidden
-                    />
-                    <Input
-                      id="confirm-participant-password"
-                      name="confirmPassword"
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="new-password"
-                      value={confirmPassword}
-                      onChange={(event) =>
-                        setConfirmPassword(event.target.value)
-                      }
-                      className="h-11 rounded-xl bg-background pl-11"
-                    />
-                  </div>
+                  <InputGroup
+                    icon={<KeyRoundIcon />}
+                    size="lg"
+                    surface="solid"
+                    className="rounded-xl"
+                    id="confirm-participant-password"
+                    name="confirmPassword"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                  />
                 </div>
               </div>
 
