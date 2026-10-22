@@ -139,7 +139,8 @@ export const AdminLogin = ({
 
             <Button
               type="submit"
-              className="relative h-12 w-full rounded-xl text-base shadow-md"
+              size="xl"
+              className="relative w-full shadow-md"
               disabled={!username.trim() || !password || mutation.isPending}
             >
               {mutation.isPending ? (

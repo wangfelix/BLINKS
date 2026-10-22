@@ -500,9 +500,10 @@ export const PhotoManagementDialog = ({
                             {content}
                             {!isDeleted && (
                               <Button
-                                variant="destructive"
+                                variant="destructive-fill"
                                 size="icon-sm"
-                                className="absolute top-2 right-2 border-destructive/15 bg-background/95 transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0"
+                                surface="overlay"
+                                className="absolute top-2 right-2 border-destructive/15"
                                 aria-label={`Delete photo from ${formatTimeOfDay(frame.captureEpochMs)}`}
                                 disabled={deletion.isPending}
                                 onClick={() => setConfirmFrames([frame])}
@@ -526,8 +527,8 @@ export const PhotoManagementDialog = ({
                 Deleted files cannot be restored.
               </Text>
               <Button
-                variant="destructive"
-                className="transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0 sm:min-w-44"
+                variant="destructive-fill"
+                className="sm:min-w-44"
                 disabled={selectedFrames.length === 0 || deletion.isPending}
                 onClick={() => setConfirmFrames(selectedFrames)}
               >
@@ -572,8 +573,7 @@ export const PhotoManagementDialog = ({
               Cancel
             </Button>
             <Button
-              variant="destructive"
-              className="transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0"
+              variant="destructive-fill"
               disabled={deletion.isPending}
               onClick={confirmDeletion}
             >

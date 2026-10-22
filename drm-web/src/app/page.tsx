@@ -174,7 +174,8 @@ const LandingPage = () => {
 
             <Button
               type="submit"
-              className="relative h-12 w-full rounded-xl px-5 text-base shadow-md transition-[transform,box-shadow,background-color] hover:shadow-lg"
+              size="xl"
+              className="relative w-full px-5 shadow-md transition-[transform,box-shadow,background-color] hover:shadow-lg"
               disabled={isSignInDisabled}
             >
               {loginMutation.isPending ? (
