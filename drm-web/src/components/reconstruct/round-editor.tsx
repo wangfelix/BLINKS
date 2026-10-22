@@ -23,6 +23,7 @@ import {
   formatTimeSpan,
   resolveTypedTimeOfDay,
 } from "@/lib/time";
+import { IconTile } from "@/components/layout/icon-tile";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -851,9 +852,9 @@ export const RoundEditor = ({
         <DialogContent variant="confirm">
           <DialogBody>
             <DialogHeader>
-              <div className="mb-2 flex size-11 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
-                <Trash2Icon className="size-5" aria-hidden />
-              </div>
+              <IconTile tone="destructive" size="lg" className="mb-2">
+                <Trash2Icon aria-hidden />
+              </IconTile>
               <DialogTitle size="lg">Delete this activity?</DialogTitle>
               <DialogDescription className="leading-relaxed">
                 {deleteCandidateTimeSpan === null

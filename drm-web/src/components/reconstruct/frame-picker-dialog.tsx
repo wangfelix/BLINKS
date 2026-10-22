@@ -14,6 +14,7 @@ import { frameImageSrc } from "@/lib/api-client";
 import { activityDisplayLabel } from "@/lib/activity-vocabulary";
 import { windowMinuteAdjective, windowMs } from "@/lib/study-config-store";
 import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
+import { IconTile } from "@/components/layout/icon-tile";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -466,9 +467,9 @@ export const FramePickerDialog = ({
       <DialogContent variant="panel" closePosition="inset">
         <DialogHeader variant="bar-spacious">
           <Row gap="md" align="start">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
-              <Clock3Icon className="size-5" aria-hidden />
-            </div>
+            <IconTile>
+              <Clock3Icon aria-hidden />
+            </IconTile>
             <Column gap="xs" className="min-w-0">
               <DialogTitle size="xl">{title}</DialogTitle>
               <DialogDescription className="leading-relaxed">

@@ -15,6 +15,7 @@ import type { Frame } from "@/lib/api-types";
 import { ApiError, frameImageSrc } from "@/lib/api-client";
 import { formatTimeOfDay } from "@/lib/time";
 import { mergeClassNames } from "@/lib/utils";
+import { IconTile } from "@/components/layout/icon-tile";
 import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
 import { Button } from "@/components/ui/button";
@@ -266,9 +267,9 @@ export const PhotoManagementDialog = ({
         <DialogContent variant="panel" closePosition="inset">
           <DialogHeader variant="bar-spacious">
             <Row gap="md" align="start">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
-                <ImagesIcon className="size-5" aria-hidden />
-              </div>
+              <IconTile>
+                <ImagesIcon aria-hidden />
+              </IconTile>
               <Column gap="xs" className="min-w-0">
                 <DialogTitle size="xl">{title}</DialogTitle>
                 <DialogDescription className="leading-relaxed">
@@ -369,9 +370,9 @@ export const PhotoManagementDialog = ({
           ) : orderedFrames.length === 0 ? (
             <div className="flex min-h-72 items-center justify-center bg-muted/15 px-5 py-12">
               <Column gap="sm" align="center" className="max-w-md text-center">
-                <div className="flex size-12 items-center justify-center rounded-2xl border bg-background text-muted-foreground">
-                  <ImageOffIcon className="size-5" aria-hidden />
-                </div>
+                <IconTile tone="outline" size="xl">
+                  <ImageOffIcon aria-hidden />
+                </IconTile>
                 <Text variant="secondary">{emptyMessage}</Text>
               </Column>
             </div>
@@ -411,12 +412,9 @@ export const PhotoManagementDialog = ({
                           >
                             {isDeleted ? (
                               <div className="flex size-full flex-col items-center justify-center gap-1.5 bg-muted/70 text-muted-foreground">
-                                <span className="flex size-9 items-center justify-center rounded-xl border border-border/70 bg-background/60">
-                                  <ImageOffIcon
-                                    className="size-4"
-                                    aria-hidden
-                                  />
-                                </span>
+                                <IconTile tone="subtle" size="sm">
+                                  <ImageOffIcon aria-hidden />
+                                </IconTile>
                                 <span className="text-xs font-medium">
                                   Deleted
                                 </span>
@@ -551,9 +549,9 @@ export const PhotoManagementDialog = ({
         <DialogContent variant="confirm">
           <DialogBody>
             <DialogHeader>
-              <div className="mb-2 flex size-11 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
-                <Trash2Icon className="size-5" aria-hidden />
-              </div>
+              <IconTile tone="destructive" size="lg" className="mb-2">
+                <Trash2Icon aria-hidden />
+              </IconTile>
               <DialogTitle size="lg">
                 Delete {confirmationCount} {confirmationNoun}?
               </DialogTitle>
