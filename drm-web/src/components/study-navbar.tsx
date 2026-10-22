@@ -48,10 +48,7 @@ export const StudyNavbar = () => {
 
   return (
     <>
-      <nav
-        className="border-b border-border/60 bg-background/55 backdrop-blur-xl"
-        aria-label="Study navigation"
-      >
+      <nav className="surface-bar" aria-label="Study navigation">
         <div className="flex min-h-16 w-full flex-wrap items-center justify-between gap-2 px-4 py-2 sm:px-8">
           <div className="flex items-center gap-3">
             <BlinksLogo className="h-10 w-[140px]" sizes="140px" priority />

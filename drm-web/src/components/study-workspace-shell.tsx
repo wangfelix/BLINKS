@@ -30,7 +30,7 @@ export const StudyWorkspaceShell = ({
       </div>
 
       {progress !== undefined && progressPosition === "full-width" && (
-        <div className="relative z-10 border-b border-border/60 bg-background/55 px-4 py-4 backdrop-blur-xl sm:px-8 sm:py-5">
+        <div className="relative z-10 surface-bar px-4 py-4 sm:px-8 sm:py-5">
           {progress}
         </div>
       )}
@@ -44,8 +44,7 @@ export const StudyWorkspaceShell = ({
         <div
           className={mergeClassNames(
             "w-full self-start",
-            !isPlain &&
-              "overflow-hidden rounded-3xl border border-white/50 bg-background/80 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.35)] ring-1 ring-foreground/5 backdrop-blur-2xl",
+            !isPlain && "overflow-hidden rounded-3xl surface-glass",
           )}
         >
           {progress !== undefined && progressPosition === "card" && (

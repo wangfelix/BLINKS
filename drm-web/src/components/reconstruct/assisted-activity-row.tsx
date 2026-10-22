@@ -40,7 +40,7 @@ const AssistedFieldRow = ({
 }) => (
   <div
     className={mergeClassNames(
-      "grid gap-2 sm:grid-cols-[minmax(0,1fr)_20rem] sm:items-center sm:gap-6",
+      "grid gap-2 sm:grid-cols-field-row sm:items-center sm:gap-6",
       className,
     )}
   >
@@ -146,7 +146,7 @@ export const AssistedActivityRow = ({
                     />
                   )}
                 </button>
-                <figcaption className="pointer-events-none absolute right-2 bottom-2 rounded-full border border-white/15 bg-black/75 px-2 py-1 text-[10px] text-white tabular-nums">
+                <figcaption className="pointer-events-none absolute right-2 bottom-2 rounded-full border border-white/15 bg-black/75 px-2 py-1 text-3xs text-white tabular-nums">
                   {formatTimeOfDay(frame.captureEpochMs)}
                 </figcaption>
               </figure>

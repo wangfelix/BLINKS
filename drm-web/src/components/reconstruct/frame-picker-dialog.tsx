@@ -462,7 +462,7 @@ export const FramePickerDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
+      <DialogContent className="max-h-dialog gap-0 overflow-hidden rounded-3xl bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
         <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7 sm:py-6 sm:pr-20">
           <Row gap="md" align="start">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
@@ -548,7 +548,7 @@ export const FramePickerDialog = ({
               aria-label="Jump to time of day"
               className="hidden max-h-[62vh] w-20 shrink-0 overflow-y-auto rounded-xl border bg-background p-2 sm:block"
             >
-              <p className="px-1 pb-2 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+              <p className="px-1 pb-2 text-3xs font-medium tracking-wide text-muted-foreground uppercase">
                 Jump to
               </p>
               <Column gap="xs">
@@ -631,7 +631,7 @@ export const FramePickerDialog = ({
                         >
                           <div
                             className={mergeClassNames(
-                              "flex min-h-7 items-center justify-between gap-2 border-b px-2 py-1 text-[10px] font-medium",
+                              "flex min-h-7 items-center justify-between gap-2 border-b px-2 py-1 text-3xs font-medium",
                               groupHeaderClasses(group.kind),
                             )}
                           >
@@ -761,7 +761,7 @@ export const FramePickerDialog = ({
                                         className="size-5"
                                         aria-hidden
                                       />
-                                      <span className="text-[11px] font-medium">
+                                      <span className="text-2xs font-medium">
                                         No images available
                                       </span>
                                     </div>
@@ -803,7 +803,7 @@ export const FramePickerDialog = ({
                                   )}
 
                                   {slot.frames.length > MAX_SLOT_PREVIEWS && (
-                                    <span className="pointer-events-none absolute bottom-2 left-2 z-30 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-[9px] font-medium text-white">
+                                    <span className="pointer-events-none absolute bottom-2 left-2 z-30 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-4xs font-medium text-white">
                                       +{slot.frames.length - MAX_SLOT_PREVIEWS}{" "}
                                       images
                                     </span>
@@ -812,7 +812,7 @@ export const FramePickerDialog = ({
                                   {(isStart || isEnd) && (
                                     <span
                                       className={mergeClassNames(
-                                        "pointer-events-none absolute z-30 inline-flex min-h-7 items-center rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-bold tracking-wider text-white uppercase shadow-lg ring-2 ring-white/90",
+                                        "pointer-events-none absolute z-30 inline-flex min-h-7 items-center rounded-lg bg-blue-600 px-3 py-1.5 text-2xs font-bold tracking-wider text-white uppercase shadow-lg ring-2 ring-white/90",
                                         isStart && !isEnd
                                           ? "top-12 left-2"
                                           : "right-2 bottom-2",

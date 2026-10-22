@@ -357,7 +357,7 @@ export const OnboardingWizard = ({
     >
       {passwordSaved ? (
         <div
-          className="onboarding-success-enter flex min-h-[350px] flex-col items-center justify-center text-center"
+          className="onboarding-success-enter flex min-h-step flex-col items-center justify-center text-center"
           aria-live="polite"
         >
           <span className="onboarding-success-ring grid size-20 place-items-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/25">
@@ -603,7 +603,7 @@ export const OnboardingWizard = ({
       ) : (
         <div
           key="complete"
-          className="onboarding-success-enter flex min-h-[350px] flex-col items-center justify-center text-center"
+          className="onboarding-success-enter flex min-h-step flex-col items-center justify-center text-center"
           aria-live="polite"
         >
           <span className="onboarding-success-ring grid size-20 place-items-center rounded-full bg-primary text-primary-foreground shadow-xl shadow-primary/20">

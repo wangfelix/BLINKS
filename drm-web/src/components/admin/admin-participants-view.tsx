@@ -85,7 +85,7 @@ export const AdminParticipantsView = () => {
   return (
     <section className="space-y-4" aria-labelledby="participants-heading">
       <div>
-        <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+        <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
           Account provisioning
         </p>
         <h2 id="participants-heading" className="mt-1 text-2xl font-semibold">

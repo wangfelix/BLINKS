@@ -65,7 +65,7 @@ export const ExperienceRatingScale = ({
     return (
       <div
         className={mergeClassNames(
-          "grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_20rem] sm:items-center sm:gap-6",
+          "grid gap-3 py-4 sm:grid-cols-field-row sm:items-center sm:gap-6",
           className,
         )}
       >

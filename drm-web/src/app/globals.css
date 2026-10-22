@@ -46,6 +46,53 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+@theme inline {
+  --text-2xs: 11px;
+  --text-3xs: 10px;
+  --text-4xs: 9px;
+  --tracking-label: 0.14em;
+  --shadow-panel: 0 24px 80px -28px rgba(15, 23, 42, 0.35);
+  --aspect-photo: 4 / 3;
+}
+
+/* Translucent, blurred card surface used for the main study panels. */
+@utility surface-glass {
+  @apply border border-white/50 bg-background/80 shadow-panel ring-1 ring-foreground/5 backdrop-blur-2xl;
+}
+
+/* Translucent, blurred top bar with a bottom border. */
+@utility surface-bar {
+  @apply border-b border-border/60 bg-background/55 backdrop-blur-xl;
+}
+
+/* Grid of 1px border-coloured lines every 44px. */
+@utility bg-grid {
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+/* Radial fade from opaque in the centre to transparent at 72%. */
+@utility mask-fade-radial {
+  mask-image: radial-gradient(ellipse at center, black, transparent 72%);
+}
+
+/* Dialog height capped to the viewport minus a 0.5rem margin on each side. */
+@utility max-h-dialog {
+  max-height: calc(100dvh - 1rem);
+}
+
+/* Minimum height of a centred step screen. */
+@utility min-h-step {
+  min-height: 350px;
+}
+
+/* Label column that fills the remaining width next to a 20rem control column. */
+@utility grid-cols-field-row {
+  grid-template-columns: minmax(0, 1fr) 20rem;
+}
+
 :root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
