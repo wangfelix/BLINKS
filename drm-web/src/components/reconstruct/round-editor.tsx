@@ -971,14 +971,16 @@ export const RoundEditor = ({
               {notice.description}
             </p>
           </div>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground"
             aria-label="Dismiss notification"
             onClick={() => setNotice(null)}
-            className="rounded-md p-1 text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             <XIcon className="size-4" aria-hidden />
-          </button>
+          </Button>
         </div>
       )}
     </Column>
