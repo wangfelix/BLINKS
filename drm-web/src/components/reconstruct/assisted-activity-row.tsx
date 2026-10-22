@@ -172,7 +172,8 @@ export const AssistedActivityRow = ({
             <Button
               variant="secondary"
               size="sm"
-              className="border-white/30 bg-background/95 hover:bg-background"
+              surface="overlay"
+              className="hover:bg-background"
               onClick={() => onViewPhotos()}
             >
               View all photos
@@ -180,15 +181,16 @@ export const AssistedActivityRow = ({
             <Button
               variant="secondary"
               size="sm"
-              className="border-white/30 bg-background/95 hover:bg-background"
+              surface="overlay"
+              className="hover:bg-background"
               onClick={onAdjustBoundaries}
             >
               Adjust times
             </Button>
             <Button
-              variant="secondary"
+              variant="destructive-ghost"
               size="icon-sm"
-              className="border-white/30 bg-background/95 text-muted-foreground transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white focus-visible:ring-destructive/20 active:translate-y-0"
+              surface="overlay"
               aria-label="Delete activity"
               onClick={onDelete}
             >
