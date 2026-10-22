@@ -23,6 +23,10 @@ import {
   type AdminCellValue,
   type AdminTableName,
 } from "@/lib/admin-api";
+import {
+  SectionBar,
+  sectionBarVariants,
+} from "@/components/layout/section-bar";
 import { mergeClassNames } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -288,7 +292,9 @@ export const AdminTablesView = () => {
       )}
 
       <Card className="gap-0 rounded-2xl bg-background/82 py-0 shadow-lg backdrop-blur-xl">
-        <CardHeader className="border-b border-border/70 py-5">
+        <CardHeader
+          className={sectionBarVariants({ inset: "none", className: "py-5" })}
+        >
           <CardTitle>{copyOf(table).label}</CardTitle>
           <CardDescription>{copyOf(table).description}</CardDescription>
           <CardAction>
@@ -307,7 +313,11 @@ export const AdminTablesView = () => {
 
         <form
           onSubmit={applyFilter}
-          className="grid gap-3 border-b border-border/70 bg-muted/20 px-4 py-4 sm:px-5 md:grid-cols-[minmax(180px,0.55fr)_minmax(260px,1fr)_auto] md:items-end"
+          className={sectionBarVariants({
+            tone: "muted",
+            className:
+              "grid gap-3 md:grid-cols-[minmax(180px,0.55fr)_minmax(260px,1fr)_auto] md:items-end",
+          })}
         >
           <div className="space-y-2">
             <Label htmlFor="admin-table-filter-column">Search column</Label>
@@ -426,7 +436,13 @@ export const AdminTablesView = () => {
           </div>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-muted/25 px-4 py-3 sm:px-5">
+        <SectionBar
+          edge="top"
+          tone="muted"
+          inset="card-compact"
+          layout="toolbar"
+          className="bg-muted/25"
+        >
           <p className="text-xs text-muted-foreground tabular-nums">
             {tableQuery.data === undefined
               ? "Loading row count…"
@@ -452,7 +468,7 @@ export const AdminTablesView = () => {
               <ChevronRightIcon aria-hidden />
             </Button>
           </div>
-        </div>
+        </SectionBar>
       </Card>
     </section>
   );

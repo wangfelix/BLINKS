@@ -18,6 +18,10 @@ import {
   getAdminStudyConfig,
   type AdminPhoto,
 } from "@/lib/admin-api";
+import {
+  SectionBar,
+  sectionBarVariants,
+} from "@/components/layout/section-bar";
 import { captureTimeFormatter } from "@/lib/admin-capture-time";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -135,7 +139,9 @@ export const AdminPhotosView = () => {
       </div>
 
       <Card className="gap-0 rounded-2xl bg-background/82 py-0 shadow-lg backdrop-blur-xl">
-        <CardHeader className="border-b border-border/70 py-5">
+        <CardHeader
+          className={sectionBarVariants({ inset: "none", className: "py-5" })}
+        >
           <CardTitle>Photo library</CardTitle>
           <CardDescription>
             {photosQuery.data === undefined
@@ -165,7 +171,7 @@ export const AdminPhotosView = () => {
         </CardHeader>
 
         {studyConfigQuery.isError ? (
-          <div className="border-b border-border/70 px-4 py-4 sm:px-5">
+          <SectionBar>
             <Alert variant="destructive">
               <AlertTitle>Capture times unavailable</AlertTitle>
               <AlertDescription>
@@ -193,10 +199,13 @@ export const AdminPhotosView = () => {
                 </Button>
               </AlertDescription>
             </Alert>
-          </div>
+          </SectionBar>
         ) : null}
 
-        <div className="grid gap-4 border-b border-border/70 bg-muted/20 px-4 py-4 sm:grid-cols-2 sm:px-5 lg:max-w-3xl">
+        <SectionBar
+          tone="muted"
+          className="grid gap-4 sm:grid-cols-2 lg:max-w-3xl"
+        >
           <div className="space-y-2">
             <Label htmlFor="admin-photo-participant">Participant ID</Label>
             <Select
@@ -264,7 +273,7 @@ export const AdminPhotosView = () => {
               </SelectContent>
             </Select>
           </div>
-        </div>
+        </SectionBar>
 
         {filtersQuery.isError || photosQuery.isError ? (
           <CardContent className="py-10">
@@ -356,7 +365,13 @@ export const AdminPhotosView = () => {
           </CardContent>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-muted/25 px-4 py-3 sm:px-5">
+        <SectionBar
+          edge="top"
+          tone="muted"
+          inset="card-compact"
+          layout="toolbar"
+          className="bg-muted/25"
+        >
           <p className="text-xs text-muted-foreground tabular-nums">
             {photosQuery.data === undefined
               ? "Select a participant"
@@ -382,7 +397,7 @@ export const AdminPhotosView = () => {
               <ChevronRightIcon aria-hidden />
             </Button>
           </div>
-        </div>
+        </SectionBar>
       </Card>
 
       <Dialog

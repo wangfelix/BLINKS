@@ -13,6 +13,7 @@ import {
   UserRoundIcon,
 } from "lucide-react";
 
+import { sectionBarVariants } from "@/components/layout/section-bar";
 import { createAdminParticipant } from "@/lib/admin-api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -99,7 +100,7 @@ export const AdminParticipantsView = () => {
 
       <div className="max-w-4xl">
         <Card className="rounded-2xl bg-background/82 shadow-lg backdrop-blur-xl">
-          <CardHeader className="border-b border-border/70">
+          <CardHeader className={sectionBarVariants({ inset: "none" })}>
             <CardTitle className="flex items-center gap-2">
               <UserPlusIcon className="size-4.5" aria-hidden />
               Create participant

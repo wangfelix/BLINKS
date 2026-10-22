@@ -9,6 +9,7 @@ import {
   RotateCcwIcon,
 } from "lucide-react";
 
+import { SectionBar } from "@/components/layout/section-bar";
 import type { Frame } from "@/lib/api-types";
 import { frameImageSrc } from "@/lib/api-client";
 import { activityDisplayLabel } from "@/lib/activity-vocabulary";
@@ -479,7 +480,12 @@ export const FramePickerDialog = ({
           </Row>
         </DialogHeader>
 
-        <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-5 py-3 sm:px-7">
+        <SectionBar
+          tone="muted"
+          inset="dialog"
+          layout="toolbar"
+          className="min-h-16"
+        >
           <Column gap="xs">
             <p className="text-sm font-medium">Select the time span</p>
             <p className="text-xs text-muted-foreground">
@@ -539,7 +545,7 @@ export const FramePickerDialog = ({
               </select>
             </label>
           </Row>
-        </div>
+        </SectionBar>
 
         <div className="bg-muted/15 p-3 sm:p-5">
           <Row gap="md" align="start">

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { SectionBar } from "@/components/layout/section-bar";
 import { StudyFlowBackground } from "@/components/study-flow-shell";
 import { StudyNavbar } from "@/components/study-navbar";
 import { mergeClassNames } from "@/lib/utils";
@@ -48,9 +49,9 @@ export const StudyWorkspaceShell = ({
           )}
         >
           {progress !== undefined && progressPosition === "card" && (
-            <div className="border-b border-border/70 bg-muted/20 px-5 py-6 sm:px-10">
+            <SectionBar tone="muted" inset="page">
               {progress}
-            </div>
+            </SectionBar>
           )}
 
           <div

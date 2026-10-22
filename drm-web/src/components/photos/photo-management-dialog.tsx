@@ -11,6 +11,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 
+import { SectionBar } from "@/components/layout/section-bar";
 import type { Frame } from "@/lib/api-types";
 import { ApiError, frameImageSrc } from "@/lib/api-client";
 import { formatTimeOfDay } from "@/lib/time";
@@ -280,12 +281,11 @@ export const PhotoManagementDialog = ({
           </DialogHeader>
 
           {!isLoading && loadError === null && (
-            <Row
-              gap="md"
-              align="center"
-              justify="between"
-              wrap
-              className="min-h-14 border-b border-border/70 bg-muted/20 px-5 py-3 sm:px-7"
+            <SectionBar
+              tone="muted"
+              inset="dialog"
+              layout="toolbar"
+              className="min-h-14"
             >
               {isSelectionMode ? (
                 <>
@@ -334,17 +334,17 @@ export const PhotoManagementDialog = ({
                   </Button>
                 </>
               )}
-            </Row>
+            </SectionBar>
           )}
 
           {!isLoading && loadError === null && deletion.isError && (
-            <div className="border-b border-destructive/20 bg-destructive/5 px-5 py-3 sm:px-7">
+            <SectionBar tone="destructive" inset="dialog">
               <Text variant="destructive" role="alert">
                 {deletion.error instanceof ApiError
                   ? deletion.error.message
                   : "Some photos could not be deleted. The gallery was refreshed; please try again."}
               </Text>
-            </div>
+            </SectionBar>
           )}
 
           {isLoading ? (
