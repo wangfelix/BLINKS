@@ -81,7 +81,7 @@ const SurveyContent = () => {
             </AlertDescription>
           </Alert>
         ) : (
-          <Card className="w-full overflow-hidden">
+          <Card className="w-full">
             <CardHeader className="border-b bg-muted/30">
               <CardTitle>Final questionnaire</CardTitle>
               <CardDescription>

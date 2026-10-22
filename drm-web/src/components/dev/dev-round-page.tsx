@@ -10,7 +10,7 @@ import { useRequireAuth } from "@/lib/use-require-auth";
 
 const DevRoundContent = ({ round }: { round: 1 | 2 }) => (
   <StudyWorkspaceShell variant="plain">
-    <Alert className="mb-8 border-amber-300 bg-amber-50/90 dark:bg-amber-950/40">
+    <Alert className="mb-8 border-amber-300 bg-amber-50/90">
       <AlertTitle>Developer preview: round {round}</AlertTitle>
       <AlertDescription>
         This page uses the signed-in participant&apos;s real data. Edits,

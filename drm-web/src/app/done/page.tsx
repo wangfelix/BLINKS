@@ -21,7 +21,7 @@ const DoneContent = () => {
           Please bring the glasses and the study phone back to the lab as
           arranged.
         </p>
-        <Alert className="mt-5 border-sky-300/70 bg-sky-500/5 text-left dark:border-sky-400/30">
+        <Alert className="mt-5 border-sky-300/70 bg-sky-500/5">
           <ImagesIcon aria-hidden />
           <AlertTitle>Your study photos remain available</AlertTitle>
           <AlertDescription>

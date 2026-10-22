@@ -17,13 +17,11 @@ import { AssistedRoundReminder } from "@/components/reconstruct/assisted-round-r
 const INTRO_CONTENT = {
   1: {
     icon: CalendarClockIcon,
-    iconClassName:
-      "bg-sky-500/10 text-sky-700 ring-sky-500/10 dark:text-sky-300",
+    iconClassName: "bg-sky-500/10 text-sky-700 ring-sky-500/10",
   },
   2: {
     icon: SparklesIcon,
-    iconClassName:
-      "bg-violet-500/10 text-violet-700 ring-violet-500/10 dark:text-violet-300",
+    iconClassName: "bg-violet-500/10 text-violet-700 ring-violet-500/10",
   },
 } as const;
 

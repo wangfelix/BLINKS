@@ -98,10 +98,10 @@ const slotAssignmentLabel = (
 
 const groupContainerClasses = (kind: WindowSlotGroupKind): string => {
   if (kind === "current") {
-    return "border border-teal-200/80 bg-teal-50/30 dark:border-teal-900/80 dark:bg-teal-950/15";
+    return "border border-teal-200/80 bg-teal-50/30";
   }
   if (kind === "assigned") {
-    return "border border-violet-200/80 bg-violet-50/30 dark:border-violet-900/80 dark:bg-violet-950/15";
+    return "border border-violet-200/80 bg-violet-50/30";
   }
   if (kind === "unassigned") {
     return "border border-dashed border-destructive/45 bg-destructive/[0.025]";
@@ -111,10 +111,10 @@ const groupContainerClasses = (kind: WindowSlotGroupKind): string => {
 
 const groupHeaderClasses = (kind: WindowSlotGroupKind): string => {
   if (kind === "current") {
-    return "border-teal-200/70 bg-teal-100/45 text-teal-800 dark:border-teal-900 dark:bg-teal-900/25 dark:text-teal-200";
+    return "border-teal-200/70 bg-teal-100/45 text-teal-800";
   }
   if (kind === "assigned") {
-    return "border-violet-200/70 bg-violet-100/45 text-violet-800 dark:border-violet-900 dark:bg-violet-900/25 dark:text-violet-200";
+    return "border-violet-200/70 bg-violet-100/45 text-violet-800";
   }
   if (kind === "unassigned") {
     return "border-destructive/25 bg-destructive/5 text-destructive";
@@ -123,9 +123,9 @@ const groupHeaderClasses = (kind: WindowSlotGroupKind): string => {
 };
 
 const groupDividerClasses = (kind: WindowSlotGroupKind): string => {
-  if (kind === "current") return "border-teal-200/70 dark:border-teal-900";
+  if (kind === "current") return "border-teal-200/70";
   if (kind === "assigned") {
-    return "border-violet-200/70 dark:border-violet-900";
+    return "border-violet-200/70";
   }
   if (kind === "unassigned") return "border-destructive/20";
   return "border-border/50";
@@ -462,7 +462,7 @@ export const FramePickerDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl border-border/70 bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
+      <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
         <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7 sm:py-6 sm:pr-20">
           <Row gap="md" align="start">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
@@ -491,8 +491,7 @@ export const FramePickerDialog = ({
             <label
               className={mergeClassNames(
                 "inline-flex min-h-10 items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1 text-xs",
-                startMs !== null &&
-                  "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
+                startMs !== null && "border-blue-200 bg-blue-50 text-blue-700",
               )}
             >
               <span className="text-muted-foreground">Start</span>
@@ -519,8 +518,7 @@ export const FramePickerDialog = ({
             <label
               className={mergeClassNames(
                 "inline-flex min-h-10 items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1 text-xs",
-                endMs !== null &&
-                  "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
+                endMs !== null && "border-blue-200 bg-blue-50 text-blue-700",
               )}
             >
               <span className="text-muted-foreground">End</span>
@@ -574,7 +572,7 @@ export const FramePickerDialog = ({
                     className={mergeClassNames(
                       "w-full rounded-lg px-2 py-1 text-left text-xs tabular-nums transition-colors outline-none ring-inset hover:bg-muted focus-visible:ring-2 focus-visible:ring-blue-400",
                       activeTimelineEpochMs === mark.epochMs
-                        ? "bg-blue-50 font-semibold text-blue-700 shadow-sm ring-1 ring-blue-300 dark:bg-blue-950/55 dark:text-blue-200 dark:ring-blue-700"
+                        ? "bg-blue-50 font-semibold text-blue-700 shadow-sm ring-1 ring-blue-300"
                         : mark.isFullHour
                           ? "font-medium text-foreground"
                           : "text-muted-foreground",
@@ -737,13 +735,12 @@ export const FramePickerDialog = ({
                                   onClick={() => selectSlot(slot)}
                                   className={mergeClassNames(
                                     "relative flex min-w-0 flex-col overflow-hidden text-left transition-colors outline-none hover:bg-foreground/[0.025] focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                                    isSelected &&
-                                      "z-[1] bg-blue-50/65 dark:bg-blue-950/35",
+                                    isSelected && "z-[1] bg-blue-50/65",
                                     slotColumn > 0 && "border-l",
                                     slotRow > 0 && "border-t",
                                     (slotColumn > 0 || slotRow > 0) &&
                                       (isSelected
-                                        ? "border-blue-200/90 dark:border-blue-800"
+                                        ? "border-blue-200/90"
                                         : groupDividerClasses(group.kind)),
                                   )}
                                 >
@@ -796,7 +793,7 @@ export const FramePickerDialog = ({
                                     <span
                                       aria-hidden
                                       className={mergeClassNames(
-                                        "pointer-events-none absolute inset-0 z-20 border-blue-600 bg-blue-500/12 dark:border-blue-400 dark:bg-blue-400/15",
+                                        "pointer-events-none absolute inset-0 z-20 border-blue-600 bg-blue-500/12",
                                         !selectedAbove && "border-t-[3px]",
                                         !selectedRight && "border-r-[3px]",
                                         !selectedBelow && "border-b-[3px]",
@@ -815,7 +812,7 @@ export const FramePickerDialog = ({
                                   {(isStart || isEnd) && (
                                     <span
                                       className={mergeClassNames(
-                                        "pointer-events-none absolute z-30 inline-flex min-h-7 items-center rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-bold tracking-wider text-white uppercase shadow-lg ring-2 ring-white/90 dark:bg-blue-500 dark:ring-blue-950",
+                                        "pointer-events-none absolute z-30 inline-flex min-h-7 items-center rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-bold tracking-wider text-white uppercase shadow-lg ring-2 ring-white/90",
                                         isStart && !isEnd
                                           ? "top-12 left-2"
                                           : "right-2 bottom-2",
@@ -857,11 +854,7 @@ export const FramePickerDialog = ({
             Clear selection
           </Button>
           <div className="flex flex-col-reverse gap-2 sm:flex-row">
-            <Button
-              variant="outline"
-              className="bg-background"
-              onClick={() => onOpenChange(false)}
-            >
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button

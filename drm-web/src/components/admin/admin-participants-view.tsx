@@ -204,7 +204,7 @@ export const AdminParticipantsView = () => {
 
               {createdParticipant !== null && (
                 <Alert
-                  className="border-emerald-500/25 bg-emerald-500/5 text-emerald-900 dark:text-emerald-200"
+                  className="border-emerald-500/25 bg-emerald-500/5 text-emerald-900"
                   aria-live="polite"
                 >
                   <CheckCircle2Icon aria-hidden />

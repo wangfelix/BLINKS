@@ -90,7 +90,7 @@ export const AdminLogin = ({
                   autoFocus
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
-                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-4 pl-11 text-base backdrop-blur-sm hover:bg-background/80 focus-visible:bg-background"
+                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-4 pl-11 backdrop-blur-sm hover:bg-background/80 focus-visible:bg-background md:text-base"
                 />
               </div>
             </Column>
@@ -109,7 +109,7 @@ export const AdminLogin = ({
                   autoComplete="current-password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-12 pl-11 text-base backdrop-blur-sm hover:bg-background/80 focus-visible:bg-background"
+                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-12 pl-11 backdrop-blur-sm hover:bg-background/80 focus-visible:bg-background md:text-base"
                 />
                 <button
                   type="button"

@@ -261,7 +261,7 @@ export const PhotoManagementDialog = ({
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl border-border/70 bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
+        <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
           <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7 sm:py-6 sm:pr-20">
             <Row gap="md" align="start">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
@@ -302,7 +302,6 @@ export const PhotoManagementDialog = ({
                   <Button
                     variant="outline"
                     size="sm"
-                    className="bg-background"
                     disabled={deletion.isPending}
                     onClick={closeSelectionMode}
                   >
@@ -327,7 +326,6 @@ export const PhotoManagementDialog = ({
                   <Button
                     variant="outline"
                     size="sm"
-                    className="bg-background"
                     disabled={liveFrameCount === 0}
                     onClick={() => setIsSelectionMode(true)}
                   >
@@ -462,15 +460,14 @@ export const PhotoManagementDialog = ({
                               onClick={(event) => toggleSelection(frame, event)}
                               className={mergeClassNames(
                                 "relative overflow-hidden rounded-xl border bg-background text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed",
-                                isSelected &&
-                                  "border-blue-600 dark:border-blue-500",
+                                isSelected && "border-blue-600",
                                 isDeleted && "opacity-70",
                               )}
                             >
                               {content}
                               {isSelected && (
                                 <span
-                                  className="pointer-events-none absolute inset-0 z-10 rounded-[inherit] border-[3.5px] border-blue-600 dark:border-blue-500"
+                                  className="pointer-events-none absolute inset-0 z-10 rounded-[inherit] border-[3.5px] border-blue-600"
                                   aria-hidden
                                 />
                               )}
@@ -479,7 +476,7 @@ export const PhotoManagementDialog = ({
                                   className={mergeClassNames(
                                     "absolute top-2 left-2 z-20 flex size-7 items-center justify-center rounded-lg border-2 bg-background/95",
                                     isSelected &&
-                                      "border-blue-600 bg-blue-600 text-white dark:border-blue-500 dark:bg-blue-500",
+                                      "border-blue-600 bg-blue-600 text-white",
                                   )}
                                   aria-hidden
                                 >
@@ -505,7 +502,7 @@ export const PhotoManagementDialog = ({
                               <Button
                                 variant="destructive"
                                 size="icon-sm"
-                                className="absolute top-2 right-2 border border-destructive/15 bg-background/95 transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0 dark:hover:bg-destructive dark:hover:text-white dark:focus-visible:bg-destructive dark:focus-visible:text-white"
+                                className="absolute top-2 right-2 border-destructive/15 bg-background/95 transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0"
                                 aria-label={`Delete photo from ${formatTimeOfDay(frame.captureEpochMs)}`}
                                 disabled={deletion.isPending}
                                 onClick={() => setConfirmFrames([frame])}
@@ -530,7 +527,7 @@ export const PhotoManagementDialog = ({
               </Text>
               <Button
                 variant="destructive"
-                className="transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0 sm:min-w-44 dark:hover:bg-destructive dark:hover:text-white dark:focus-visible:bg-destructive dark:focus-visible:text-white"
+                className="transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0 sm:min-w-44"
                 disabled={selectedFrames.length === 0 || deletion.isPending}
                 onClick={() => setConfirmFrames(selectedFrames)}
               >
@@ -569,7 +566,6 @@ export const PhotoManagementDialog = ({
           <div className="flex flex-col-reverse gap-2 border-t bg-muted/30 p-4 sm:flex-row sm:justify-end">
             <Button
               variant="outline"
-              className="bg-background"
               disabled={deletion.isPending}
               onClick={() => setConfirmFrames(null)}
             >
@@ -577,7 +573,7 @@ export const PhotoManagementDialog = ({
             </Button>
             <Button
               variant="destructive"
-              className="transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0 dark:hover:bg-destructive dark:hover:text-white dark:focus-visible:bg-destructive dark:focus-visible:text-white"
+              className="transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0"
               disabled={deletion.isPending}
               onClick={confirmDeletion}
             >

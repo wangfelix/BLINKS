@@ -105,9 +105,8 @@ export const AssistedActivityRow = ({
       className={mergeClassNames(
         "overflow-hidden rounded-2xl border bg-card [contain-intrinsic-size:auto_23rem] [content-visibility:auto]",
         activity.isIncorrectAnnotationInjected &&
-          "border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/20",
-        mergeHighlightPhase === "holding" &&
-          "border-yellow-400 bg-yellow-100 dark:border-yellow-600 dark:bg-yellow-900/60",
+          "border-yellow-200 bg-yellow-50",
+        mergeHighlightPhase === "holding" && "border-yellow-400 bg-yellow-100",
         mergeHighlightPhase === "fading" &&
           "transition-[background-color,border-color] duration-[800ms] ease-out motion-reduce:transition-none",
       )}
@@ -173,7 +172,7 @@ export const AssistedActivityRow = ({
             <Button
               variant="secondary"
               size="sm"
-              className="border border-white/30 bg-background/95 hover:bg-background"
+              className="border-white/30 bg-background/95 hover:bg-background"
               onClick={() => onViewPhotos()}
             >
               View all photos
@@ -181,7 +180,7 @@ export const AssistedActivityRow = ({
             <Button
               variant="secondary"
               size="sm"
-              className="border border-white/30 bg-background/95 hover:bg-background"
+              className="border-white/30 bg-background/95 hover:bg-background"
               onClick={onAdjustBoundaries}
             >
               Adjust times
@@ -189,7 +188,7 @@ export const AssistedActivityRow = ({
             <Button
               variant="secondary"
               size="icon-sm"
-              className="border border-white/30 bg-background/95 text-muted-foreground transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white focus-visible:ring-destructive/20 active:translate-y-0 dark:hover:bg-destructive dark:hover:text-white dark:focus-visible:bg-destructive dark:focus-visible:text-white"
+              className="border-white/30 bg-background/95 text-muted-foreground transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white focus-visible:ring-destructive/20 active:translate-y-0"
               aria-label="Delete activity"
               onClick={onDelete}
             >
