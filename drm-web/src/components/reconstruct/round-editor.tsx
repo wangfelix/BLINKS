@@ -162,7 +162,7 @@ const ActivityGapControls = ({
       <PlusIcon />
       Insert activity
       {hasUnassignedImages && (
-        <span className="ml-1 rounded-full bg-destructive px-2 py-0.5 text-[10px] font-semibold text-white">
+        <span className="ml-1 rounded-full bg-destructive px-2 py-0.5 text-3xs font-semibold text-white">
           Unassigned images
         </span>
       )}
@@ -189,7 +189,7 @@ const ActivityGapControls = ({
         <FoldVerticalIcon />
         Merge
         {suggestsMerge && (
-          <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-amber-950">
+          <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-3xs font-semibold text-amber-950">
             Same activity
           </span>
         )}

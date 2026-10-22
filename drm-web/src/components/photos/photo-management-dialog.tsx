@@ -261,7 +261,7 @@ export const PhotoManagementDialog = ({
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
+        <DialogContent className="max-h-dialog gap-0 overflow-hidden rounded-3xl bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
           <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7 sm:py-6 sm:pr-20">
             <Row gap="md" align="start">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
@@ -438,7 +438,7 @@ export const PhotoManagementDialog = ({
                                 aria-hidden
                               />
                             )}
-                            <span className="pointer-events-none absolute bottom-2 left-2 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-[10px] font-medium text-white tabular-nums">
+                            <span className="pointer-events-none absolute bottom-2 left-2 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-3xs font-medium text-white tabular-nums">
                               {formatTimeOfDay(frame.captureEpochMs)}
                             </span>
                           </div>

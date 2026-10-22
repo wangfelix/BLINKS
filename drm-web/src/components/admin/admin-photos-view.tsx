@@ -122,7 +122,7 @@ export const AdminPhotosView = () => {
   return (
     <section className="space-y-4" aria-labelledby="photos-heading">
       <div>
-        <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+        <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
           Anonymized image review
         </p>
         <h2 id="photos-heading" className="mt-1 text-2xl font-semibold">
@@ -310,7 +310,7 @@ export const AdminPhotosView = () => {
                     {available ? (
                       <button
                         type="button"
-                        className="relative block aspect-[4/3] w-full overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                        className="relative block aspect-photo w-full overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                         onClick={() => setSelectedPhoto(frame)}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element -- authenticated image; Next image optimization cannot attach the admin cookie */}
@@ -323,12 +323,12 @@ export const AdminPhotosView = () => {
                           className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.03] motion-reduce:transition-none"
                         />
                         <span className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/55 to-transparent" />
-                        <span className="absolute bottom-2 left-2 text-[10px] font-medium text-white tabular-nums">
+                        <span className="absolute bottom-2 left-2 text-3xs font-medium text-white tabular-nums">
                           {dateTimeFormat.format(frame.captureEpochMs)}
                         </span>
                       </button>
                     ) : (
-                      <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-muted/60 text-muted-foreground">
+                      <div className="flex aspect-photo flex-col items-center justify-center gap-2 bg-muted/60 text-muted-foreground">
                         <ImageOffIcon className="size-5" aria-hidden />
                         <Badge
                           variant={
@@ -341,7 +341,7 @@ export const AdminPhotosView = () => {
                         </Badge>
                       </div>
                     )}
-                    <figcaption className="space-y-0.5 px-2.5 py-2 text-[11px]">
+                    <figcaption className="space-y-0.5 px-2.5 py-2 text-2xs">
                       <p className="truncate font-medium" title={frame.device}>
                         {frame.device}
                       </p>
@@ -391,7 +391,7 @@ export const AdminPhotosView = () => {
           if (!open) setSelectedPhoto(null);
         }}
       >
-        <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl bg-background p-0 sm:max-w-6xl">
+        <DialogContent className="max-h-dialog gap-0 overflow-hidden rounded-3xl bg-background p-0 sm:max-w-6xl">
           <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7">
             <DialogTitle>Study photo</DialogTitle>
             <DialogDescription>

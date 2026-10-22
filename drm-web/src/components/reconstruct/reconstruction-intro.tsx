@@ -73,7 +73,7 @@ export const ReconstructionIntro = ({
         )
       }
     >
-      <div className="onboarding-step-enter onboarding-stagger mx-auto flex min-h-[350px] max-w-2xl flex-col justify-center">
+      <div className="onboarding-step-enter onboarding-stagger mx-auto flex min-h-step max-w-2xl flex-col justify-center">
         <div className="flex items-start gap-4 sm:gap-5">
           <span
             className={`grid size-12 shrink-0 place-items-center rounded-2xl ring-1 sm:size-14 ${content.iconClassName}`}

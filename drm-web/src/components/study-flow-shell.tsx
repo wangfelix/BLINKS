@@ -11,7 +11,7 @@ export const StudyFlowBackground = () => (
     <div className="onboarding-orb onboarding-orb-one absolute -top-24 -left-20 size-80 rounded-full bg-sky-300/35 blur-3xl" />
     <div className="onboarding-orb onboarding-orb-two absolute top-1/4 -right-32 size-96 rounded-full bg-violet-300/30 blur-3xl" />
     <div className="onboarding-orb onboarding-orb-three absolute -bottom-32 left-1/3 size-96 rounded-full bg-emerald-200/35 blur-3xl" />
-    <div className="absolute inset-0 bg-[linear-gradient(to_right,var(--border)_1px,transparent_1px),linear-gradient(to_bottom,var(--border)_1px,transparent_1px)] [mask-image:radial-gradient(ellipse_at_center,black,transparent_72%)] bg-[size:44px_44px] opacity-[0.16]" />
+    <div className="absolute inset-0 bg-grid mask-fade-radial opacity-16" />
   </div>
 );
 
@@ -31,7 +31,7 @@ export const StudyFlowShell = ({
   <main className="relative flex min-h-dvh flex-col overflow-hidden bg-background">
     <StudyFlowBackground />
 
-    <header className="relative z-10 flex min-h-16 items-center justify-between border-b border-border/60 bg-background/55 px-4 backdrop-blur-xl sm:px-8">
+    <header className="relative z-10 flex min-h-16 items-center justify-between surface-bar px-4 sm:px-8">
       <div className="flex items-center gap-3">
         <BlinksLogo className="h-10 w-[140px]" priority />
         <p className="hidden border-l pl-3 text-xs text-muted-foreground sm:block">
@@ -47,7 +47,7 @@ export const StudyFlowShell = ({
         maxWidthClassName,
       )}
     >
-      <div className="w-full overflow-hidden rounded-3xl border border-white/50 bg-background/80 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.35)] ring-1 ring-foreground/5 backdrop-blur-2xl">
+      <div className="w-full overflow-hidden rounded-3xl surface-glass">
         {progress !== undefined && (
           <div className="border-b border-border/70 bg-muted/20 px-5 py-6 sm:px-10">
             {progress}

@@ -80,9 +80,9 @@ const ReadOnlyActivityCard = ({
           {thumbnails.map((frame) => (
             <figure key={frameIdentityKey(frame)} className="w-20 shrink-0">
               {frame.deletedAt !== null ? (
-                <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-0.5 rounded-md border bg-muted text-muted-foreground">
+                <div className="flex aspect-photo w-full flex-col items-center justify-center gap-0.5 rounded-md border bg-muted text-muted-foreground">
                   <ImageOffIcon className="size-4" aria-hidden />
-                  <span className="text-[9px] font-medium">Deleted</span>
+                  <span className="text-4xs font-medium">Deleted</span>
                 </div>
               ) : (
                 /* eslint-disable-next-line @next/next/no-img-element -- authenticated cross-origin image; the Next image proxy cannot forward the auth cookie */
@@ -90,10 +90,10 @@ const ReadOnlyActivityCard = ({
                   src={frameImageSrc(frame.imageUrl!)}
                   alt={`Frame at ${formatTimeOfDay(frame.captureEpochMs)}`}
                   loading="lazy"
-                  className="aspect-[4/3] w-full rounded-md border bg-muted object-cover"
+                  className="aspect-photo w-full rounded-md border bg-muted object-cover"
                 />
               )}
-              <figcaption className="mt-0.5 text-center text-[10px] text-muted-foreground tabular-nums">
+              <figcaption className="mt-0.5 text-center text-3xs text-muted-foreground tabular-nums">
                 {formatTimeOfDay(frame.captureEpochMs)}
               </figcaption>
             </figure>

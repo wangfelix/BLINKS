@@ -206,7 +206,7 @@ export const AdminTablesView = () => {
     <section className="space-y-4" aria-labelledby="database-heading">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
         <div>
-          <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+          <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
             Research database
           </p>
           <h2 id="database-heading" className="mt-1 text-2xl font-semibold">
