@@ -22,7 +22,7 @@ import { Text } from "@/components/layout/text";
 import { StudyFlowShell } from "@/components/study-flow-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export const AdminLogin = ({
@@ -78,52 +78,50 @@ export const AdminLogin = ({
           <form onSubmit={handleSubmit} className="mt-6 space-y-5">
             <Column gap="sm">
               <Label htmlFor="admin-username">Admin profile</Label>
-              <div className="relative">
-                <UserRoundCogIcon
-                  className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden
-                />
-                <Input
-                  id="admin-username"
-                  name="username"
-                  autoComplete="username"
-                  autoFocus
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-4 pl-11 backdrop-blur-sm hover:bg-background/80 focus-visible:bg-background md:text-base"
-                />
-              </div>
+              <InputGroup
+                icon={<UserRoundCogIcon />}
+                size="xl"
+                surface="frosted"
+                id="admin-username"
+                name="username"
+                autoComplete="username"
+                autoFocus
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+              />
             </Column>
 
             <Column gap="sm">
               <Label htmlFor="admin-password">Password</Label>
-              <div className="relative">
-                <LockKeyholeIcon
-                  className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden
-                />
-                <Input
-                  id="admin-password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-12 pl-11 backdrop-blur-sm hover:bg-background/80 focus-visible:bg-background md:text-base"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((visible) => !visible)}
-                  className="absolute top-1/2 right-2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? (
-                    <EyeOffIcon className="size-4" aria-hidden />
-                  ) : (
-                    <EyeIcon className="size-4" aria-hidden />
-                  )}
-                </button>
-              </div>
+              <InputGroup
+                icon={<LockKeyholeIcon />}
+                action={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground"
+                    onClick={() => setShowPassword((visible) => !visible)}
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
+                  >
+                    {showPassword ? (
+                      <EyeOffIcon aria-hidden />
+                    ) : (
+                      <EyeIcon aria-hidden />
+                    )}
+                  </Button>
+                }
+                size="xl"
+                surface="frosted"
+                id="admin-password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
             </Column>
 
             {mutation.isError && (
