@@ -143,12 +143,29 @@ function DialogHeader({
   );
 }
 
-/** Padded content section of a flush dialog. */
-function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
+const dialogBodyVariants = cva("", {
+  variants: {
+    variant: {
+      /** Padded content section of a flush dialog. */
+      default: "px-5 py-6 pr-14 sm:px-6",
+      /** Tinted content section with even padding, for photo grids. */
+      media: "bg-muted/15 p-3 sm:p-5",
+    },
+  },
+  defaultVariants: {
+    variant: "default",
+  },
+});
+
+function DialogBody({
+  className,
+  variant,
+  ...props
+}: React.ComponentProps<"div"> & VariantProps<typeof dialogBodyVariants>) {
   return (
     <div
       data-slot="dialog-body"
-      className={cn("px-5 py-6 pr-14 sm:px-6", className)}
+      className={cn(dialogBodyVariants({ variant }), className)}
       {...props}
     />
   );
