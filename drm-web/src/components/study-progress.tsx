@@ -7,6 +7,7 @@ import type { RoundState } from "@/lib/api-types";
 import { getStudyState } from "@/lib/api-client";
 import { getStudyConfig } from "@/lib/study-config-store";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Column } from "@/components/layout/flex";
 import { mergeClassNames } from "@/lib/utils";
 
 type StudyPage = "reconstruction" | "surveys";
@@ -50,13 +51,10 @@ const StepperSkeleton = () => (
       aria-hidden
     />
     {[1, 2, 3].map((step) => (
-      <div
-        key={step}
-        className="relative z-10 flex flex-col items-center gap-1.5"
-      >
+      <Column key={step} align="center" className="relative z-10 gap-1.5">
         <Skeleton className="size-7 rounded-full" />
         <Skeleton className="h-3 w-20" />
-      </div>
+      </Column>
     ))}
   </div>
 );

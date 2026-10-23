@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { SectionBar } from "@/components/layout/section-bar";
 import { BlinksLogo } from "@/components/blinks-logo";
+import { Row } from "@/components/layout/flex";
 import { mergeClassNames } from "@/lib/utils";
 
 export const StudyFlowBackground = () => (
@@ -33,12 +34,12 @@ export const StudyFlowShell = ({
     <StudyFlowBackground />
 
     <header className="relative z-10 flex min-h-16 items-center justify-between surface-bar px-4 sm:px-8">
-      <div className="flex items-center gap-3">
+      <Row gap="md" align="center">
         <BlinksLogo className="h-10 w-[140px]" priority />
         <p className="hidden border-l pl-3 text-xs text-muted-foreground sm:block">
           KIT - KD2Lab
         </p>
-      </div>
+      </Row>
       {headerTrailing}
     </header>
 
