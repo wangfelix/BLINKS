@@ -22,6 +22,7 @@ import {
   type EditableActivity,
 } from "@/components/reconstruct/editor-types";
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
+import { Column, Row } from "@/components/layout/flex";
 
 export type MergeHighlightPhase = "holding" | "fading";
 
@@ -113,7 +114,7 @@ export const AssistedActivityRow = ({
     >
       <div className="relative isolate overflow-hidden bg-muted">
         {thumbnails.length > 0 ? (
-          <div className="flex h-40 overflow-x-auto sm:h-44">
+          <Row className="h-40 overflow-x-auto sm:h-44">
             {thumbnails.map((frame) => (
               <figure
                 key={frameIdentityKey(frame)}
@@ -151,24 +152,33 @@ export const AssistedActivityRow = ({
                 </figcaption>
               </figure>
             ))}
-          </div>
+          </Row>
         ) : (
-          <div className="flex h-40 flex-col items-center justify-center gap-2 text-muted-foreground sm:h-44">
+          <Column
+            gap="sm"
+            align="center"
+            justify="center"
+            className="h-40 text-muted-foreground sm:h-44"
+          >
             <ImageOffIcon className="size-8" aria-hidden />
             <span className="text-sm font-medium">No images available</span>
-          </div>
+          </Column>
         )}
 
         <div
           className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/55 via-black/20 to-transparent"
           aria-hidden
         />
-        <div className="absolute inset-x-3 top-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <Column
+          gap="sm"
+          align="start"
+          className="absolute inset-x-3 top-3 z-10 sm:flex-row sm:items-start sm:justify-between"
+        >
           <span className="rounded-full border border-white/20 bg-black/75 px-3 py-1.5 text-sm font-medium text-white tabular-nums">
             {formatTimeSpan(startMs, endMs)}
           </span>
 
-          <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <Row align="center" justify="end" wrap className="gap-1.5">
             <Button
               variant="secondary"
               size="sm"
@@ -196,8 +206,8 @@ export const AssistedActivityRow = ({
             >
               <Trash2Icon />
             </Button>
-          </div>
-        </div>
+          </Row>
+        </Column>
 
         {!hasLivePhotos && thumbnails.length > 0 && (
           <span className="absolute bottom-3 left-3 rounded-full bg-background/95 px-3 py-1.5 text-xs font-medium text-muted-foreground">

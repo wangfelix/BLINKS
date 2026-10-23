@@ -348,14 +348,22 @@ export const PhotoManagementDialog = ({
           )}
 
           {isLoading ? (
-            <div className="flex min-h-72 items-center justify-center bg-muted/15 px-5 py-12">
+            <Row
+              align="center"
+              justify="center"
+              className="min-h-72 bg-muted/15 px-5 py-12"
+            >
               <Row gap="sm" align="center">
                 <LoaderCircleIcon className="animate-spin" aria-hidden />
                 <Text variant="secondary">Loading photos…</Text>
               </Row>
-            </div>
+            </Row>
           ) : loadError !== null ? (
-            <div className="flex min-h-72 items-center justify-center bg-muted/15 px-5 py-12">
+            <Row
+              align="center"
+              justify="center"
+              className="min-h-72 bg-muted/15 px-5 py-12"
+            >
               <Column gap="md" align="center" className="max-w-md text-center">
                 <Text variant="destructive" role="alert">
                   {loadError}
@@ -366,16 +374,20 @@ export const PhotoManagementDialog = ({
                   </Button>
                 )}
               </Column>
-            </div>
+            </Row>
           ) : orderedFrames.length === 0 ? (
-            <div className="flex min-h-72 items-center justify-center bg-muted/15 px-5 py-12">
+            <Row
+              align="center"
+              justify="center"
+              className="min-h-72 bg-muted/15 px-5 py-12"
+            >
               <Column gap="sm" align="center" className="max-w-md text-center">
                 <IconTile tone="outline" size="xl">
                   <ImageOffIcon aria-hidden />
                 </IconTile>
                 <Text variant="secondary">{emptyMessage}</Text>
               </Column>
-            </div>
+            </Row>
           ) : (
             <div className="bg-muted/15 p-3 sm:p-5">
               {liveFrameCount === 0 && (
@@ -411,14 +423,18 @@ export const PhotoManagementDialog = ({
                             style={{ height: thumbnailHeight }}
                           >
                             {isDeleted ? (
-                              <div className="flex size-full flex-col items-center justify-center gap-1.5 bg-muted/70 text-muted-foreground">
+                              <Column
+                                align="center"
+                                justify="center"
+                                className="size-full gap-1.5 bg-muted/70 text-muted-foreground"
+                              >
                                 <IconTile tone="subtle" size="sm">
                                   <ImageOffIcon aria-hidden />
                                 </IconTile>
                                 <span className="text-xs font-medium">
                                   Deleted
                                 </span>
-                              </div>
+                              </Column>
                             ) : (
                               /* eslint-disable-next-line @next/next/no-img-element -- authenticated image; the Next image proxy cannot forward the auth cookie */
                               <img

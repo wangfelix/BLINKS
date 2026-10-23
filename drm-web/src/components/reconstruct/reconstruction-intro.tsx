@@ -13,6 +13,7 @@ import { StudyFlowShell } from "@/components/study-flow-shell";
 import { StudyProgress } from "@/components/study-progress";
 import { Button } from "@/components/ui/button";
 import { AssistedRoundReminder } from "@/components/reconstruct/assisted-round-reminder";
+import { Column, Row } from "@/components/layout/flex";
 
 const INTRO_CONTENT = {
   1: {
@@ -73,8 +74,11 @@ export const ReconstructionIntro = ({
         )
       }
     >
-      <div className="onboarding-step-enter onboarding-stagger mx-auto flex min-h-step max-w-2xl flex-col justify-center">
-        <div className="flex items-start gap-4 sm:gap-5">
+      <Column
+        justify="center"
+        className="onboarding-step-enter onboarding-stagger mx-auto min-h-step max-w-2xl"
+      >
+        <Row gap="lg" align="start" className="sm:gap-5">
           <span
             className={`grid size-12 shrink-0 place-items-center rounded-2xl ring-1 sm:size-14 ${content.iconClassName}`}
           >
@@ -93,9 +97,9 @@ export const ReconstructionIntro = ({
             </p>
             {round === 2 && <AssistedRoundReminder className="mt-6" />}
           </div>
-        </div>
+        </Row>
 
-        <div className="mt-9 flex justify-end">
+        <Row justify="end" className="mt-9">
           <Button
             size="lg"
             className="w-full shadow-md sm:w-auto"
@@ -104,8 +108,8 @@ export const ReconstructionIntro = ({
             Continue
             <ArrowRightIcon aria-hidden />
           </Button>
-        </div>
-      </div>
+        </Row>
+      </Column>
     </StudyFlowShell>
   );
 };

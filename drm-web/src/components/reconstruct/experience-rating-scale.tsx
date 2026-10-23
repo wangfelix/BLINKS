@@ -84,10 +84,10 @@ export const ExperienceRatingScale = ({
           >
             {ratingButtons}
           </div>
-          <div className="mt-1.5 flex items-center justify-between px-0.5">
+          <Row align="center" justify="between" className="mt-1.5 px-0.5">
             <Text variant="nudge">{copy.lowAnchor}</Text>
             <Text variant="nudge">{copy.highAnchor}</Text>
-          </div>
+          </Row>
         </div>
       </div>
     );

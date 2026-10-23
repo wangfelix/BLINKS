@@ -6,6 +6,7 @@ import { CalendarX2Icon, Clock3Icon, LogOutIcon } from "lucide-react";
 import { StudyFlowShell } from "@/components/study-flow-shell";
 import { StudyProgress } from "@/components/study-progress";
 import { Button } from "@/components/ui/button";
+import { Column } from "@/components/layout/flex";
 
 type ReconstructionStatus =
   { kind: "no-recorded-day" } | { kind: "opens-later"; availableFrom: string };
@@ -38,7 +39,11 @@ export const ReconstructionStatusScreen = ({
         </Button>
       }
     >
-      <div className="onboarding-step-enter onboarding-stagger mx-auto flex min-h-step max-w-xl flex-col items-center justify-center text-center">
+      <Column
+        align="center"
+        justify="center"
+        className="onboarding-step-enter onboarding-stagger mx-auto min-h-step max-w-xl text-center"
+      >
         <span className="grid size-16 place-items-center rounded-2xl bg-sky-500/10 text-sky-700 ring-1 ring-sky-500/10">
           <Icon className="size-7" aria-hidden />
         </span>
@@ -70,7 +75,7 @@ export const ReconstructionStatusScreen = ({
           <LogOutIcon aria-hidden />
           Log out
         </Button>
-      </div>
+      </Column>
     </StudyFlowShell>
   );
 };
