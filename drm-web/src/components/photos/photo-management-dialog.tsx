@@ -389,7 +389,7 @@ export const PhotoManagementDialog = ({
               </Column>
             </Row>
           ) : (
-            <div className="bg-muted/15 p-3 sm:p-5">
+            <DialogBody variant="media">
               {liveFrameCount === 0 && (
                 <Text variant="secondary" className="pb-3 text-center">
                   No photos remaining. Deleted placeholders are shown below.
@@ -532,7 +532,7 @@ export const PhotoManagementDialog = ({
                   ))}
                 </div>
               </div>
-            </div>
+            </DialogBody>
           )}
 
           {!isLoading && loadError === null && isSelectionMode && (

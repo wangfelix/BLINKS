@@ -19,6 +19,7 @@ import { IconTile } from "@/components/layout/icon-tile";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -548,7 +549,7 @@ export const FramePickerDialog = ({
           </Row>
         </SectionBar>
 
-        <div className="bg-muted/15 p-3 sm:p-5">
+        <DialogBody variant="media">
           <Row gap="md" align="start">
             <nav
               ref={timelineNavRef}
@@ -849,7 +850,7 @@ export const FramePickerDialog = ({
               </div>
             </div>
           </Row>
-        </div>
+        </DialogBody>
 
         <DialogFooter variant="split" className="flex-col gap-3">
           <Button
