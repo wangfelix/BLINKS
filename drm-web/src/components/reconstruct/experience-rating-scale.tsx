@@ -87,8 +87,8 @@ export const ExperienceRatingScale = ({
             {ratingButtons}
           </Grid>
           <Row align="center" justify="between" className="mt-1.5 px-0.5">
-            <Text variant="nudge">{copy.lowAnchor}</Text>
-            <Text variant="nudge">{copy.highAnchor}</Text>
+            <Text variant="caption">{copy.lowAnchor}</Text>
+            <Text variant="caption">{copy.highAnchor}</Text>
           </Row>
         </Box>
       </Grid>
@@ -111,9 +111,9 @@ export const ExperienceRatingScale = ({
         aria-label={item.question}
         aria-invalid={invalid || undefined}
       >
-        <Text variant="nudge">{copy.lowAnchor}</Text>
+        <Text variant="caption">{copy.lowAnchor}</Text>
         {ratingButtons}
-        <Text variant="nudge">{copy.highAnchor}</Text>
+        <Text variant="caption">{copy.highAnchor}</Text>
       </Row>
     </Row>
   );

@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/select";
 import { Column, Row } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
+import { Text } from "@/components/layout/text";
 
 const PAGE_SIZE = 96;
 const countFormat = new Intl.NumberFormat("en");
@@ -131,13 +132,18 @@ export const AdminPhotosView = () => {
         <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
           Anonymized image review
         </p>
-        <h2 id="photos-heading" className="mt-1 text-2xl font-semibold">
+        <Text
+          as="h2"
+          variant="heading"
+          id="photos-heading"
+          className="mt-1 text-2xl"
+        >
           Study photos
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        </Text>
+        <Text tone="muted" className="mt-1">
           Filter by participant and recording session. Only successfully
           face-anonymized, non-deleted files can be opened.
-        </p>
+        </Text>
       </header>
 
       <Card className="gap-0 rounded-2xl bg-background/82 py-0 shadow-lg backdrop-blur-xl">
@@ -177,13 +183,13 @@ export const AdminPhotosView = () => {
             <Alert variant="destructive">
               <AlertTitle>Capture times unavailable</AlertTitle>
               <AlertDescription>
-                <p>
+                <Text variant="inherit">
                   The study configuration could not be loaded, so capture times
                   cannot be shown in the study timezone.
                   {studyConfigQuery.error instanceof Error
                     ? ` (${studyConfigQuery.error.message})`
                     : ""}
-                </p>
+                </Text>
                 <Button
                   variant="outline"
                   size="sm"
@@ -231,9 +237,13 @@ export const AdminPhotosView = () => {
                   <SelectItem key={item.participant} value={item.participant}>
                     <span className="flex w-full items-center justify-between gap-6">
                       <span>{item.participant}</span>
-                      <span className="text-xs text-muted-foreground tabular-nums">
+                      <Text
+                        as="span"
+                        variant="caption"
+                        className="tabular-nums"
+                      >
                         {countFormat.format(item.frame_count)} frames
-                      </span>
+                      </Text>
                     </span>
                   </SelectItem>
                 ))}
@@ -265,10 +275,10 @@ export const AdminPhotosView = () => {
                   <SelectItem key={item.session} value={String(item.session)}>
                     <span className="flex flex-col py-0.5">
                       <span className="font-mono text-xs">{item.session}</span>
-                      <span className="text-xs text-muted-foreground">
+                      <Text as="span" variant="caption">
                         {dateTimeFormat.format(item.started_at_ms)} ·{" "}
                         {countFormat.format(item.frame_count)} frames
-                      </span>
+                      </Text>
                     </span>
                   </SelectItem>
                 ))}
@@ -383,11 +393,11 @@ export const AdminPhotosView = () => {
           layout="toolbar"
           className="bg-muted/25"
         >
-          <p className="text-xs text-muted-foreground tabular-nums">
+          <Text variant="caption" className="tabular-nums">
             {photosQuery.data === undefined
               ? "Select a participant"
               : `${countFormat.format(photosQuery.data.total)} frames · Page ${page} of ${totalPages}`}
-          </p>
+          </Text>
           <Row gap="sm">
             <Button
               variant="outline"

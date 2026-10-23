@@ -14,6 +14,7 @@ import { StudyProgress } from "@/components/study-progress";
 import { Button } from "@/components/ui/button";
 import { AssistedRoundReminder } from "@/components/reconstruct/assisted-round-reminder";
 import { Column, Row } from "@/components/layout/flex";
+import { Text } from "@/components/layout/text";
 
 const INTRO_CONTENT = {
   1: {
@@ -85,13 +86,15 @@ export const ReconstructionIntro = ({
             <Icon className="size-5 sm:size-6" aria-hidden />
           </span>
           <header>
-            <h1
+            <Text
+              as="h1"
+              variant="title"
               ref={headingRef}
               tabIndex={-1}
-              className="text-2xl font-semibold tracking-tight outline-none sm:text-3xl"
+              className="outline-none sm:text-3xl"
             >
               {title}
-            </h1>
+            </Text>
             <p className="mt-3 text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">
               {description}
             </p>

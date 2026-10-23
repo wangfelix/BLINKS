@@ -118,7 +118,7 @@ export const SelfActivityRow = ({
         );
       })}
 
-      {showIssueMessage && <Text variant="destructive">{issue}</Text>}
+      {showIssueMessage && <Text tone="destructive">{issue}</Text>}
     </Column>
   );
 };

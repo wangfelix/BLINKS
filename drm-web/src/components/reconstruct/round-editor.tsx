@@ -716,14 +716,16 @@ export const RoundEditor = ({
     <Column gap="lg">
       <Row gap="sm" align="center" justify="between" wrap>
         <Column>
-          <h2 className="text-lg font-semibold">{formatDayLabel(day)}</h2>
-          <Text variant="secondary">{editorHint}</Text>
+          <Text as="h2" variant="heading">
+            {formatDayLabel(day)}
+          </Text>
+          <Text tone="muted">{editorHint}</Text>
         </Column>
         <Row gap="md" align="center">
           {saveState !== "idle" && (
-            <span className="text-xs text-muted-foreground" aria-live="polite">
+            <Text as="span" variant="caption" aria-live="polite">
               {SAVE_INDICATOR_TEXT[saveState]}
-            </span>
+            </Text>
           )}
           <Button
             disabled={!isReadyToSubmit}
@@ -745,7 +747,7 @@ export const RoundEditor = ({
             }
           />
           {hasNoActivities && (
-            <Text variant="secondary" className="py-4 text-center">
+            <Text tone="muted" className="py-4 text-center">
               No activities yet — use “Insert activity” to add the first one.
             </Text>
           )}
@@ -807,7 +809,7 @@ export const RoundEditor = ({
       ) : (
         <Column gap="md">
           {hasNoActivities && (
-            <Text variant="secondary" className="py-4 text-center">
+            <Text tone="muted" className="py-4 text-center">
               {roundTexts.selfEmptyStateHint}
             </Text>
           )}
@@ -893,7 +895,7 @@ export const RoundEditor = ({
             </DialogDescription>
           </DialogHeader>
           {submitMutation.isError && (
-            <Text variant="destructive">
+            <Text tone="destructive">
               {submitMutation.error instanceof ApiError
                 ? submitMutation.error.message
                 : "Submitting failed. Please try again."}
@@ -969,10 +971,12 @@ export const RoundEditor = ({
             aria-hidden
           />
           <Box className="min-w-0 flex-1">
-            <p className="text-sm font-semibold">{notice.title}</p>
-            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+            <Text variant="label" weight="semibold">
+              {notice.title}
+            </Text>
+            <Text tone="muted" className="mt-1 leading-relaxed">
               {notice.description}
-            </p>
+            </Text>
           </Box>
           <Button
             type="button"

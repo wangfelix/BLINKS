@@ -5,6 +5,7 @@ import { SectionBar } from "@/components/layout/section-bar";
 import { BlinksLogo } from "@/components/blinks-logo";
 import { Row } from "@/components/layout/flex";
 import { Box } from "@/components/layout/box";
+import { Text } from "@/components/layout/text";
 import { mergeClassNames } from "@/lib/utils";
 
 export const StudyFlowBackground = () => (
@@ -38,9 +39,9 @@ export const StudyFlowShell = ({
     <header className="relative z-10 flex min-h-16 items-center justify-between surface-bar px-4 sm:px-8">
       <Row gap="md" align="center">
         <BlinksLogo className="h-10 w-[140px]" priority />
-        <p className="hidden border-l pl-3 text-xs text-muted-foreground sm:block">
+        <Text variant="caption" className="hidden border-l pl-3 sm:block">
           KIT - KD2Lab
-        </p>
+        </Text>
       </Row>
       {headerTrailing}
     </header>

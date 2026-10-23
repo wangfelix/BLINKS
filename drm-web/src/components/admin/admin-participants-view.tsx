@@ -29,6 +29,7 @@ import { Label } from "@/components/ui/label";
 import { Column, Row } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
 import { Container } from "@/components/layout/container";
+import { Text } from "@/components/layout/text";
 
 export const AdminParticipantsView = () => {
   const queryClient = useQueryClient();
@@ -92,13 +93,18 @@ export const AdminParticipantsView = () => {
         <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
           Account provisioning
         </p>
-        <h2 id="participants-heading" className="mt-1 text-2xl font-semibold">
+        <Text
+          as="h2"
+          variant="heading"
+          id="participants-heading"
+          className="mt-1 text-2xl"
+        >
           Participants
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        </Text>
+        <Text tone="muted" className="mt-1">
           Create a participant login and its matching recordings profile in one
           controlled step.
-        </p>
+        </Text>
       </header>
 
       <Container size="4xl" center={false} fill={false}>
@@ -129,9 +135,9 @@ export const AdminParticipantsView = () => {
                   onChange={(event) => setParticipantId(event.target.value)}
                   placeholder="participant21"
                 />
-                <p className="text-xs text-muted-foreground">
+                <Text variant="caption">
                   Letters, digits, hyphens, and underscores only.
-                </p>
+                </Text>
               </Column>
 
               <Grid gap="lg" className="sm:grid-cols-2">

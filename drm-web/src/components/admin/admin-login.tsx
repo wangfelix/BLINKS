@@ -57,10 +57,10 @@ export const AdminLogin = ({
       >
         <Column gap="sm" className="text-center">
           <Text variant="eyebrow">BLINKS study operations</Text>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+          <Text as="h1" variant="title" className="sm:text-3xl">
             Research dashboard
-          </h1>
-          <Text variant="secondary" className="leading-relaxed">
+          </Text>
+          <Text tone="muted" className="leading-relaxed">
             Review research tables, export structured data, inspect anonymized
             study photos, and provision participant accounts.
           </Text>
@@ -68,12 +68,12 @@ export const AdminLogin = ({
 
         <Container size="sm" className="border-t border-border/60 pt-7">
           <header className="text-center">
-            <h2 className="text-lg font-semibold tracking-tight">
+            <Text as="h2" variant="heading" className="tracking-tight">
               Administrator sign-in
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            </Text>
+            <Text tone="muted" className="mt-1">
               Participant accounts cannot access this area.
-            </p>
+            </Text>
           </header>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-5">

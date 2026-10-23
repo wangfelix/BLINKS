@@ -1,5 +1,19 @@
 import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+/**
+ * tailwind-merge configured with the theme tokens from `globals.css`, so a
+ * later `tracking-label` or `text-2xs` replaces an earlier class of the same
+ * group instead of being kept next to it.
+ */
+const twMerge = extendTailwindMerge({
+  extend: {
+    theme: {
+      text: ["2xs", "3xs", "4xs"],
+      tracking: ["label"],
+    },
+  },
+});
 
 /**
  * Combines class names (strings, conditionals, arrays) into one string and

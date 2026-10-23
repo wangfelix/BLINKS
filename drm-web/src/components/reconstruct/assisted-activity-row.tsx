@@ -158,7 +158,9 @@ export const AssistedActivityRow = ({
             className="h-40 text-muted-foreground sm:h-44"
           >
             <ImageOffIcon className="size-8" aria-hidden />
-            <span className="text-sm font-medium">No images available</span>
+            <Text as="span" variant="label">
+              No images available
+            </Text>
           </Column>
         )}
 
@@ -263,7 +265,7 @@ export const AssistedActivityRow = ({
 
         {showIssueMessage && (
           <Box className="py-3">
-            <Text variant="destructive">{issue}</Text>
+            <Text tone="destructive">{issue}</Text>
           </Box>
         )}
       </Box>

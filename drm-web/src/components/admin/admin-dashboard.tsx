@@ -25,6 +25,7 @@ import { Card } from "@/components/ui/card";
 import { Column, Row } from "@/components/layout/flex";
 import { Container } from "@/components/layout/container";
 import { Box } from "@/components/layout/box";
+import { Text } from "@/components/layout/text";
 
 type AdminSection = "data" | "photos" | "participants";
 
@@ -48,7 +49,7 @@ const Stat = ({
         <p className="text-xl font-semibold tracking-tight tabular-nums">
           {value === undefined ? "—" : compactNumber.format(value)}
         </p>
-        <p className="text-xs text-muted-foreground">{label}</p>
+        <Text variant="caption">{label}</Text>
       </Box>
     </Row>
   </Card>
@@ -100,9 +101,9 @@ export const AdminDashboard = ({
             <BlinksLogo className="h-10 w-[140px]" sizes="140px" priority />
           </Row>
           <Row gap="sm" align="center">
-            <span className="hidden text-sm text-muted-foreground sm:inline">
+            <Text as="span" tone="muted" className="hidden sm:inline">
               {username}
-            </span>
+            </Text>
             <Button variant="ghost" size="sm" onClick={signOut}>
               <LogOutIcon aria-hidden />
               Sign out
@@ -121,9 +122,9 @@ export const AdminDashboard = ({
               <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
                 BLINKS study operations
               </p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
+              <Text as="h1" variant="display" className="mt-2 sm:text-4xl">
                 Research dashboard
-              </h1>
+              </Text>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
                 A read-only view of study data and anonymized photos, plus
                 controlled participant account provisioning.

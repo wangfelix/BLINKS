@@ -89,10 +89,10 @@ const LandingPage = () => {
       >
         <Column gap="sm" className="text-center">
           <Text variant="eyebrow">Karlsruhe Institute of Technology</Text>
-          <h1 className="text-2xl font-semibold tracking-tight outline-none sm:text-3xl">
+          <Text as="h1" variant="title" className="outline-none sm:text-3xl">
             Day Reconstruction Study
-          </h1>
-          <Text variant="secondary" className="leading-relaxed">
+          </Text>
+          <Text tone="muted" className="leading-relaxed">
             Sign in with the participant credentials you received from the study
             team. On your first visit, you will choose your own password and
             complete the short pre-study questionnaire. On the evening of your
@@ -102,12 +102,12 @@ const LandingPage = () => {
 
         <Container size="sm" className="border-t border-border/60 pt-7">
           <header className="text-center">
-            <h2 className="text-lg font-semibold tracking-tight">
+            <Text as="h2" variant="heading" className="tracking-tight">
               Participant sign-in
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            </Text>
+            <Text tone="muted" className="mt-1">
               Use the same credentials as in the BLINKS phone app.
-            </p>
+            </Text>
           </header>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-5">
@@ -195,7 +195,7 @@ const LandingPage = () => {
           </form>
         </Container>
 
-        <Text variant="nudge" className="text-center">
+        <Text variant="caption" className="text-center">
           Questions or trouble signing in? <StudyTeamContactLink /> the study
           team.
         </Text>
