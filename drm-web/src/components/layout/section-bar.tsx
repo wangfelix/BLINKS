@@ -15,11 +15,15 @@ const sectionBarVariants = cva("", {
       bottom: "border-b",
       /** Border above the bar, for footer bars. */
       top: "border-t",
+      /** No border of its own, for tones that bring one. */
+      none: "",
     },
     tone: {
       plain: "border-border/70",
       muted: "border-border/70 bg-muted/20",
       destructive: "border-destructive/20 bg-destructive/5",
+      /** Translucent, blurred bar with its own bottom border (`surface-bar`). */
+      glass: "surface-bar",
     },
     inset: {
       /** No padding, for elements that bring their own. */
