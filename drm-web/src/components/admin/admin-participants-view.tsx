@@ -28,6 +28,7 @@ import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Row } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
+import { Container } from "@/components/layout/container";
 
 export const AdminParticipantsView = () => {
   const queryClient = useQueryClient();
@@ -100,7 +101,7 @@ export const AdminParticipantsView = () => {
         </p>
       </div>
 
-      <div className="max-w-4xl">
+      <Container size="4xl" center={false} fill={false}>
         <Card className="rounded-2xl bg-background/82 shadow-lg backdrop-blur-xl">
           <CardHeader className={sectionBarVariants({ inset: "none" })}>
             <CardTitle className="flex items-center gap-2">
@@ -235,7 +236,7 @@ export const AdminParticipantsView = () => {
             </form>
           </CardContent>
         </Card>
-      </div>
+      </Container>
     </section>
   );
 };

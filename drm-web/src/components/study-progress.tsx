@@ -9,6 +9,7 @@ import { getStudyConfig } from "@/lib/study-config-store";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Column } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
+import { Container } from "@/components/layout/container";
 import { mergeClassNames } from "@/lib/utils";
 
 type StudyPage = "reconstruction" | "surveys";
@@ -65,7 +66,7 @@ const Stepper = ({ steps }: { steps: DisplayStep[] }) => {
   const secondConnectorComplete = steps[1]?.state === "completed";
 
   return (
-    <div className="relative mx-auto w-full max-w-[440px] py-2.5">
+    <Container className="relative max-w-[440px] py-2.5">
       <div
         className={mergeClassNames(
           "absolute top-6 left-1/6 h-px w-1/3",
@@ -124,7 +125,7 @@ const Stepper = ({ steps }: { steps: DisplayStep[] }) => {
           );
         })}
       </ol>
-    </div>
+    </Container>
   );
 };
 

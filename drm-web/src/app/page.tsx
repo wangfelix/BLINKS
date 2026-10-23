@@ -27,6 +27,7 @@ import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Column } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
+import { Container } from "@/components/layout/container";
 import { StudyTeamContactLink } from "@/components/study-team-contact-link";
 import { StudyFlowShell } from "@/components/study-flow-shell";
 
@@ -99,7 +100,7 @@ const LandingPage = () => {
           </Text>
         </Column>
 
-        <div className="mx-auto w-full max-w-sm border-t border-border/60 pt-7">
+        <Container size="sm" className="border-t border-border/60 pt-7">
           <div className="text-center">
             <h2 className="text-lg font-semibold tracking-tight">
               Participant sign-in
@@ -192,7 +193,7 @@ const LandingPage = () => {
               )}
             </Button>
           </form>
-        </div>
+        </Container>
 
         <Text variant="nudge" className="text-center">
           Questions or trouble signing in? <StudyTeamContactLink /> the study

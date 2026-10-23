@@ -19,6 +19,7 @@ import {
 } from "@/lib/admin-api";
 import { Column } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
+import { Container } from "@/components/layout/container";
 import { StudyFlowShell } from "@/components/study-flow-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -65,7 +66,7 @@ export const AdminLogin = ({
           </Text>
         </Column>
 
-        <div className="mx-auto w-full max-w-sm border-t border-border/60 pt-7">
+        <Container size="sm" className="border-t border-border/60 pt-7">
           <div className="text-center">
             <h2 className="text-lg font-semibold tracking-tight">
               Administrator sign-in
@@ -154,7 +155,7 @@ export const AdminLogin = ({
               )}
             </Button>
           </form>
-        </div>
+        </Container>
       </Column>
     </StudyFlowShell>
   );
