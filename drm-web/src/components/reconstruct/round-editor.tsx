@@ -955,11 +955,13 @@ export const RoundEditor = ({
       )}
 
       {notice !== null && (
-        <div
+        <Row
           key={notice.id}
           role="status"
           aria-live="polite"
-          className="fixed right-4 bottom-4 z-[80] flex w-[min(24rem,calc(100vw-2rem))] items-start gap-3 rounded-xl border bg-background p-4 shadow-lg"
+          gap="md"
+          align="start"
+          className="fixed right-4 bottom-4 z-[80] w-[min(24rem,calc(100vw-2rem))] rounded-xl border bg-background p-4 shadow-lg"
         >
           <CircleCheckIcon
             className="mt-0.5 size-5 shrink-0 text-emerald-600"
@@ -981,7 +983,7 @@ export const RoundEditor = ({
           >
             <XIcon className="size-4" aria-hidden />
           </Button>
-        </div>
+        </Row>
       )}
     </Column>
   );

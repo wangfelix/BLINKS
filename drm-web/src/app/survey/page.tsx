@@ -30,6 +30,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Column, Row } from "@/components/layout/flex";
 
 const SurveyContent = () => {
   const router = useRouter();
@@ -61,10 +62,15 @@ const SurveyContent = () => {
     >
       <div className="mx-auto w-full max-w-2xl">
         {profileQuery.isPending ? (
-          <div className="flex w-full items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Row
+            gap="sm"
+            align="center"
+            justify="center"
+            className="w-full text-sm text-muted-foreground"
+          >
             <LoaderCircleIcon className="animate-spin" aria-hidden />
             Preparing your questionnaire…
-          </div>
+          </Row>
         ) : profileQuery.isError ? (
           <Alert variant="destructive">
             <AlertTitle>Questionnaire unavailable</AlertTitle>
@@ -97,7 +103,7 @@ const SurveyContent = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5 pt-6">
-              <div className="flex flex-col items-center gap-3">
+              <Column gap="md" align="center">
                 <a
                   href={surveyUrl}
                   target="_blank"
@@ -137,7 +143,7 @@ const SurveyContent = () => {
                     <ExternalLinkIcon />
                   </Button>
                 )}
-              </div>
+              </Column>
 
               <div className="space-y-3 border-t pt-5">
                 <p className="text-sm text-muted-foreground" aria-live="polite">
@@ -147,7 +153,7 @@ const SurveyContent = () => {
                       ? "The questionnaire opened in a new tab. Complete it, then open the payout link."
                       : "Open and complete the final questionnaire first. The payout link will then become available."}
                 </p>
-                <div className="flex justify-end">
+                <Row justify="end">
                   <Button
                     variant="secondary"
                     disabled={
@@ -170,7 +176,7 @@ const SurveyContent = () => {
                       </>
                     )}
                   </Button>
-                </div>
+                </Row>
                 {completeStudyMutation.isError && (
                   <Alert variant="destructive" aria-live="polite">
                     <AlertTitle>Could not finish the study</AlertTitle>

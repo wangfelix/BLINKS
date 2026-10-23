@@ -6,6 +6,7 @@ import { StudyConfigGate } from "@/components/study-config-gate";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { StudyWorkspaceShell } from "@/components/study-workspace-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Column } from "@/components/layout/flex";
 
 const DoneContent = () => {
   return (
@@ -13,7 +14,7 @@ const DoneContent = () => {
       maxWidthClassName="max-w-2xl"
       contentClassName="flex min-h-[420px] items-center justify-center"
     >
-      <div className="flex w-full max-w-lg flex-col items-center gap-3 text-center">
+      <Column gap="md" align="center" className="w-full max-w-lg text-center">
         <CheckCircle2Icon className="size-12 text-primary" aria-hidden />
         <h1 className="text-2xl font-semibold tracking-tight">All done</h1>
         <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
@@ -30,7 +31,7 @@ const DoneContent = () => {
             navigation bar.
           </AlertDescription>
         </Alert>
-      </div>
+      </Column>
     </StudyWorkspaceShell>
   );
 };

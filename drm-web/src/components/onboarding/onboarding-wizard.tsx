@@ -40,6 +40,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Column, Row } from "@/components/layout/flex";
 import { mergeClassNames } from "@/lib/utils";
 
 type WizardStep = 1 | 2 | "complete";
@@ -320,10 +321,14 @@ export const OnboardingWizard = ({
     return (
       <main className="relative grid min-h-dvh place-items-center overflow-hidden px-4 py-10">
         <StudyFlowBackground />
-        <div className="relative flex items-center gap-2 rounded-full border bg-background/80 px-5 py-3 text-sm text-muted-foreground shadow-lg backdrop-blur-xl">
+        <Row
+          gap="sm"
+          align="center"
+          className="relative rounded-full border bg-background/80 px-5 py-3 text-sm text-muted-foreground shadow-lg backdrop-blur-xl"
+        >
           <LoaderCircleIcon className="animate-spin" aria-hidden />
           Preparing your account…
-        </div>
+        </Row>
       </main>
     );
   }
@@ -362,8 +367,10 @@ export const OnboardingWizard = ({
       }
     >
       {passwordSaved ? (
-        <div
-          className="onboarding-success-enter flex min-h-step flex-col items-center justify-center text-center"
+        <Column
+          align="center"
+          justify="center"
+          className="onboarding-success-enter min-h-step text-center"
           aria-live="polite"
         >
           <span className="onboarding-success-ring grid size-20 place-items-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/25">
@@ -375,13 +382,13 @@ export const OnboardingWizard = ({
           <p className="mt-2 text-sm text-muted-foreground">
             Your participant account is now secured.
           </p>
-        </div>
+        </Column>
       ) : activeStep === 1 ? (
         <div
           key="password"
           className="onboarding-step-enter onboarding-stagger mx-auto max-w-xl"
         >
-          <div className="mb-7 flex items-start gap-4">
+          <Row gap="lg" align="start" className="mb-7">
             <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/10">
               <LockKeyholeIcon className="size-5" aria-hidden />
             </span>
@@ -398,7 +405,7 @@ export const OnboardingWizard = ({
                 private password only you know.
               </p>
             </div>
-          </div>
+          </Row>
 
           <form onSubmit={handlePasswordSubmit} className="space-y-5">
             <div className="space-y-2">
@@ -451,12 +458,17 @@ export const OnboardingWizard = ({
             </div>
 
             <div className="rounded-2xl border bg-muted/25 p-4">
-              <div className="flex items-center justify-between gap-3 text-xs">
+              <Row
+                gap="md"
+                align="center"
+                justify="between"
+                className="text-xs"
+              >
                 <span className="font-medium">Password strength</span>
                 <span className="text-muted-foreground">
                   {strengthLabel || "Start typing"}
                 </span>
-              </div>
+              </Row>
               <div className="mt-2 grid grid-cols-4 gap-1.5" aria-hidden>
                 {[1, 2, 3, 4].map((level) => (
                   <span
@@ -484,7 +496,7 @@ export const OnboardingWizard = ({
               )}
             </div>
 
-            <div className="flex justify-end">
+            <Row justify="end">
               <Button
                 type="submit"
                 size="lg"
@@ -503,7 +515,7 @@ export const OnboardingWizard = ({
                   </>
                 )}
               </Button>
-            </div>
+            </Row>
           </form>
         </div>
       ) : activeStep === 2 ? (
@@ -511,7 +523,7 @@ export const OnboardingWizard = ({
           key="survey"
           className="onboarding-step-enter onboarding-stagger mx-auto max-w-xl"
         >
-          <div className="mb-8 flex items-start gap-4">
+          <Row gap="lg" align="start" className="mb-8">
             <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-violet-500/10 text-violet-700 ring-1 ring-violet-500/10">
               <ShieldCheckIcon className="size-5" aria-hidden />
             </span>
@@ -529,7 +541,7 @@ export const OnboardingWizard = ({
                 page after you finish the survey.
               </p>
             </div>
-          </div>
+          </Row>
 
           {surveyUrl === null ? (
             <Alert variant="destructive">
@@ -540,7 +552,12 @@ export const OnboardingWizard = ({
               </AlertDescription>
             </Alert>
           ) : (
-            <div className="flex items-center justify-between gap-4 rounded-2xl border bg-gradient-to-br from-primary/[0.06] to-violet-500/[0.06] p-5 sm:p-6">
+            <Row
+              gap="lg"
+              align="center"
+              justify="between"
+              className="rounded-2xl border bg-gradient-to-br from-primary/[0.06] to-violet-500/[0.06] p-5 sm:p-6"
+            >
               <div className="shrink-0">
                 <p className="text-sm font-medium">Participant ID</p>
                 <p className="mt-1 font-mono text-sm text-muted-foreground">
@@ -564,7 +581,7 @@ export const OnboardingWizard = ({
                 </span>
                 <ExternalLinkIcon aria-hidden />
               </a>
-            </div>
+            </Row>
           )}
 
           <div className="mt-6 min-h-24" aria-live="polite">
@@ -574,7 +591,7 @@ export const OnboardingWizard = ({
                   Return here once you reach the questionnaire&apos;s
                   confirmation page.
                 </p>
-                <div className="flex justify-end">
+                <Row justify="end">
                   <Button
                     variant="secondary"
                     size="lg"
@@ -594,7 +611,7 @@ export const OnboardingWizard = ({
                       "I have completed the questionnaire"
                     )}
                   </Button>
-                </div>
+                </Row>
                 {completionMutation.isError && (
                   <p className="text-sm text-destructive" role="alert">
                     {completionMutation.error instanceof Error
@@ -607,9 +624,11 @@ export const OnboardingWizard = ({
           </div>
         </div>
       ) : (
-        <div
+        <Column
           key="complete"
-          className="onboarding-success-enter flex min-h-step flex-col items-center justify-center text-center"
+          align="center"
+          justify="center"
+          className="onboarding-success-enter min-h-step text-center"
           aria-live="polite"
         >
           <span className="onboarding-success-ring grid size-20 place-items-center rounded-full bg-primary text-primary-foreground shadow-xl shadow-primary/20">
@@ -627,7 +646,7 @@ export const OnboardingWizard = ({
             day tomorrow. Log into this web application tomorrow evening to
             complete the study.
           </p>
-          <div className="mt-7 flex flex-wrap justify-center gap-3">
+          <Row gap="md" justify="center" wrap className="mt-7">
             {preview && (
               <Button variant="secondary" onClick={handleRestartPreview}>
                 <RotateCcwIcon aria-hidden />
@@ -638,8 +657,8 @@ export const OnboardingWizard = ({
               <LogOutIcon aria-hidden />
               Log out
             </Button>
-          </div>
-        </div>
+          </Row>
+        </Column>
       )}
     </StudyFlowShell>
   );

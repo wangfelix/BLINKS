@@ -602,9 +602,9 @@ export const FramePickerDialog = ({
                 style={{ height: virtualizer.getTotalSize() }}
               >
                 {virtualizer.getVirtualItems().map((virtualRow) => (
-                  <div
+                  <Row
                     key={virtualRow.key}
-                    className="absolute top-0 left-0 flex w-full"
+                    className="absolute top-0 left-0 w-full"
                     style={{
                       height: groupHeight(
                         visualGroups[virtualRow.index],
@@ -635,9 +635,12 @@ export const FramePickerDialog = ({
                             width: `${(groupColumns / columns) * 100}%`,
                           }}
                         >
-                          <div
+                          <Row
+                            gap="sm"
+                            align="center"
+                            justify="between"
                             className={mergeClassNames(
-                              "flex min-h-7 items-center justify-between gap-2 border-b px-2 py-1 text-3xs font-medium",
+                              "min-h-7 border-b px-2 py-1 text-3xs font-medium",
                               groupHeaderClasses(group.kind),
                             )}
                           >
@@ -647,7 +650,7 @@ export const FramePickerDialog = ({
                             <span className="shrink-0 tabular-nums">
                               {formatTimeSpan(groupStartMs, groupEndMs)}
                             </span>
-                          </div>
+                          </Row>
 
                           <div
                             className="grid min-h-0 flex-1"
@@ -750,19 +753,24 @@ export const FramePickerDialog = ({
                                         : groupDividerClasses(group.kind)),
                                   )}
                                 >
-                                  <div
+                                  <Row
+                                    align="center"
                                     className={mergeClassNames(
-                                      "flex min-h-9 items-center border-b px-2 py-1.5",
+                                      "min-h-9 border-b px-2 py-1.5",
                                       groupDividerClasses(group.kind),
                                     )}
                                   >
                                     <span className="text-xs font-semibold tabular-nums">
                                       {timeSpan}
                                     </span>
-                                  </div>
+                                  </Row>
 
                                   {previews.length === 0 ? (
-                                    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 text-muted-foreground">
+                                    <Column
+                                      align="center"
+                                      justify="center"
+                                      className="min-h-0 flex-1 gap-1.5 text-muted-foreground"
+                                    >
                                       <ImageOffIcon
                                         className="size-5"
                                         aria-hidden
@@ -770,7 +778,7 @@ export const FramePickerDialog = ({
                                       <span className="text-2xs font-medium">
                                         No images available
                                       </span>
-                                    </div>
+                                    </Column>
                                   ) : (
                                     <div
                                       className={mergeClassNames(
@@ -838,7 +846,7 @@ export const FramePickerDialog = ({
                         </section>
                       );
                     })}
-                  </div>
+                  </Row>
                 ))}
               </div>
             </div>
@@ -859,7 +867,7 @@ export const FramePickerDialog = ({
             <RotateCcwIcon aria-hidden />
             Clear selection
           </Button>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+          <Column gap="sm" className="flex-col-reverse sm:flex-row">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -874,7 +882,7 @@ export const FramePickerDialog = ({
             >
               {confirmLabel}
             </Button>
-          </div>
+          </Column>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -12,11 +12,13 @@ const flexVariants = cva("flex", {
   variants: {
     gap: {
       none: "",
+      "2xs": "gap-0.5",
       xs: "gap-1",
       sm: "gap-2",
       md: "gap-3",
       lg: "gap-4",
       xl: "gap-6",
+      "2xl": "gap-8",
     },
     align: {
       start: "items-start",

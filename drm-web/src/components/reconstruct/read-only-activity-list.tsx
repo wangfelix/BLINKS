@@ -80,10 +80,15 @@ const ReadOnlyActivityCard = ({
           {thumbnails.map((frame) => (
             <figure key={frameIdentityKey(frame)} className="w-20 shrink-0">
               {frame.deletedAt !== null ? (
-                <div className="flex aspect-photo w-full flex-col items-center justify-center gap-0.5 rounded-md border bg-muted text-muted-foreground">
+                <Column
+                  gap="2xs"
+                  align="center"
+                  justify="center"
+                  className="aspect-photo w-full rounded-md border bg-muted text-muted-foreground"
+                >
                   <ImageOffIcon className="size-4" aria-hidden />
                   <span className="text-4xs font-medium">Deleted</span>
-                </div>
+                </Column>
               ) : (
                 /* eslint-disable-next-line @next/next/no-img-element -- authenticated cross-origin image; the Next image proxy cannot forward the auth cookie */
                 <img

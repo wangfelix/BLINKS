@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/card";
 import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Row } from "@/components/layout/flex";
 
 export const AdminParticipantsView = () => {
   const queryClient = useQueryClient();
@@ -211,7 +212,7 @@ export const AdminParticipantsView = () => {
                 </Alert>
               )}
 
-              <div className="flex justify-end">
+              <Row justify="end">
                 <Button
                   type="submit"
                   className="min-w-44 rounded-xl"
@@ -229,7 +230,7 @@ export const AdminParticipantsView = () => {
                     </>
                   )}
                 </Button>
-              </div>
+              </Row>
             </form>
           </CardContent>
         </Card>

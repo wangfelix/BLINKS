@@ -49,6 +49,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Column, Row } from "@/components/layout/flex";
 
 const PAGE_SIZE = 96;
 const countFormat = new Intl.NumberFormat("en");
@@ -337,7 +338,12 @@ export const AdminPhotosView = () => {
                         </span>
                       </button>
                     ) : (
-                      <div className="flex aspect-photo flex-col items-center justify-center gap-2 bg-muted/60 text-muted-foreground">
+                      <Column
+                        gap="sm"
+                        align="center"
+                        justify="center"
+                        className="aspect-photo bg-muted/60 text-muted-foreground"
+                      >
                         <ImageOffIcon className="size-5" aria-hidden />
                         <Badge
                           variant={
@@ -348,7 +354,7 @@ export const AdminPhotosView = () => {
                             ? frame.faceStatus
                             : "deleted"}
                         </Badge>
-                      </div>
+                      </Column>
                     )}
                     <figcaption className="space-y-0.5 px-2.5 py-2 text-2xs">
                       <p className="truncate font-medium" title={frame.device}>
@@ -377,7 +383,7 @@ export const AdminPhotosView = () => {
               ? "Select a participant"
               : `${countFormat.format(photosQuery.data.total)} frames · Page ${page} of ${totalPages}`}
           </p>
-          <div className="flex gap-2">
+          <Row gap="sm">
             <Button
               variant="outline"
               size="sm"
@@ -396,7 +402,7 @@ export const AdminPhotosView = () => {
               Next
               <ChevronRightIcon aria-hidden />
             </Button>
-          </div>
+          </Row>
         </SectionBar>
       </Card>
 
@@ -416,14 +422,18 @@ export const AdminPhotosView = () => {
             </DialogDescription>
           </DialogHeader>
           {selectedPhoto?.imageUrl && (
-            <div className="flex max-h-[78vh] items-center justify-center bg-black/95 p-2 sm:p-4">
+            <Row
+              align="center"
+              justify="center"
+              className="max-h-[78vh] bg-black/95 p-2 sm:p-4"
+            >
               {/* eslint-disable-next-line @next/next/no-img-element -- authenticated image; Next image optimization cannot attach the admin cookie */}
               <img
                 src={adminFrameImageSrc(selectedPhoto.imageUrl)}
                 alt={`Participant ${selectedPhoto.participant}, frame ${selectedPhoto.frameIndex}`}
                 className="max-h-[74vh] max-w-full rounded-xl object-contain"
               />
-            </div>
+            </Row>
           )}
         </DialogContent>
       </Dialog>

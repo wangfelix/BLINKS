@@ -21,6 +21,7 @@ import { BlinksLogo } from "@/components/blinks-logo";
 import { StudyFlowBackground } from "@/components/study-flow-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Column, Row } from "@/components/layout/flex";
 
 type AdminSection = "data" | "photos" | "participants";
 
@@ -36,7 +37,7 @@ const Stat = ({
   value: number | undefined;
 }) => (
   <div className="rounded-2xl border border-white/50 bg-background/75 p-4 shadow-sm ring-1 ring-foreground/5 backdrop-blur-xl">
-    <div className="flex items-center gap-3">
+    <Row gap="md" align="center">
       <span className="grid size-10 place-items-center rounded-xl bg-primary/8 text-primary ring-1 ring-primary/10">
         <Icon className="size-4.5" aria-hidden />
       </span>
@@ -46,7 +47,7 @@ const Stat = ({
         </p>
         <p className="text-xs text-muted-foreground">{label}</p>
       </div>
-    </div>
+    </Row>
   </div>
 );
 
@@ -85,11 +86,17 @@ export const AdminDashboard = ({
       <StudyFlowBackground />
 
       <header className="sticky top-0 z-40 border-b border-border/60 bg-background/70 backdrop-blur-xl">
-        <div className="flex min-h-16 w-full flex-wrap items-center justify-between gap-3 px-4 py-2 sm:px-8">
-          <div className="flex items-center gap-3">
+        <Row
+          gap="md"
+          align="center"
+          justify="between"
+          wrap
+          className="min-h-16 w-full px-4 py-2 sm:px-8"
+        >
+          <Row gap="md" align="center">
             <BlinksLogo className="h-10 w-[140px]" sizes="140px" priority />
-          </div>
-          <div className="flex items-center gap-2">
+          </Row>
+          <Row gap="sm" align="center">
             <span className="hidden text-sm text-muted-foreground sm:inline">
               {username}
             </span>
@@ -97,12 +104,12 @@ export const AdminDashboard = ({
               <LogOutIcon aria-hidden />
               Sign out
             </Button>
-          </div>
-        </div>
+          </Row>
+        </Row>
       </header>
 
       <div className="relative z-10 mx-auto w-full max-w-[1600px] px-4 py-7 sm:px-6 sm:py-10 lg:px-8">
-        <div className="flex flex-col gap-8">
+        <Column gap="2xl">
           <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
               <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
@@ -177,7 +184,7 @@ export const AdminDashboard = ({
           {section === "data" && <AdminTablesView />}
           {section === "photos" && <AdminPhotosView />}
           {section === "participants" && <AdminParticipantsView />}
-        </div>
+        </Column>
       </div>
     </main>
   );
