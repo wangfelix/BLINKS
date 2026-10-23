@@ -61,9 +61,9 @@ const ReadOnlyActivityCard = ({
         <Text as="span" variant="label" className="tabular-nums">
           {formatTimeSpan(activity.startMs, activity.endMs)}
         </Text>
-        <span className="flex-1 text-sm">
+        <Text as="span" tone="inherit" className="flex-1">
           {activityDisplayLabel(activity.rawLabel) ?? "—"}
-        </span>
+        </Text>
         {ratingSummary !== null && (
           <Text variant="caption" className="tabular-nums">
             {ratingSummary}
@@ -87,7 +87,9 @@ const ReadOnlyActivityCard = ({
                   className="aspect-photo w-full rounded-md border bg-muted text-muted-foreground"
                 >
                   <ImageOffIcon className="size-4" aria-hidden />
-                  <span className="text-4xs font-medium">Deleted</span>
+                  <Text as="span" variant="small" className="text-4xs">
+                    Deleted
+                  </Text>
                 </Column>
               ) : (
                 /* eslint-disable-next-line @next/next/no-img-element -- authenticated cross-origin image; the Next image proxy cannot forward the auth cookie */

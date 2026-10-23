@@ -1,5 +1,5 @@
-// Focused checks for the Text component: rendered element, role, tone and
-// weight classes, and className overrides.
+// Focused checks for the Text component: rendered element, role, tone,
+// weight and truncate classes, and className overrides.
 // Run from drm-web/:  npx tsx scripts/test-text.ts
 
 import { createElement } from "react";
@@ -89,6 +89,64 @@ check(
       "tracking-label",
     ],
   },
+);
+check("lead is muted and grows from sm on", render({ variant: "lead" }), {
+  tag: "p",
+  classes: [
+    "leading-relaxed",
+    "sm:text-base",
+    "text-muted-foreground",
+    "text-sm",
+  ],
+});
+check(
+  "className resizes lead and keeps its line height",
+  render({
+    variant: "lead",
+    className: "text-base leading-relaxed sm:text-lg",
+  }),
+  {
+    tag: "p",
+    classes: [
+      "leading-relaxed",
+      "sm:text-lg",
+      "text-base",
+      "text-muted-foreground",
+    ],
+  },
+);
+check("overline", render({ variant: "overline" }), {
+  tag: "p",
+  classes: [
+    "font-semibold",
+    "text-muted-foreground",
+    "text-xs",
+    "tracking-label",
+    "uppercase",
+  ],
+});
+check(
+  "small keeps the parent color",
+  render({ as: "span", variant: "small" }),
+  { tag: "span", classes: ["font-medium", "text-xs"] },
+);
+check("mono keeps the parent color", render({ variant: "mono" }), {
+  tag: "p",
+  classes: ["font-mono", "text-xs"],
+});
+check("stat", render({ variant: "stat" }), {
+  tag: "p",
+  classes: ["font-semibold", "tabular-nums", "text-xl", "tracking-tight"],
+});
+check(
+  "truncate adds the single-line ellipsis",
+  render({ variant: "inherit", weight: "medium", truncate: true }),
+  { tag: "p", classes: ["font-medium", "truncate"] },
+);
+check(
+  "inherit with a muted tone sets only the color",
+  render({ as: "span", variant: "inherit", tone: "muted" }),
+  { tag: "span", classes: ["text-muted-foreground"] },
 );
 check(
   "label element forwards htmlFor",

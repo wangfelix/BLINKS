@@ -129,9 +129,7 @@ export const AdminPhotosView = () => {
   return (
     <section className="space-y-4" aria-labelledby="photos-heading">
       <header>
-        <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
-          Anonymized image review
-        </p>
+        <Text variant="overline">Anonymized image review</Text>
         <Text
           as="h2"
           variant="heading"
@@ -274,7 +272,9 @@ export const AdminPhotosView = () => {
                 {participantSessions.map((item) => (
                   <SelectItem key={item.session} value={String(item.session)}>
                     <span className="flex flex-col py-0.5">
-                      <span className="font-mono text-xs">{item.session}</span>
+                      <Text as="span" variant="mono">
+                        {item.session}
+                      </Text>
                       <Text as="span" variant="caption">
                         {dateTimeFormat.format(item.started_at_ms)} ·{" "}
                         {countFormat.format(item.frame_count)} frames
@@ -348,9 +348,13 @@ export const AdminPhotosView = () => {
                           className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.03] motion-reduce:transition-none"
                         />
                         <span className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/55 to-transparent" />
-                        <span className="absolute bottom-2 left-2 text-3xs font-medium text-white tabular-nums">
+                        <Text
+                          as="span"
+                          variant="small"
+                          className="absolute bottom-2 left-2 text-3xs text-white tabular-nums"
+                        >
                           {dateTimeFormat.format(frame.captureEpochMs)}
-                        </span>
+                        </Text>
                       </button>
                     ) : (
                       <Column
@@ -372,12 +376,21 @@ export const AdminPhotosView = () => {
                       </Column>
                     )}
                     <figcaption className="space-y-0.5 px-2.5 py-2 text-2xs">
-                      <p className="truncate font-medium" title={frame.device}>
+                      <Text
+                        variant="inherit"
+                        weight="medium"
+                        truncate
+                        title={frame.device}
+                      >
                         {frame.device}
-                      </p>
-                      <p className="text-muted-foreground tabular-nums">
+                      </Text>
+                      <Text
+                        variant="inherit"
+                        tone="muted"
+                        className="tabular-nums"
+                      >
                         Session {frame.session} · Frame {frame.frameIndex}
-                      </p>
+                      </Text>
                     </figcaption>
                   </figure>
                 );

@@ -32,6 +32,7 @@ import {
   storeOnboardingRoutingState,
 } from "@/lib/api-client";
 import { surveyUrlForParticipant } from "@/lib/study-config";
+import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   StudyFlowBackground,
@@ -132,9 +133,9 @@ const WizardProgress = ({ step }: { step: WizardStep }) => {
               >
                 {complete ? <StepCheck /> : item.number}
               </span>
-              <span className="text-xs font-medium sm:text-sm">
+              <Text as="span" variant="small" className="sm:text-sm">
                 {item.label}
-              </span>
+              </Text>
             </li>
             {index === 0 && (
               <li
@@ -361,9 +362,9 @@ export const OnboardingWizard = ({
       progress={<WizardProgress step={activeStep!} />}
       headerTrailing={
         preview ? (
-          <span className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
+          <Badge variant="pill" tone="preview">
             Developer preview
-          </span>
+          </Badge>
         ) : (
           <Button variant="ghost" size="sm" onClick={handleSignOut}>
             Sign out
@@ -409,10 +410,10 @@ export const OnboardingWizard = ({
               >
                 Choose your own password
               </Text>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground sm:text-base">
+              <Text variant="lead" className="mt-2">
                 Replace the temporary password from the study team with a
                 private password only you know.
-              </p>
+              </Text>
             </header>
           </Row>
 
@@ -473,10 +474,12 @@ export const OnboardingWizard = ({
                 justify="between"
                 className="text-xs"
               >
-                <span className="font-medium">Password strength</span>
-                <span className="text-muted-foreground">
+                <Text as="span" variant="inherit" weight="medium">
+                  Password strength
+                </Text>
+                <Text as="span" variant="inherit" tone="muted">
                   {strengthLabel || "Start typing"}
-                </span>
+                </Text>
               </Row>
               <Grid cols={4} className="mt-2 gap-1.5" aria-hidden>
                 {[1, 2, 3, 4].map((level) => (
@@ -546,11 +549,11 @@ export const OnboardingWizard = ({
               >
                 Complete the pre-study questionnaire
               </Text>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground sm:text-base">
+              <Text variant="lead" className="mt-2">
                 This questionnaire records the information needed before your
                 field day. It opens in a separate tab. Please come back to this
                 page after you finish the survey.
-              </p>
+              </Text>
             </header>
           </Row>
 
@@ -571,9 +574,9 @@ export const OnboardingWizard = ({
             >
               <Box className="shrink-0">
                 <Text variant="label">Participant ID</Text>
-                <p className="mt-1 font-mono text-sm text-muted-foreground">
+                <Text variant="mono" tone="muted" className="mt-1 text-sm">
                   {username}
-                </p>
+                </Text>
               </Box>
               <a
                 href={surveyUrl}
@@ -657,11 +660,11 @@ export const OnboardingWizard = ({
           >
             You&apos;re ready
           </Text>
-          <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground sm:text-base">
+          <Text variant="lead" className="mt-3 max-w-sm">
             Your setup is complete. You can now log out and start your recording
             day tomorrow. Log into this web application tomorrow evening to
             complete the study.
-          </p>
+          </Text>
           <Row gap="md" justify="center" wrap className="mt-7">
             {preview && (
               <Button variant="secondary" onClick={handleRestartPreview}>

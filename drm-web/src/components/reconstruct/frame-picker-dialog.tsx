@@ -16,6 +16,7 @@ import { activityDisplayLabel } from "@/lib/activity-vocabulary";
 import { windowMinuteAdjective, windowMs } from "@/lib/study-config-store";
 import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
 import { IconTile } from "@/components/layout/icon-tile";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -501,7 +502,9 @@ export const FramePickerDialog = ({
                 startMs !== null && "border-blue-200 bg-blue-50 text-blue-700",
               )}
             >
-              <span className="text-muted-foreground">Start</span>
+              <Text as="span" variant="inherit" tone="muted">
+                Start
+              </Text>
               <select
                 aria-label="Activity start time"
                 value={startMs ?? ""}
@@ -528,7 +531,9 @@ export const FramePickerDialog = ({
                 endMs !== null && "border-blue-200 bg-blue-50 text-blue-700",
               )}
             >
-              <span className="text-muted-foreground">End</span>
+              <Text as="span" variant="inherit" tone="muted">
+                End
+              </Text>
               <select
                 aria-label="Activity end time"
                 value={endMs ?? ""}
@@ -555,9 +560,13 @@ export const FramePickerDialog = ({
               aria-label="Jump to time of day"
               className="hidden max-h-[62vh] w-20 shrink-0 overflow-y-auto rounded-xl border bg-background p-2 sm:block"
             >
-              <p className="px-1 pb-2 text-3xs font-medium tracking-wide text-muted-foreground uppercase">
+              <Text
+                variant="overline"
+                weight="medium"
+                className="px-1 pb-2 text-3xs tracking-wide"
+              >
                 Jump to
-              </p>
+              </Text>
               <Column gap="xs">
                 {timelineMarks.map((mark) => (
                   <button
@@ -645,12 +654,16 @@ export const FramePickerDialog = ({
                               groupHeaderClasses(group.kind),
                             )}
                           >
-                            <span className="truncate">
+                            <Text as="span" variant="inherit" truncate>
                               {groupLabel(group)}
-                            </span>
-                            <span className="shrink-0 tabular-nums">
+                            </Text>
+                            <Text
+                              as="span"
+                              variant="inherit"
+                              className="shrink-0 tabular-nums"
+                            >
                               {formatTimeSpan(groupStartMs, groupEndMs)}
-                            </span>
+                            </Text>
                           </Row>
 
                           <Grid
@@ -761,9 +774,14 @@ export const FramePickerDialog = ({
                                       groupDividerClasses(group.kind),
                                     )}
                                   >
-                                    <span className="text-xs font-semibold tabular-nums">
+                                    <Text
+                                      as="span"
+                                      variant="small"
+                                      weight="semibold"
+                                      className="tabular-nums"
+                                    >
                                       {timeSpan}
-                                    </span>
+                                    </Text>
                                   </Row>
 
                                   {previews.length === 0 ? (
@@ -776,9 +794,13 @@ export const FramePickerDialog = ({
                                         className="size-5"
                                         aria-hidden
                                       />
-                                      <span className="text-2xs font-medium">
+                                      <Text
+                                        as="span"
+                                        variant="small"
+                                        className="text-2xs"
+                                      >
                                         No images available
-                                      </span>
+                                      </Text>
                                     </Column>
                                   ) : (
                                     <Grid
@@ -815,16 +837,24 @@ export const FramePickerDialog = ({
                                   )}
 
                                   {slot.frames.length > MAX_SLOT_PREVIEWS && (
-                                    <span className="pointer-events-none absolute bottom-2 left-2 z-30 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-4xs font-medium text-white">
+                                    <Badge
+                                      variant="pill"
+                                      tone="overlay"
+                                      size="4xs"
+                                      className="pointer-events-none absolute bottom-2 left-2 z-30"
+                                    >
                                       +{slot.frames.length - MAX_SLOT_PREVIEWS}{" "}
                                       images
-                                    </span>
+                                    </Badge>
                                   )}
 
                                   {(isStart || isEnd) && (
-                                    <span
+                                    <Badge
+                                      variant="pill"
+                                      tone="marker"
+                                      size="2xs"
                                       className={mergeClassNames(
-                                        "pointer-events-none absolute z-30 inline-flex min-h-7 items-center rounded-lg bg-blue-600 px-3 py-1.5 text-2xs font-bold tracking-wider text-white uppercase shadow-lg ring-2 ring-white/90",
+                                        "pointer-events-none absolute z-30",
                                         isStart && !isEnd
                                           ? "top-12 left-2"
                                           : "right-2 bottom-2",
@@ -835,7 +865,7 @@ export const FramePickerDialog = ({
                                         : isStart
                                           ? "Start"
                                           : "End"}
-                                    </span>
+                                    </Badge>
                                   )}
                                 </button>
                               );

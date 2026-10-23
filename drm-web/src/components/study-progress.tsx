@@ -11,6 +11,7 @@ import { Column } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
 import { Container } from "@/components/layout/container";
 import { Box } from "@/components/layout/box";
+import { Text } from "@/components/layout/text";
 import { mergeClassNames } from "@/lib/utils";
 
 type StudyPage = "reconstruction" | "surveys";
@@ -114,14 +115,14 @@ const Stepper = ({ steps }: { steps: DisplayStep[] }) => {
                   step.number
                 )}
               </span>
-              <span
-                className={mergeClassNames(
-                  "mt-1.5 px-1 text-xs leading-4 font-medium",
-                  !isActive && !isCompleted && "text-muted-foreground",
-                )}
+              <Text
+                as="span"
+                variant="small"
+                tone={!isActive && !isCompleted ? "muted" : "inherit"}
+                className="mt-1.5 px-1 leading-4"
               >
                 {step.label}
-              </span>
+              </Text>
             </li>
           );
         })}

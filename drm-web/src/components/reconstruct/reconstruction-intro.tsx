@@ -11,6 +11,7 @@ import {
 import { getStudyConfig } from "@/lib/study-config-store";
 import { StudyFlowShell } from "@/components/study-flow-shell";
 import { StudyProgress } from "@/components/study-progress";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AssistedRoundReminder } from "@/components/reconstruct/assisted-round-reminder";
 import { Column, Row } from "@/components/layout/flex";
@@ -64,9 +65,9 @@ export const ReconstructionIntro = ({
       }
       headerTrailing={
         preview ? (
-          <span className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
+          <Badge variant="pill" tone="preview">
             Developer preview
-          </span>
+          </Badge>
         ) : (
           <Button variant="ghost" size="sm" onClick={onSignOut}>
             <LogOutIcon aria-hidden />
@@ -95,9 +96,9 @@ export const ReconstructionIntro = ({
             >
               {title}
             </Text>
-            <p className="mt-3 text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">
+            <Text variant="lead" className="mt-3 leading-7 sm:leading-8">
               {description}
-            </p>
+            </Text>
             {round === 2 && <AssistedRoundReminder className="mt-6" />}
           </header>
         </Row>

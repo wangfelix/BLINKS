@@ -24,6 +24,7 @@ import {
   resolveTypedTimeOfDay,
 } from "@/lib/time";
 import { IconTile } from "@/components/layout/icon-tile";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -165,9 +166,9 @@ const ActivityGapControls = ({
       <PlusIcon />
       Insert activity
       {hasUnassignedImages && (
-        <span className="ml-1 rounded-full bg-destructive px-2 py-0.5 text-3xs font-semibold text-white">
+        <Badge variant="pill" tone="alert" size="3xs" className="ml-1">
           Unassigned images
-        </span>
+        </Badge>
       )}
     </Button>
     {onMerge !== undefined && (
@@ -192,9 +193,9 @@ const ActivityGapControls = ({
         <FoldVerticalIcon />
         Merge
         {suggestsMerge && (
-          <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-3xs font-semibold text-amber-950">
+          <Badge variant="pill" tone="hint" size="3xs" className="ml-1">
             Same activity
-          </span>
+          </Badge>
         )}
       </Button>
     )}
