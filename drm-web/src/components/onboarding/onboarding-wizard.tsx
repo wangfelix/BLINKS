@@ -45,6 +45,7 @@ import { Column, Row } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
 import { Container } from "@/components/layout/container";
 import { Box } from "@/components/layout/box";
+import { Text } from "@/components/layout/text";
 import { mergeClassNames } from "@/lib/utils";
 
 type WizardStep = 1 | 2 | "complete";
@@ -380,9 +381,9 @@ export const OnboardingWizard = ({
           <span className="onboarding-success-ring grid size-20 place-items-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/25">
             <CheckIcon className="size-9" strokeWidth={2.5} aria-hidden />
           </span>
-          <h2 className="mt-6 text-2xl font-semibold tracking-tight">
+          <Text as="h2" variant="title" className="mt-6">
             Password saved
-          </h2>
+          </Text>
           <p className="mt-2 text-sm text-muted-foreground">
             Your participant account is now secured.
           </p>
@@ -399,13 +400,15 @@ export const OnboardingWizard = ({
               <LockKeyholeIcon className="size-5" aria-hidden />
             </span>
             <header>
-              <h1
+              <Text
+                as="h1"
+                variant="title"
                 ref={headingRef}
                 tabIndex={-1}
-                className="text-2xl font-semibold tracking-tight outline-none sm:text-3xl"
+                className="outline-none sm:text-3xl"
               >
                 Choose your own password
-              </h1>
+              </Text>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground sm:text-base">
                 Replace the temporary password from the study team with a
                 private password only you know.
@@ -536,13 +539,15 @@ export const OnboardingWizard = ({
               <ShieldCheckIcon className="size-5" aria-hidden />
             </span>
             <header>
-              <h1
+              <Text
+                as="h1"
+                variant="title"
                 ref={headingRef}
                 tabIndex={-1}
-                className="text-2xl font-semibold tracking-tight outline-none sm:text-3xl"
+                className="outline-none sm:text-3xl"
               >
                 Complete the pre-study questionnaire
-              </h1>
+              </Text>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground sm:text-base">
                 This questionnaire records the information needed before your
                 field day. It opens in a separate tab. Please come back to this
@@ -645,13 +650,15 @@ export const OnboardingWizard = ({
           <span className="onboarding-success-ring grid size-20 place-items-center rounded-full bg-primary text-primary-foreground shadow-xl shadow-primary/20">
             <SparklesIcon className="size-9" aria-hidden />
           </span>
-          <h1
+          <Text
+            as="h1"
+            variant="display"
             ref={headingRef}
             tabIndex={-1}
-            className="mt-6 text-3xl font-semibold tracking-tight outline-none"
+            className="mt-6 outline-none"
           >
             You&apos;re ready
-          </h1>
+          </Text>
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground sm:text-base">
             Your setup is complete. You can now log out and start your recording
             day tomorrow. Log into this web application tomorrow evening to

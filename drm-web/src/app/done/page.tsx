@@ -7,6 +7,7 @@ import { useRequireAuth } from "@/lib/use-require-auth";
 import { StudyWorkspaceShell } from "@/components/study-workspace-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Column } from "@/components/layout/flex";
+import { Text } from "@/components/layout/text";
 
 const DoneContent = () => {
   return (
@@ -16,7 +17,9 @@ const DoneContent = () => {
     >
       <Column gap="md" align="center" className="w-full max-w-lg text-center">
         <CheckCircle2Icon className="size-12 text-primary" aria-hidden />
-        <h1 className="text-2xl font-semibold tracking-tight">All done</h1>
+        <Text as="h1" variant="title">
+          All done
+        </Text>
         <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
           Thank you for taking part in the study. You can close this tab now.
           Please bring the glasses and the study phone back to the lab as

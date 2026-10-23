@@ -716,7 +716,9 @@ export const RoundEditor = ({
     <Column gap="lg">
       <Row gap="sm" align="center" justify="between" wrap>
         <Column>
-          <h2 className="text-lg font-semibold">{formatDayLabel(day)}</h2>
+          <Text as="h2" variant="heading">
+            {formatDayLabel(day)}
+          </Text>
           <Text tone="muted">{editorHint}</Text>
         </Column>
         <Row gap="md" align="center">

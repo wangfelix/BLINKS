@@ -115,7 +115,9 @@ const SubmittedRoundSection = ({ roundState }: { roundState: RoundState }) => {
   return (
     <section className="space-y-3">
       <Row gap="sm" align="center">
-        <h2 className="text-base font-semibold">{stepLabel(roundState)}</h2>
+        <Text as="h2" variant="subheading">
+          {stepLabel(roundState)}
+        </Text>
         <Badge variant="secondary">Submitted</Badge>
       </Row>
       {roundQuery.isPending && <Skeleton className="h-28 w-full rounded-xl" />}
@@ -209,7 +211,9 @@ export const ActiveRoundView = ({
     return (
       <Column gap="lg">
         <Row gap="sm" align="center">
-          <h2 className="text-lg font-semibold">This step is submitted</h2>
+          <Text as="h2" variant="heading">
+            This step is submitted
+          </Text>
           <Badge variant="secondary">Submitted</Badge>
         </Row>
         <ReadOnlyActivityList

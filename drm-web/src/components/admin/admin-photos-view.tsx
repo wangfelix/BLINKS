@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/select";
 import { Column, Row } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
+import { Text } from "@/components/layout/text";
 
 const PAGE_SIZE = 96;
 const countFormat = new Intl.NumberFormat("en");
@@ -131,9 +132,14 @@ export const AdminPhotosView = () => {
         <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
           Anonymized image review
         </p>
-        <h2 id="photos-heading" className="mt-1 text-2xl font-semibold">
+        <Text
+          as="h2"
+          variant="heading"
+          id="photos-heading"
+          className="mt-1 text-2xl"
+        >
           Study photos
-        </h2>
+        </Text>
         <p className="mt-1 text-sm text-muted-foreground">
           Filter by participant and recording session. Only successfully
           face-anonymized, non-deleted files can be opened.

@@ -58,6 +58,7 @@ import {
 import { Column, Row } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
 import { Box } from "@/components/layout/box";
+import { Text } from "@/components/layout/text";
 
 const PAGE_SIZE = 50;
 
@@ -216,9 +217,14 @@ export const AdminTablesView = () => {
           <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
             Research database
           </p>
-          <h2 id="database-heading" className="mt-1 text-2xl font-semibold">
+          <Text
+            as="h2"
+            variant="heading"
+            id="database-heading"
+            className="mt-1 text-2xl"
+          >
             Data tables
-          </h2>
+          </Text>
           <p className="mt-1 text-sm text-muted-foreground">
             Filter and browse 50 rows at a time or export a complete table as
             CSV.

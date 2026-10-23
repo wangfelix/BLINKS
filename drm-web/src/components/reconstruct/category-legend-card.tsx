@@ -23,7 +23,9 @@ export const CategoryLegendCard = ({ className }: { className?: string }) => (
   >
     <Row gap="sm" align="center">
       <InfoIcon className="size-4 text-muted-foreground" aria-hidden />
-      <h3 className="text-sm font-semibold">Categories</h3>
+      <Text as="h3" variant="label" weight="semibold">
+        Categories
+      </Text>
     </Row>
 
     {categoryItems().map((category, index) => (
