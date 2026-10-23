@@ -23,15 +23,17 @@ export const CategoryLegendCard = ({ className }: { className?: string }) => (
   >
     <Row gap="sm" align="center">
       <InfoIcon className="size-4 text-muted-foreground" aria-hidden />
-      <h3 className="text-sm font-semibold">Categories</h3>
+      <Text as="h3" variant="label" weight="semibold">
+        Categories
+      </Text>
     </Row>
 
     {categoryItems().map((category, index) => (
       <Fragment key={category.value}>
         {index > 0 && <Separator />}
         <Column gap="xs">
-          <Text className="font-medium">{category.label}</Text>
-          <Text variant="secondary">{category.description}</Text>
+          <Text weight="medium">{category.label}</Text>
+          <Text tone="muted">{category.description}</Text>
         </Column>
       </Fragment>
     ))}

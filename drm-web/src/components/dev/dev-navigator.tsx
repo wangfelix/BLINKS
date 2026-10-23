@@ -6,6 +6,9 @@ import { usePathname } from "next/navigation";
 import { BugIcon, XIcon } from "lucide-react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Column, Row } from "@/components/layout/flex";
+import { Text } from "@/components/layout/text";
 import { mergeClassNames } from "@/lib/utils";
 
 const DEV_DESTINATIONS = [
@@ -24,13 +27,18 @@ export const DevNavigator = () => {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="fixed right-4 bottom-4 z-50 flex flex-col items-end gap-2">
+    <Column gap="sm" align="end" className="fixed right-4 bottom-4 z-50">
       {isOpen && (
-        <div className="w-56 rounded-xl border border-amber-300 bg-white p-2 shadow-xl">
-          <div className="flex items-center justify-between gap-2 px-2 py-1">
-            <span className="text-xs font-semibold tracking-wide text-amber-800 uppercase">
+        <Card variant="floating" className="w-56 border-amber-300">
+          <Row gap="sm" align="center" justify="between" className="px-2 py-1">
+            <Text
+              as="span"
+              variant="overline"
+              tone="inherit"
+              className="tracking-wide text-amber-800"
+            >
               DRM dev mode
-            </span>
+            </Text>
             <Button
               variant="ghost"
               size="icon-xs"
@@ -39,7 +47,7 @@ export const DevNavigator = () => {
             >
               <XIcon />
             </Button>
-          </div>
+          </Row>
           <nav
             className="mt-1 flex flex-col gap-1"
             aria-label="Developer pages"
@@ -62,7 +70,7 @@ export const DevNavigator = () => {
               </Link>
             ))}
           </nav>
-        </div>
+        </Card>
       )}
 
       <Button
@@ -74,6 +82,6 @@ export const DevNavigator = () => {
         <BugIcon />
         Dev pages
       </Button>
-    </div>
+    </Column>
   );
 };

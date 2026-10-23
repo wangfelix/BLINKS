@@ -23,6 +23,10 @@ import {
   type AdminCellValue,
   type AdminTableName,
 } from "@/lib/admin-api";
+import {
+  SectionBar,
+  sectionBarVariants,
+} from "@/components/layout/section-bar";
 import { mergeClassNames } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -42,7 +46,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
+import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -51,6 +55,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Column, Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
+import { Box } from "@/components/layout/box";
+import { Text } from "@/components/layout/text";
 
 const PAGE_SIZE = 50;
 
@@ -89,19 +97,26 @@ const countFormat = new Intl.NumberFormat("en");
 
 const CellValue = ({ value }: { value: AdminCellValue }) => {
   if (value === null) {
-    return <span className="text-xs text-muted-foreground italic">NULL</span>;
+    return (
+      <Text as="span" variant="caption" className="italic">
+        NULL
+      </Text>
+    );
   }
   const text = String(value);
   return (
-    <span
+    <Text
+      as="span"
+      variant="mono"
+      truncate
       className={mergeClassNames(
-        "block max-w-[30rem] truncate font-mono text-xs",
+        "block max-w-[30rem]",
         typeof value === "number" && "text-right tabular-nums",
       )}
       title={text}
     >
       {text}
-    </span>
+    </Text>
   );
 };
 
@@ -204,19 +219,22 @@ export const AdminTablesView = () => {
 
   return (
     <section className="space-y-4" aria-labelledby="database-heading">
-      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-        <div>
-          <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-            Research database
-          </p>
-          <h2 id="database-heading" className="mt-1 text-2xl font-semibold">
+      <Column gap="md" justify="between" className="sm:flex-row sm:items-end">
+        <header>
+          <Text variant="overline">Research database</Text>
+          <Text
+            as="h2"
+            variant="heading"
+            id="database-heading"
+            className="mt-1 text-2xl"
+          >
             Data tables
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          </Text>
+          <Text tone="muted" className="mt-1">
             Filter and browse 50 rows at a time or export a complete table as
             CSV.
-          </p>
-        </div>
+          </Text>
+        </header>
         <Button
           variant="outline"
           className="bg-background/80"
@@ -230,9 +248,9 @@ export const AdminTablesView = () => {
           )}
           Download {copyOf(table).label} CSV
         </Button>
-      </div>
+      </Column>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Grid gap="md" className="sm:grid-cols-2 xl:grid-cols-4">
         {ADMIN_TABLES.map((candidate) => (
           <button
             key={candidate}
@@ -242,11 +260,11 @@ export const AdminTablesView = () => {
               "rounded-2xl border p-4 text-left shadow-sm transition-[border-color,background-color,box-shadow] outline-none focus-visible:ring-2 focus-visible:ring-ring",
               table === candidate
                 ? "border-foreground/20 bg-foreground text-background shadow-md"
-                : "border-white/50 bg-background/75 hover:border-border hover:bg-background dark:border-white/10",
+                : "border-white/50 bg-background/75 hover:border-border hover:bg-background",
             )}
             aria-pressed={table === candidate}
           >
-            <div className="flex items-start justify-between gap-3">
+            <Row gap="md" align="start" justify="between">
               <span
                 className={mergeClassNames(
                   "grid size-9 place-items-center rounded-xl",
@@ -257,28 +275,30 @@ export const AdminTablesView = () => {
               >
                 <DatabaseIcon className="size-4" aria-hidden />
               </span>
-              <span className="font-mono text-sm tabular-nums">
+              <Text as="span" variant="mono" className="text-sm tabular-nums">
                 {overviewQuery.data === undefined
                   ? "—"
                   : countFormat.format(
                       overviewQuery.data.tableCounts[candidate],
                     )}
-              </span>
-            </div>
-            <p className="mt-3 font-semibold">{copyOf(candidate).label}</p>
-            <p
+              </Text>
+            </Row>
+            <Text variant="inherit" weight="semibold" className="mt-3">
+              {copyOf(candidate).label}
+            </Text>
+            <Text
+              variant="caption"
+              tone={table === candidate ? "inherit" : "muted"}
               className={mergeClassNames(
-                "mt-1 text-xs leading-relaxed",
-                table === candidate
-                  ? "text-background/70"
-                  : "text-muted-foreground",
+                "mt-1 leading-relaxed",
+                table === candidate && "text-background/70",
               )}
             >
               {copyOf(candidate).description}
-            </p>
+            </Text>
           </button>
         ))}
-      </div>
+      </Grid>
 
       {downloadError !== null && (
         <Alert variant="destructive">
@@ -288,7 +308,9 @@ export const AdminTablesView = () => {
       )}
 
       <Card className="gap-0 rounded-2xl bg-background/82 py-0 shadow-lg backdrop-blur-xl">
-        <CardHeader className="border-b border-border/70 py-5">
+        <CardHeader
+          className={sectionBarVariants({ inset: "none", className: "py-5" })}
+        >
           <CardTitle>{copyOf(table).label}</CardTitle>
           <CardDescription>{copyOf(table).description}</CardDescription>
           <CardAction>
@@ -307,9 +329,13 @@ export const AdminTablesView = () => {
 
         <form
           onSubmit={applyFilter}
-          className="grid gap-3 border-b border-border/70 bg-muted/20 px-4 py-4 sm:px-5 md:grid-cols-[minmax(180px,0.55fr)_minmax(260px,1fr)_auto] md:items-end"
+          className={sectionBarVariants({
+            tone: "muted",
+            className:
+              "grid gap-3 md:grid-cols-[minmax(180px,0.55fr)_minmax(260px,1fr)_auto] md:items-end",
+          })}
         >
-          <div className="space-y-2">
+          <Column gap="sm" className="pb-2">
             <Label htmlFor="admin-table-filter-column">Search column</Label>
             <Select
               items={columnItems}
@@ -331,52 +357,44 @@ export const AdminTablesView = () => {
                 <SelectItem value="all">All columns</SelectItem>
                 {tableColumns.map((column) => (
                   <SelectItem key={column} value={column}>
-                    <span className="font-mono text-xs">{column}</span>
+                    <Text as="span" variant="mono">
+                      {column}
+                    </Text>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </Column>
 
-          <div className="space-y-2">
+          <Column gap="sm">
             <Label htmlFor="admin-table-filter-value">Contains</Label>
-            <div className="relative">
-              <SearchIcon
-                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-              <Input
-                id="admin-table-filter-value"
-                value={filterInput}
-                onChange={(event) => setFilterInput(event.target.value)}
-                placeholder={
-                  filterColumn === "all"
-                    ? "Search every column…"
-                    : `Search ${filterColumn}…`
-                }
-                maxLength={200}
-                className="bg-background pl-9"
-              />
-            </div>
-          </div>
+            <InputGroup
+              icon={<SearchIcon />}
+              surface="solid"
+              id="admin-table-filter-value"
+              value={filterInput}
+              onChange={(event) => setFilterInput(event.target.value)}
+              placeholder={
+                filterColumn === "all"
+                  ? "Search every column…"
+                  : `Search ${filterColumn}…`
+              }
+              maxLength={200}
+            />
+          </Column>
 
-          <div className="flex gap-2">
+          <Row gap="sm">
             <Button type="submit" className="flex-1 md:flex-none">
               <ListFilterIcon aria-hidden />
               Apply filter
             </Button>
             {hasFilterControls && (
-              <Button
-                type="button"
-                variant="outline"
-                className="bg-background"
-                onClick={clearFilter}
-              >
+              <Button type="button" variant="outline" onClick={clearFilter}>
                 <XIcon aria-hidden />
                 Clear
               </Button>
             )}
-          </div>
+          </Row>
         </form>
 
         {tableQuery.isError ? (
@@ -402,7 +420,7 @@ export const AdminTablesView = () => {
               : "This table is empty."}
           </CardContent>
         ) : (
-          <div className="overflow-hidden">
+          <Box clip>
             <Table>
               <TableHeader className="bg-muted/55">
                 <TableRow>
@@ -428,20 +446,25 @@ export const AdminTablesView = () => {
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </Box>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-muted/25 px-4 py-3 sm:px-5">
-          <p className="text-xs text-muted-foreground tabular-nums">
+        <SectionBar
+          edge="top"
+          tone="muted"
+          inset="card-compact"
+          layout="toolbar"
+          className="bg-muted/25"
+        >
+          <Text variant="caption" className="tabular-nums">
             {tableQuery.data === undefined
               ? "Loading row count…"
               : `${countFormat.format(tableQuery.data.total)}${hasActiveFilter ? " matching" : ""} rows · Page ${page} of ${totalPages}`}
-          </p>
-          <div className="flex gap-2">
+          </Text>
+          <Row gap="sm">
             <Button
               variant="outline"
               size="sm"
-              className="bg-background"
               disabled={page <= 1 || tableQuery.data === undefined}
               onClick={() => setPage((current) => Math.max(1, current - 1))}
             >
@@ -451,15 +474,14 @@ export const AdminTablesView = () => {
             <Button
               variant="outline"
               size="sm"
-              className="bg-background"
               disabled={page >= totalPages || tableQuery.data === undefined}
               onClick={() => setPage((current) => current + 1)}
             >
               Next
               <ChevronRightIcon aria-hidden />
             </Button>
-          </div>
-        </div>
+          </Row>
+        </SectionBar>
       </Card>
     </section>
   );

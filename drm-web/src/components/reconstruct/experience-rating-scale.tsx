@@ -3,6 +3,8 @@
 import type { StudyConfigExperienceItem } from "@/lib/api-types";
 import { Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
+import { Grid } from "@/components/layout/grid";
+import { Box } from "@/components/layout/box";
 import { mergeClassNames } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 
@@ -63,18 +65,18 @@ export const ExperienceRatingScale = ({
 
   if (layout === "field-row") {
     return (
-      <div
-        className={mergeClassNames(
-          "grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_20rem] sm:items-center sm:gap-6",
-          className,
-        )}
+      <Grid
+        gap="md"
+        layout="field-row"
+        className={mergeClassNames("py-4", className)}
       >
         <Label color={invalid ? "destructive" : undefined}>
           {item.question}
         </Label>
-        <div className="w-full min-w-0 sm:justify-self-end">
-          <div
-            className="grid place-items-center gap-1.5"
+        <Box className="w-full min-w-0 sm:justify-self-end">
+          <Grid
+            place="center"
+            className="gap-1.5"
             style={{
               gridTemplateColumns: `repeat(${values.length}, minmax(0, 1fr))`,
             }}
@@ -83,13 +85,13 @@ export const ExperienceRatingScale = ({
             aria-invalid={invalid || undefined}
           >
             {ratingButtons}
-          </div>
-          <div className="mt-1.5 flex items-center justify-between px-0.5">
-            <Text variant="nudge">{copy.lowAnchor}</Text>
-            <Text variant="nudge">{copy.highAnchor}</Text>
-          </div>
-        </div>
-      </div>
+          </Grid>
+          <Row align="center" justify="between" className="mt-1.5 px-0.5">
+            <Text variant="caption">{copy.lowAnchor}</Text>
+            <Text variant="caption">{copy.highAnchor}</Text>
+          </Row>
+        </Box>
+      </Grid>
     );
   }
 
@@ -109,9 +111,9 @@ export const ExperienceRatingScale = ({
         aria-label={item.question}
         aria-invalid={invalid || undefined}
       >
-        <Text variant="nudge">{copy.lowAnchor}</Text>
+        <Text variant="caption">{copy.lowAnchor}</Text>
         {ratingButtons}
-        <Text variant="nudge">{copy.highAnchor}</Text>
+        <Text variant="caption">{copy.highAnchor}</Text>
       </Row>
     </Row>
   );

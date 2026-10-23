@@ -9,20 +9,27 @@ import {
   RotateCcwIcon,
 } from "lucide-react";
 
+import { SectionBar } from "@/components/layout/section-bar";
 import type { Frame } from "@/lib/api-types";
 import { frameImageSrc } from "@/lib/api-client";
 import { activityDisplayLabel } from "@/lib/activity-vocabulary";
 import { windowMinuteAdjective, windowMs } from "@/lib/study-config-store";
 import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
+import { IconTile } from "@/components/layout/icon-tile";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Column, Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
+import { Text } from "@/components/layout/text";
 import {
   sampleEvenly,
   type EditableActivity,
@@ -98,10 +105,10 @@ const slotAssignmentLabel = (
 
 const groupContainerClasses = (kind: WindowSlotGroupKind): string => {
   if (kind === "current") {
-    return "border border-teal-200/80 bg-teal-50/30 dark:border-teal-900/80 dark:bg-teal-950/15";
+    return "border border-teal-200/80 bg-teal-50/30";
   }
   if (kind === "assigned") {
-    return "border border-violet-200/80 bg-violet-50/30 dark:border-violet-900/80 dark:bg-violet-950/15";
+    return "border border-violet-200/80 bg-violet-50/30";
   }
   if (kind === "unassigned") {
     return "border border-dashed border-destructive/45 bg-destructive/[0.025]";
@@ -111,10 +118,10 @@ const groupContainerClasses = (kind: WindowSlotGroupKind): string => {
 
 const groupHeaderClasses = (kind: WindowSlotGroupKind): string => {
   if (kind === "current") {
-    return "border-teal-200/70 bg-teal-100/45 text-teal-800 dark:border-teal-900 dark:bg-teal-900/25 dark:text-teal-200";
+    return "border-teal-200/70 bg-teal-100/45 text-teal-800";
   }
   if (kind === "assigned") {
-    return "border-violet-200/70 bg-violet-100/45 text-violet-800 dark:border-violet-900 dark:bg-violet-900/25 dark:text-violet-200";
+    return "border-violet-200/70 bg-violet-100/45 text-violet-800";
   }
   if (kind === "unassigned") {
     return "border-destructive/25 bg-destructive/5 text-destructive";
@@ -123,9 +130,9 @@ const groupHeaderClasses = (kind: WindowSlotGroupKind): string => {
 };
 
 const groupDividerClasses = (kind: WindowSlotGroupKind): string => {
-  if (kind === "current") return "border-teal-200/70 dark:border-teal-900";
+  if (kind === "current") return "border-teal-200/70";
   if (kind === "assigned") {
-    return "border-violet-200/70 dark:border-violet-900";
+    return "border-violet-200/70";
   }
   if (kind === "unassigned") return "border-destructive/20";
   return "border-border/50";
@@ -462,16 +469,14 @@ export const FramePickerDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl border-border/70 bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
-        <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7 sm:py-6 sm:pr-20">
+      <DialogContent variant="panel" closePosition="inset">
+        <DialogHeader variant="bar-spacious">
           <Row gap="md" align="start">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
-              <Clock3Icon className="size-5" aria-hidden />
-            </div>
+            <IconTile>
+              <Clock3Icon aria-hidden />
+            </IconTile>
             <Column gap="xs" className="min-w-0">
-              <DialogTitle className="text-lg leading-tight font-semibold sm:text-xl">
-                {title}
-              </DialogTitle>
+              <DialogTitle size="xl">{title}</DialogTitle>
               <DialogDescription className="leading-relaxed">
                 {description}
               </DialogDescription>
@@ -479,23 +484,27 @@ export const FramePickerDialog = ({
           </Row>
         </DialogHeader>
 
-        <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-5 py-3 sm:px-7">
+        <SectionBar
+          tone="muted"
+          inset="dialog"
+          layout="toolbar"
+          className="min-h-16"
+        >
           <Column gap="xs">
-            <p className="text-sm font-medium">Select the time span</p>
-            <p className="text-xs text-muted-foreground">
-              {selectionInstruction}
-            </p>
+            <Text variant="label">Select the time span</Text>
+            <Text variant="caption">{selectionInstruction}</Text>
           </Column>
 
           <Row gap="xs" align="center" wrap>
             <label
               className={mergeClassNames(
                 "inline-flex min-h-10 items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1 text-xs",
-                startMs !== null &&
-                  "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
+                startMs !== null && "border-blue-200 bg-blue-50 text-blue-700",
               )}
             >
-              <span className="text-muted-foreground">Start</span>
+              <Text as="span" variant="inherit" tone="muted">
+                Start
+              </Text>
               <select
                 aria-label="Activity start time"
                 value={startMs ?? ""}
@@ -519,11 +528,12 @@ export const FramePickerDialog = ({
             <label
               className={mergeClassNames(
                 "inline-flex min-h-10 items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1 text-xs",
-                endMs !== null &&
-                  "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
+                endMs !== null && "border-blue-200 bg-blue-50 text-blue-700",
               )}
             >
-              <span className="text-muted-foreground">End</span>
+              <Text as="span" variant="inherit" tone="muted">
+                End
+              </Text>
               <select
                 aria-label="Activity end time"
                 value={endMs ?? ""}
@@ -541,18 +551,22 @@ export const FramePickerDialog = ({
               </select>
             </label>
           </Row>
-        </div>
+        </SectionBar>
 
-        <div className="bg-muted/15 p-3 sm:p-5">
+        <DialogBody variant="media">
           <Row gap="md" align="start">
             <nav
               ref={timelineNavRef}
               aria-label="Jump to time of day"
               className="hidden max-h-[62vh] w-20 shrink-0 overflow-y-auto rounded-xl border bg-background p-2 sm:block"
             >
-              <p className="px-1 pb-2 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+              <Text
+                variant="overline"
+                weight="medium"
+                className="px-1 pb-2 text-3xs tracking-wide"
+              >
                 Jump to
-              </p>
+              </Text>
               <Column gap="xs">
                 {timelineMarks.map((mark) => (
                   <button
@@ -574,7 +588,7 @@ export const FramePickerDialog = ({
                     className={mergeClassNames(
                       "w-full rounded-lg px-2 py-1 text-left text-xs tabular-nums transition-colors outline-none ring-inset hover:bg-muted focus-visible:ring-2 focus-visible:ring-blue-400",
                       activeTimelineEpochMs === mark.epochMs
-                        ? "bg-blue-50 font-semibold text-blue-700 shadow-sm ring-1 ring-blue-300 dark:bg-blue-950/55 dark:text-blue-200 dark:ring-blue-700"
+                        ? "bg-blue-50 font-semibold text-blue-700 shadow-sm ring-1 ring-blue-300"
                         : mark.isFullHour
                           ? "font-medium text-foreground"
                           : "text-muted-foreground",
@@ -598,9 +612,9 @@ export const FramePickerDialog = ({
                 style={{ height: virtualizer.getTotalSize() }}
               >
                 {virtualizer.getVirtualItems().map((virtualRow) => (
-                  <div
+                  <Row
                     key={virtualRow.key}
-                    className="absolute top-0 left-0 flex w-full"
+                    className="absolute top-0 left-0 w-full"
                     style={{
                       height: groupHeight(
                         visualGroups[virtualRow.index],
@@ -631,22 +645,29 @@ export const FramePickerDialog = ({
                             width: `${(groupColumns / columns) * 100}%`,
                           }}
                         >
-                          <div
+                          <Row
+                            gap="sm"
+                            align="center"
+                            justify="between"
                             className={mergeClassNames(
-                              "flex min-h-7 items-center justify-between gap-2 border-b px-2 py-1 text-[10px] font-medium",
+                              "min-h-7 border-b px-2 py-1 text-3xs font-medium",
                               groupHeaderClasses(group.kind),
                             )}
                           >
-                            <span className="truncate">
+                            <Text as="span" variant="inherit" truncate>
                               {groupLabel(group)}
-                            </span>
-                            <span className="shrink-0 tabular-nums">
+                            </Text>
+                            <Text
+                              as="span"
+                              variant="inherit"
+                              className="shrink-0 tabular-nums"
+                            >
                               {formatTimeSpan(groupStartMs, groupEndMs)}
-                            </span>
-                          </div>
+                            </Text>
+                          </Row>
 
-                          <div
-                            className="grid min-h-0 flex-1"
+                          <Grid
+                            className="min-h-0 flex-1"
                             style={{
                               gridTemplateColumns: `repeat(${groupColumns}, minmax(0, 1fr))`,
                               gridTemplateRows: `repeat(${Math.ceil(
@@ -737,45 +758,55 @@ export const FramePickerDialog = ({
                                   onClick={() => selectSlot(slot)}
                                   className={mergeClassNames(
                                     "relative flex min-w-0 flex-col overflow-hidden text-left transition-colors outline-none hover:bg-foreground/[0.025] focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                                    isSelected &&
-                                      "z-[1] bg-blue-50/65 dark:bg-blue-950/35",
+                                    isSelected && "z-[1] bg-blue-50/65",
                                     slotColumn > 0 && "border-l",
                                     slotRow > 0 && "border-t",
                                     (slotColumn > 0 || slotRow > 0) &&
                                       (isSelected
-                                        ? "border-blue-200/90 dark:border-blue-800"
+                                        ? "border-blue-200/90"
                                         : groupDividerClasses(group.kind)),
                                   )}
                                 >
-                                  <div
+                                  <Row
+                                    align="center"
                                     className={mergeClassNames(
-                                      "flex min-h-9 items-center border-b px-2 py-1.5",
+                                      "min-h-9 border-b px-2 py-1.5",
                                       groupDividerClasses(group.kind),
                                     )}
                                   >
-                                    <span className="text-xs font-semibold tabular-nums">
+                                    <Text
+                                      as="span"
+                                      variant="small"
+                                      weight="semibold"
+                                      className="tabular-nums"
+                                    >
                                       {timeSpan}
-                                    </span>
-                                  </div>
+                                    </Text>
+                                  </Row>
 
                                   {previews.length === 0 ? (
-                                    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 text-muted-foreground">
+                                    <Column
+                                      align="center"
+                                      justify="center"
+                                      className="min-h-0 flex-1 gap-1.5 text-muted-foreground"
+                                    >
                                       <ImageOffIcon
                                         className="size-5"
                                         aria-hidden
                                       />
-                                      <span className="text-[11px] font-medium">
+                                      <Text
+                                        as="span"
+                                        variant="small"
+                                        className="text-2xs"
+                                      >
                                         No images available
-                                      </span>
-                                    </div>
+                                      </Text>
+                                    </Column>
                                   ) : (
-                                    <div
-                                      className={mergeClassNames(
-                                        "grid min-h-0 flex-1 gap-0.5 bg-muted",
-                                        previews.length === 1
-                                          ? "grid-cols-1"
-                                          : "grid-cols-2",
-                                      )}
+                                    <Grid
+                                      gap="2xs"
+                                      cols={previews.length === 1 ? 1 : 2}
+                                      className="min-h-0 flex-1 bg-muted"
                                     >
                                       {previews.map((frame) => (
                                         /* eslint-disable-next-line @next/next/no-img-element -- authenticated image; the Next proxy cannot forward the auth cookie */
@@ -789,14 +820,14 @@ export const FramePickerDialog = ({
                                           className="size-full min-h-0 object-cover"
                                         />
                                       ))}
-                                    </div>
+                                    </Grid>
                                   )}
 
                                   {isSelected && (
                                     <span
                                       aria-hidden
                                       className={mergeClassNames(
-                                        "pointer-events-none absolute inset-0 z-20 border-blue-600 bg-blue-500/12 dark:border-blue-400 dark:bg-blue-400/15",
+                                        "pointer-events-none absolute inset-0 z-20 border-blue-600 bg-blue-500/12",
                                         !selectedAbove && "border-t-[3px]",
                                         !selectedRight && "border-r-[3px]",
                                         !selectedBelow && "border-b-[3px]",
@@ -806,16 +837,24 @@ export const FramePickerDialog = ({
                                   )}
 
                                   {slot.frames.length > MAX_SLOT_PREVIEWS && (
-                                    <span className="pointer-events-none absolute bottom-2 left-2 z-30 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-[9px] font-medium text-white">
+                                    <Badge
+                                      variant="pill"
+                                      tone="overlay"
+                                      size="4xs"
+                                      className="pointer-events-none absolute bottom-2 left-2 z-30"
+                                    >
                                       +{slot.frames.length - MAX_SLOT_PREVIEWS}{" "}
                                       images
-                                    </span>
+                                    </Badge>
                                   )}
 
                                   {(isStart || isEnd) && (
-                                    <span
+                                    <Badge
+                                      variant="pill"
+                                      tone="marker"
+                                      size="2xs"
                                       className={mergeClassNames(
-                                        "pointer-events-none absolute z-30 inline-flex min-h-7 items-center rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-bold tracking-wider text-white uppercase shadow-lg ring-2 ring-white/90 dark:bg-blue-500 dark:ring-blue-950",
+                                        "pointer-events-none absolute z-30",
                                         isStart && !isEnd
                                           ? "top-12 left-2"
                                           : "right-2 bottom-2",
@@ -826,23 +865,23 @@ export const FramePickerDialog = ({
                                         : isStart
                                           ? "Start"
                                           : "End"}
-                                    </span>
+                                    </Badge>
                                   )}
                                 </button>
                               );
                             })}
-                          </div>
+                          </Grid>
                         </section>
                       );
                     })}
-                  </div>
+                  </Row>
                 ))}
               </div>
             </div>
           </Row>
-        </div>
+        </DialogBody>
 
-        <div className="flex flex-col gap-3 border-t border-border/70 bg-background px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+        <DialogFooter variant="split" className="flex-col gap-3">
           <Button
             variant="ghost"
             className="self-start"
@@ -856,12 +895,8 @@ export const FramePickerDialog = ({
             <RotateCcwIcon aria-hidden />
             Clear selection
           </Button>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row">
-            <Button
-              variant="outline"
-              className="bg-background"
-              onClick={() => onOpenChange(false)}
-            >
+          <Column gap="sm" className="flex-col-reverse sm:flex-row">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button
@@ -875,8 +910,8 @@ export const FramePickerDialog = ({
             >
               {confirmLabel}
             </Button>
-          </div>
-        </div>
+          </Column>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

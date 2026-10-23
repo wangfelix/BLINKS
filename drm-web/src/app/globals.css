@@ -2,8 +2,6 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -48,6 +46,53 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+@theme inline {
+  --text-2xs: 11px;
+  --text-3xs: 10px;
+  --text-4xs: 9px;
+  --tracking-label: 0.14em;
+  --shadow-panel: 0 24px 80px -28px rgba(15, 23, 42, 0.35);
+  --aspect-photo: 4 / 3;
+}
+
+/* Translucent, blurred card surface used for the main study panels. */
+@utility surface-glass {
+  @apply border border-white/50 bg-background/80 shadow-panel ring-1 ring-foreground/5 backdrop-blur-2xl;
+}
+
+/* Translucent, blurred top bar with a bottom border. */
+@utility surface-bar {
+  @apply border-b border-border/60 bg-background/55 backdrop-blur-xl;
+}
+
+/* Grid of 1px border-coloured lines every 44px. */
+@utility bg-grid {
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+/* Radial fade from opaque in the centre to transparent at 72%. */
+@utility mask-fade-radial {
+  mask-image: radial-gradient(ellipse at center, black, transparent 72%);
+}
+
+/* Dialog height capped to the viewport minus a 0.5rem margin on each side. */
+@utility max-h-dialog {
+  max-height: calc(100dvh - 1rem);
+}
+
+/* Minimum height of a centred step screen. */
+@utility min-h-step {
+  min-height: 350px;
+}
+
+/* Label column that fills the remaining width next to a 20rem control column. */
+@utility grid-cols-field-row {
+  grid-template-columns: minmax(0, 1fr) 20rem;
+}
+
 :root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -81,40 +126,6 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
 }
 
 @layer base {

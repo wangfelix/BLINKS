@@ -11,19 +11,20 @@ import {
 import { getStudyConfig } from "@/lib/study-config-store";
 import { StudyFlowShell } from "@/components/study-flow-shell";
 import { StudyProgress } from "@/components/study-progress";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AssistedRoundReminder } from "@/components/reconstruct/assisted-round-reminder";
+import { Column, Row } from "@/components/layout/flex";
+import { Text } from "@/components/layout/text";
 
 const INTRO_CONTENT = {
   1: {
     icon: CalendarClockIcon,
-    iconClassName:
-      "bg-sky-500/10 text-sky-700 ring-sky-500/10 dark:text-sky-300",
+    iconClassName: "bg-sky-500/10 text-sky-700 ring-sky-500/10",
   },
   2: {
     icon: SparklesIcon,
-    iconClassName:
-      "bg-violet-500/10 text-violet-700 ring-violet-500/10 dark:text-violet-300",
+    iconClassName: "bg-violet-500/10 text-violet-700 ring-violet-500/10",
   },
 } as const;
 
@@ -64,9 +65,9 @@ export const ReconstructionIntro = ({
       }
       headerTrailing={
         preview ? (
-          <span className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
+          <Badge variant="pill" tone="preview">
             Developer preview
-          </span>
+          </Badge>
         ) : (
           <Button variant="ghost" size="sm" onClick={onSignOut}>
             <LogOutIcon aria-hidden />
@@ -75,29 +76,34 @@ export const ReconstructionIntro = ({
         )
       }
     >
-      <div className="onboarding-step-enter onboarding-stagger mx-auto flex min-h-[350px] max-w-2xl flex-col justify-center">
-        <div className="flex items-start gap-4 sm:gap-5">
+      <Column
+        justify="center"
+        className="onboarding-step-enter onboarding-stagger mx-auto min-h-step max-w-2xl"
+      >
+        <Row gap="lg" align="start" className="sm:gap-5">
           <span
             className={`grid size-12 shrink-0 place-items-center rounded-2xl ring-1 sm:size-14 ${content.iconClassName}`}
           >
             <Icon className="size-5 sm:size-6" aria-hidden />
           </span>
-          <div>
-            <h1
+          <header>
+            <Text
+              as="h1"
+              variant="title"
               ref={headingRef}
               tabIndex={-1}
-              className="text-2xl font-semibold tracking-tight outline-none sm:text-3xl"
+              className="outline-none sm:text-3xl"
             >
               {title}
-            </h1>
-            <p className="mt-3 text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">
+            </Text>
+            <Text variant="lead" className="mt-3 leading-7 sm:leading-8">
               {description}
-            </p>
+            </Text>
             {round === 2 && <AssistedRoundReminder className="mt-6" />}
-          </div>
-        </div>
+          </header>
+        </Row>
 
-        <div className="mt-9 flex justify-end">
+        <Row justify="end" className="mt-9">
           <Button
             size="lg"
             className="w-full shadow-md sm:w-auto"
@@ -106,8 +112,8 @@ export const ReconstructionIntro = ({
             Continue
             <ArrowRightIcon aria-hidden />
           </Button>
-        </div>
-      </div>
+        </Row>
+      </Column>
     </StudyFlowShell>
   );
 };

@@ -32,14 +32,21 @@ import {
   storeOnboardingRoutingState,
 } from "@/lib/api-client";
 import { surveyUrlForParticipant } from "@/lib/study-config";
+import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   StudyFlowBackground,
   StudyFlowShell,
 } from "@/components/study-flow-shell";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Card } from "@/components/ui/card";
+import { Column, Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
+import { Container } from "@/components/layout/container";
+import { Box } from "@/components/layout/box";
+import { Text } from "@/components/layout/text";
 import { mergeClassNames } from "@/lib/utils";
 
 type WizardStep = 1 | 2 | "complete";
@@ -57,14 +64,20 @@ const PasswordVisibilityButton = ({
   visible: boolean;
   onToggle: () => void;
 }) => (
-  <button
+  <Button
     type="button"
+    variant="ghost"
+    size="icon"
+    className="text-muted-foreground"
     onClick={onToggle}
-    className="absolute top-1/2 right-2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     aria-label={visible ? "Hide password" : "Show password"}
   >
-    {visible ? <EyeOffIcon aria-hidden /> : <EyeIcon aria-hidden />}
-  </button>
+    {visible ? (
+      <EyeOffIcon className="size-6" aria-hidden />
+    ) : (
+      <EyeIcon className="size-6" aria-hidden />
+    )}
+  </Button>
 );
 
 const StepCheck = () => (
@@ -120,9 +133,9 @@ const WizardProgress = ({ step }: { step: WizardStep }) => {
               >
                 {complete ? <StepCheck /> : item.number}
               </span>
-              <span className="text-xs font-medium sm:text-sm">
+              <Text as="span" variant="small" className="sm:text-sm">
                 {item.label}
-              </span>
+              </Text>
             </li>
             {index === 0 && (
               <li
@@ -314,10 +327,14 @@ export const OnboardingWizard = ({
     return (
       <main className="relative grid min-h-dvh place-items-center overflow-hidden px-4 py-10">
         <StudyFlowBackground />
-        <div className="relative flex items-center gap-2 rounded-full border bg-background/80 px-5 py-3 text-sm text-muted-foreground shadow-lg backdrop-blur-xl">
+        <Row
+          gap="sm"
+          align="center"
+          className="relative rounded-full border bg-background/80 px-5 py-3 text-sm text-muted-foreground shadow-lg backdrop-blur-xl"
+        >
           <LoaderCircleIcon className="animate-spin" aria-hidden />
           Preparing your account…
-        </div>
+        </Row>
       </main>
     );
   }
@@ -328,7 +345,7 @@ export const OnboardingWizard = ({
         <StudyFlowBackground />
         <Alert
           variant="destructive"
-          className="relative max-w-md bg-background/90 backdrop-blur-xl"
+          className="max-w-md bg-background/90 backdrop-blur-xl"
         >
           <AlertTitle>Onboarding unavailable</AlertTitle>
           <AlertDescription>
@@ -345,9 +362,9 @@ export const OnboardingWizard = ({
       progress={<WizardProgress step={activeStep!} />}
       headerTrailing={
         preview ? (
-          <span className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
+          <Badge variant="pill" tone="preview">
             Developer preview
-          </span>
+          </Badge>
         ) : (
           <Button variant="ghost" size="sm" onClick={handleSignOut}>
             Sign out
@@ -356,102 +373,115 @@ export const OnboardingWizard = ({
       }
     >
       {passwordSaved ? (
-        <div
-          className="onboarding-success-enter flex min-h-[350px] flex-col items-center justify-center text-center"
+        <Column
+          align="center"
+          justify="center"
+          className="onboarding-success-enter min-h-step text-center"
           aria-live="polite"
         >
           <span className="onboarding-success-ring grid size-20 place-items-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/25">
             <CheckIcon className="size-9" strokeWidth={2.5} aria-hidden />
           </span>
-          <h2 className="mt-6 text-2xl font-semibold tracking-tight">
+          <Text as="h2" variant="title" className="mt-6">
             Password saved
-          </h2>
-          <p className="mt-2 text-sm text-muted-foreground">
+          </Text>
+          <Text tone="muted" className="mt-2">
             Your participant account is now secured.
-          </p>
-        </div>
+          </Text>
+        </Column>
       ) : activeStep === 1 ? (
-        <div
+        <Container
           key="password"
-          className="onboarding-step-enter onboarding-stagger mx-auto max-w-xl"
+          size="xl"
+          fill={false}
+          className="onboarding-step-enter onboarding-stagger"
         >
-          <div className="mb-7 flex items-start gap-4">
+          <Row gap="lg" align="start" className="mb-7">
             <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/10">
               <LockKeyholeIcon className="size-5" aria-hidden />
             </span>
-            <div>
-              <h1
+            <header>
+              <Text
+                as="h1"
+                variant="title"
                 ref={headingRef}
                 tabIndex={-1}
-                className="text-2xl font-semibold tracking-tight outline-none sm:text-3xl"
+                className="outline-none sm:text-3xl"
               >
                 Choose your own password
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground sm:text-base">
+              </Text>
+              <Text variant="lead" className="mt-2">
                 Replace the temporary password from the study team with a
                 private password only you know.
-              </p>
-            </div>
-          </div>
+              </Text>
+            </header>
+          </Row>
 
           <form onSubmit={handlePasswordSubmit} className="space-y-5">
-            <div className="space-y-2">
+            <Column gap="sm">
               <Label htmlFor="new-password">New password</Label>
-              <div className="relative">
-                <Input
-                  id="new-password"
-                  name="new-password"
-                  type={passwordVisible ? "text" : "password"}
-                  autoComplete="new-password"
-                  autoFocus
-                  value={newPassword}
-                  onChange={(event) => {
-                    setNewPassword(event.target.value);
-                    setValidationError(null);
-                    passwordMutation.reset();
-                  }}
-                  className="h-11 pr-11"
-                  aria-invalid={passwordError !== null}
-                />
-                <PasswordVisibilityButton
-                  visible={passwordVisible}
-                  onToggle={() => setPasswordVisible((value) => !value)}
-                />
-              </div>
-            </div>
+              <InputGroup
+                action={
+                  <PasswordVisibilityButton
+                    visible={passwordVisible}
+                    onToggle={() => setPasswordVisible((value) => !value)}
+                  />
+                }
+                size="lg"
+                id="new-password"
+                name="new-password"
+                type={passwordVisible ? "text" : "password"}
+                autoComplete="new-password"
+                autoFocus
+                value={newPassword}
+                onChange={(event) => {
+                  setNewPassword(event.target.value);
+                  setValidationError(null);
+                  passwordMutation.reset();
+                }}
+                aria-invalid={passwordError !== null}
+              />
+            </Column>
 
-            <div className="space-y-2">
+            <Column gap="sm">
               <Label htmlFor="confirm-password">Confirm password</Label>
-              <div className="relative">
-                <Input
-                  id="confirm-password"
-                  name="confirm-password"
-                  type={passwordVisible ? "text" : "password"}
-                  autoComplete="new-password"
-                  value={confirmPassword}
-                  onChange={(event) => {
-                    setConfirmPassword(event.target.value);
-                    setValidationError(null);
-                    passwordMutation.reset();
-                  }}
-                  className="h-11 pr-11"
-                  aria-invalid={passwordError !== null}
-                />
-                <PasswordVisibilityButton
-                  visible={passwordVisible}
-                  onToggle={() => setPasswordVisible((value) => !value)}
-                />
-              </div>
-            </div>
+              <InputGroup
+                action={
+                  <PasswordVisibilityButton
+                    visible={passwordVisible}
+                    onToggle={() => setPasswordVisible((value) => !value)}
+                  />
+                }
+                size="lg"
+                id="confirm-password"
+                name="confirm-password"
+                type={passwordVisible ? "text" : "password"}
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(event) => {
+                  setConfirmPassword(event.target.value);
+                  setValidationError(null);
+                  passwordMutation.reset();
+                }}
+                aria-invalid={passwordError !== null}
+              />
+            </Column>
 
-            <div className="rounded-2xl border bg-muted/25 p-4">
-              <div className="flex items-center justify-between gap-3 text-xs">
-                <span className="font-medium">Password strength</span>
-                <span className="text-muted-foreground">
+            <Card variant="inset">
+              <Row
+                gap="md"
+                align="center"
+                justify="between"
+                className="text-xs"
+              >
+                <Text as="span" variant="inherit" weight="medium">
+                  Password strength
+                </Text>
+                <Text as="span" variant="inherit" tone="muted">
                   {strengthLabel || "Start typing"}
-                </span>
-              </div>
-              <div className="mt-2 grid grid-cols-4 gap-1.5" aria-hidden>
+                </Text>
+              </Row>
+              <Grid cols={4} className="mt-2 gap-1.5" aria-hidden>
                 {[1, 2, 3, 4].map((level) => (
                   <span
                     key={level}
@@ -461,7 +491,7 @@ export const OnboardingWizard = ({
                     )}
                   />
                 ))}
-              </div>
+              </Grid>
               <ul className="mt-4 grid gap-2 sm:grid-cols-2">
                 <Requirement met={passwordHasMinimumLength}>
                   At least 8 characters
@@ -470,15 +500,13 @@ export const OnboardingWizard = ({
                   Both entries match
                 </Requirement>
               </ul>
-            </div>
+            </Card>
 
-            <div className="min-h-5" aria-live="polite" aria-atomic="true">
-              {passwordError && (
-                <p className="text-sm text-destructive">{passwordError}</p>
-              )}
-            </div>
+            <Box className="min-h-5" aria-live="polite" aria-atomic="true">
+              {passwordError && <Text tone="destructive">{passwordError}</Text>}
+            </Box>
 
-            <div className="flex justify-end">
+            <Row justify="end">
               <Button
                 type="submit"
                 size="lg"
@@ -497,33 +525,37 @@ export const OnboardingWizard = ({
                   </>
                 )}
               </Button>
-            </div>
+            </Row>
           </form>
-        </div>
+        </Container>
       ) : activeStep === 2 ? (
-        <div
+        <Container
           key="survey"
-          className="onboarding-step-enter onboarding-stagger mx-auto max-w-xl"
+          size="xl"
+          fill={false}
+          className="onboarding-step-enter onboarding-stagger"
         >
-          <div className="mb-8 flex items-start gap-4">
-            <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-violet-500/10 text-violet-700 ring-1 ring-violet-500/10 dark:text-violet-300">
+          <Row gap="lg" align="start" className="mb-8">
+            <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-violet-500/10 text-violet-700 ring-1 ring-violet-500/10">
               <ShieldCheckIcon className="size-5" aria-hidden />
             </span>
-            <div>
-              <h1
+            <header>
+              <Text
+                as="h1"
+                variant="title"
                 ref={headingRef}
                 tabIndex={-1}
-                className="text-2xl font-semibold tracking-tight outline-none sm:text-3xl"
+                className="outline-none sm:text-3xl"
               >
                 Complete the pre-study questionnaire
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground sm:text-base">
+              </Text>
+              <Text variant="lead" className="mt-2">
                 This questionnaire records the information needed before your
                 field day. It opens in a separate tab. Please come back to this
                 page after you finish the survey.
-              </p>
-            </div>
-          </div>
+              </Text>
+            </header>
+          </Row>
 
           {surveyUrl === null ? (
             <Alert variant="destructive">
@@ -534,13 +566,18 @@ export const OnboardingWizard = ({
               </AlertDescription>
             </Alert>
           ) : (
-            <div className="flex items-center justify-between gap-4 rounded-2xl border bg-gradient-to-br from-primary/[0.06] to-violet-500/[0.06] p-5 sm:p-6">
-              <div className="shrink-0">
-                <p className="text-sm font-medium">Participant ID</p>
-                <p className="mt-1 font-mono text-sm text-muted-foreground">
+            <Row
+              gap="lg"
+              align="center"
+              justify="between"
+              className="rounded-2xl border bg-gradient-to-br from-primary/[0.06] to-violet-500/[0.06] p-5 sm:p-6"
+            >
+              <Box className="shrink-0">
+                <Text variant="label">Participant ID</Text>
+                <Text variant="mono" tone="muted" className="mt-1 text-sm">
                   {username}
-                </p>
-              </div>
+                </Text>
+              </Box>
               <a
                 href={surveyUrl}
                 target="_blank"
@@ -558,17 +595,20 @@ export const OnboardingWizard = ({
                 </span>
                 <ExternalLinkIcon aria-hidden />
               </a>
-            </div>
+            </Row>
           )}
 
-          <div className="mt-6 min-h-24" aria-live="polite">
+          <Box className="mt-6 min-h-24" aria-live="polite">
             {questionnaireOpened && (
-              <div className="onboarding-confirm-enter space-y-3 border-t pt-5">
-                <p className="text-sm text-muted-foreground">
+              <Column
+                gap="md"
+                className="onboarding-confirm-enter border-t pt-5"
+              >
+                <Text tone="muted">
                   Return here once you reach the questionnaire&apos;s
                   confirmation page.
-                </p>
-                <div className="flex justify-end">
+                </Text>
+                <Row justify="end">
                   <Button
                     variant="secondary"
                     size="lg"
@@ -588,40 +628,44 @@ export const OnboardingWizard = ({
                       "I have completed the questionnaire"
                     )}
                   </Button>
-                </div>
+                </Row>
                 {completionMutation.isError && (
-                  <p className="text-sm text-destructive" role="alert">
+                  <Text tone="destructive" role="alert">
                     {completionMutation.error instanceof Error
                       ? completionMutation.error.message
                       : "Onboarding could not be completed."}
-                  </p>
+                  </Text>
                 )}
-              </div>
+              </Column>
             )}
-          </div>
-        </div>
+          </Box>
+        </Container>
       ) : (
-        <div
+        <Column
           key="complete"
-          className="onboarding-success-enter flex min-h-[350px] flex-col items-center justify-center text-center"
+          align="center"
+          justify="center"
+          className="onboarding-success-enter min-h-step text-center"
           aria-live="polite"
         >
           <span className="onboarding-success-ring grid size-20 place-items-center rounded-full bg-primary text-primary-foreground shadow-xl shadow-primary/20">
             <SparklesIcon className="size-9" aria-hidden />
           </span>
-          <h1
+          <Text
+            as="h1"
+            variant="display"
             ref={headingRef}
             tabIndex={-1}
-            className="mt-6 text-3xl font-semibold tracking-tight outline-none"
+            className="mt-6 outline-none"
           >
             You&apos;re ready
-          </h1>
-          <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground sm:text-base">
+          </Text>
+          <Text variant="lead" className="mt-3 max-w-sm">
             Your setup is complete. You can now log out and start your recording
             day tomorrow. Log into this web application tomorrow evening to
             complete the study.
-          </p>
-          <div className="mt-7 flex flex-wrap justify-center gap-3">
+          </Text>
+          <Row gap="md" justify="center" wrap className="mt-7">
             {preview && (
               <Button variant="secondary" onClick={handleRestartPreview}>
                 <RotateCcwIcon aria-hidden />
@@ -632,8 +676,8 @@ export const OnboardingWizard = ({
               <LogOutIcon aria-hidden />
               Log out
             </Button>
-          </div>
-        </div>
+          </Row>
+        </Column>
       )}
     </StudyFlowShell>
   );

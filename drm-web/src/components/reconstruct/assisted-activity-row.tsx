@@ -11,6 +11,7 @@ import {
 import { frameImageSrc } from "@/lib/api-client";
 import { mergeClassNames } from "@/lib/utils";
 import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/layout/text";
@@ -22,6 +23,9 @@ import {
   type EditableActivity,
 } from "@/components/reconstruct/editor-types";
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
+import { Column, Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
+import { Box } from "@/components/layout/box";
 
 export type MergeHighlightPhase = "holding" | "fading";
 
@@ -38,17 +42,12 @@ const AssistedFieldRow = ({
   className?: string;
   children: ReactNode;
 }) => (
-  <div
-    className={mergeClassNames(
-      "grid gap-2 sm:grid-cols-[minmax(0,1fr)_20rem] sm:items-center sm:gap-6",
-      className,
-    )}
-  >
+  <Grid gap="sm" layout="field-row" className={className}>
     <Label htmlFor={htmlFor} color={invalid ? "destructive" : undefined}>
       {label}
     </Label>
-    <div className="w-full min-w-0 sm:w-80 sm:justify-self-end">{children}</div>
-  </div>
+    <Box className="w-full min-w-0 sm:w-80 sm:justify-self-end">{children}</Box>
+  </Grid>
 );
 
 /** One assisted-condition activity row: time span, frame thumbnails, labels. */
@@ -105,16 +104,15 @@ export const AssistedActivityRow = ({
       className={mergeClassNames(
         "overflow-hidden rounded-2xl border bg-card [contain-intrinsic-size:auto_23rem] [content-visibility:auto]",
         activity.isIncorrectAnnotationInjected &&
-          "border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/20",
-        mergeHighlightPhase === "holding" &&
-          "border-yellow-400 bg-yellow-100 dark:border-yellow-600 dark:bg-yellow-900/60",
+          "border-yellow-200 bg-yellow-50",
+        mergeHighlightPhase === "holding" && "border-yellow-400 bg-yellow-100",
         mergeHighlightPhase === "fading" &&
           "transition-[background-color,border-color] duration-[800ms] ease-out motion-reduce:transition-none",
       )}
     >
-      <div className="relative isolate overflow-hidden bg-muted">
+      <Box position="relative" isolate clip className="bg-muted">
         {thumbnails.length > 0 ? (
-          <div className="flex h-40 overflow-x-auto sm:h-44">
+          <Row className="h-40 overflow-x-auto sm:h-44">
             {thumbnails.map((frame) => (
               <figure
                 key={frameIdentityKey(frame)}
@@ -133,7 +131,9 @@ export const AssistedActivityRow = ({
                   {frame.deletedAt !== null ? (
                     <span className="flex size-full flex-col items-center justify-center gap-1 text-muted-foreground">
                       <ImageOffIcon className="size-6" aria-hidden />
-                      <span className="text-xs font-medium">Deleted</span>
+                      <Text as="span" variant="small">
+                        Deleted
+                      </Text>
                     </span>
                   ) : (
                     /* eslint-disable-next-line @next/next/no-img-element -- authenticated cross-origin image; the Next image proxy cannot forward the auth cookie */
@@ -147,33 +147,45 @@ export const AssistedActivityRow = ({
                     />
                   )}
                 </button>
-                <figcaption className="pointer-events-none absolute right-2 bottom-2 rounded-full border border-white/15 bg-black/75 px-2 py-1 text-[10px] text-white tabular-nums">
+                <figcaption className="pointer-events-none absolute right-2 bottom-2 rounded-full border border-white/15 bg-black/75 px-2 py-1 text-3xs text-white tabular-nums">
                   {formatTimeOfDay(frame.captureEpochMs)}
                 </figcaption>
               </figure>
             ))}
-          </div>
+          </Row>
         ) : (
-          <div className="flex h-40 flex-col items-center justify-center gap-2 text-muted-foreground sm:h-44">
+          <Column
+            gap="sm"
+            align="center"
+            justify="center"
+            className="h-40 text-muted-foreground sm:h-44"
+          >
             <ImageOffIcon className="size-8" aria-hidden />
-            <span className="text-sm font-medium">No images available</span>
-          </div>
+            <Text as="span" variant="label">
+              No images available
+            </Text>
+          </Column>
         )}
 
         <div
           className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/55 via-black/20 to-transparent"
           aria-hidden
         />
-        <div className="absolute inset-x-3 top-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <span className="rounded-full border border-white/20 bg-black/75 px-3 py-1.5 text-sm font-medium text-white tabular-nums">
+        <Column
+          gap="sm"
+          align="start"
+          className="absolute inset-x-3 top-3 z-10 sm:flex-row sm:items-start sm:justify-between"
+        >
+          <Badge variant="pill" tone="overlay-strong" size="sm" numeric>
             {formatTimeSpan(startMs, endMs)}
-          </span>
+          </Badge>
 
-          <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <Row align="center" justify="end" wrap className="gap-1.5">
             <Button
               variant="secondary"
               size="sm"
-              className="border border-white/30 bg-background/95 hover:bg-background"
+              surface="overlay"
+              className="hover:bg-background"
               onClick={() => onViewPhotos()}
             >
               View all photos
@@ -181,31 +193,36 @@ export const AssistedActivityRow = ({
             <Button
               variant="secondary"
               size="sm"
-              className="border border-white/30 bg-background/95 hover:bg-background"
+              surface="overlay"
+              className="hover:bg-background"
               onClick={onAdjustBoundaries}
             >
               Adjust times
             </Button>
             <Button
-              variant="secondary"
+              variant="destructive-ghost"
               size="icon-sm"
-              className="border border-white/30 bg-background/95 text-muted-foreground transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white focus-visible:ring-destructive/20 active:translate-y-0 dark:hover:bg-destructive dark:hover:text-white dark:focus-visible:bg-destructive dark:focus-visible:text-white"
+              surface="overlay"
               aria-label="Delete activity"
               onClick={onDelete}
             >
               <Trash2Icon />
             </Button>
-          </div>
-        </div>
+          </Row>
+        </Column>
 
         {!hasLivePhotos && thumbnails.length > 0 && (
-          <span className="absolute bottom-3 left-3 rounded-full bg-background/95 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+          <Badge
+            variant="pill"
+            tone="note"
+            className="absolute bottom-3 left-3"
+          >
             No photos remaining
-          </span>
+          </Badge>
         )}
-      </div>
+      </Box>
 
-      <div className="px-4 sm:px-6">
+      <Box className="px-4 sm:px-6">
         <AssistedFieldRow
           label="Activity"
           htmlFor={`${activity.localId}-label`}
@@ -254,11 +271,11 @@ export const AssistedActivityRow = ({
         })}
 
         {showIssueMessage && (
-          <div className="py-3">
-            <Text variant="destructive">{issue}</Text>
-          </div>
+          <Box className="py-3">
+            <Text tone="destructive">{issue}</Text>
+          </Box>
         )}
-      </div>
+      </Box>
     </article>
   );
 };

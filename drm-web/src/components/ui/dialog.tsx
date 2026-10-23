@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -39,23 +40,56 @@ function DialogOverlay({
   );
 }
 
+const dialogContentVariants = cva(
+  "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl bg-popover text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+  {
+    variants: {
+      variant: {
+        default: "gap-4 p-4 sm:max-w-sm",
+        /** Compact confirmation with flush, separately padded sections. */
+        confirm: "gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-md",
+        /** Large workspace panel on the page background, up to the viewport height, with flush sections. */
+        panel:
+          "max-h-dialog gap-0 overflow-hidden rounded-3xl bg-background p-0 sm:max-w-6xl",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  },
+);
+
+const dialogCloseVariants = cva("absolute", {
+  variants: {
+    closePosition: {
+      corner: "top-2 right-2",
+      /** Further from the corner, aligned with a spacious header bar. */
+      inset: "top-5 right-5",
+    },
+  },
+  defaultVariants: {
+    closePosition: "corner",
+  },
+});
+
 function DialogContent({
   className,
   children,
+  variant,
+  closePosition,
   showCloseButton = true,
   ...props
-}: DialogPrimitive.Popup.Props & {
-  showCloseButton?: boolean;
-}) {
+}: DialogPrimitive.Popup.Props &
+  VariantProps<typeof dialogContentVariants> &
+  VariantProps<typeof dialogCloseVariants> & {
+    showCloseButton?: boolean;
+  }) {
   return (
     <DialogPortal>
       <DialogOverlay />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
-        className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          className,
-        )}
+        className={cn(dialogContentVariants({ variant }), className)}
         {...props}
       >
         {children}
@@ -65,7 +99,7 @@ function DialogContent({
             render={
               <Button
                 variant="ghost"
-                className="absolute top-2 right-2"
+                className={dialogCloseVariants({ closePosition })}
                 size="icon-sm"
               />
             }
@@ -79,31 +113,97 @@ function DialogContent({
   );
 }
 
-function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
+const dialogHeaderVariants = cva("flex flex-col gap-2", {
+  variants: {
+    variant: {
+      default: "",
+      /** Bordered top section of a flush dialog, with room for the close button. */
+      bar: "border-b border-border/70 px-5 py-5 pr-16 sm:px-7",
+      /** Bar with more vertical padding and room for an inset close button. */
+      "bar-spacious":
+        "border-b border-border/70 px-5 py-5 pr-16 sm:px-7 sm:py-6 sm:pr-20",
+    },
+  },
+  defaultVariants: {
+    variant: "default",
+  },
+});
+
+function DialogHeader({
+  className,
+  variant,
+  ...props
+}: React.ComponentProps<"div"> & VariantProps<typeof dialogHeaderVariants>) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2", className)}
+      className={cn(dialogHeaderVariants({ variant }), className)}
       {...props}
     />
   );
 }
 
+const dialogBodyVariants = cva("", {
+  variants: {
+    variant: {
+      /** Padded content section of a flush dialog. */
+      default: "px-5 py-6 pr-14 sm:px-6",
+      /** Tinted content section with even padding, for photo grids. */
+      media: "bg-muted/15 p-3 sm:p-5",
+    },
+  },
+  defaultVariants: {
+    variant: "default",
+  },
+});
+
+function DialogBody({
+  className,
+  variant,
+  ...props
+}: React.ComponentProps<"div"> & VariantProps<typeof dialogBodyVariants>) {
+  return (
+    <div
+      data-slot="dialog-body"
+      className={cn(dialogBodyVariants({ variant }), className)}
+      {...props}
+    />
+  );
+}
+
+const dialogFooterVariants = cva(
+  "flex flex-col-reverse gap-2 border-t sm:flex-row",
+  {
+    variants: {
+      variant: {
+        default: "-mx-4 -mb-4 rounded-b-xl bg-muted/50 p-4 sm:justify-end",
+        /** Bottom section of a flush dialog, actions aligned right. */
+        flush: "bg-muted/30 p-4 sm:justify-end",
+        /** Bottom bar of a panel dialog, content spread to both ends. */
+        split:
+          "border-border/70 bg-background px-5 py-4 sm:items-center sm:justify-between sm:px-7",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  },
+);
+
 function DialogFooter({
   className,
+  variant,
   showCloseButton = false,
   children,
   ...props
-}: React.ComponentProps<"div"> & {
-  showCloseButton?: boolean;
-}) {
+}: React.ComponentProps<"div"> &
+  VariantProps<typeof dialogFooterVariants> & {
+    showCloseButton?: boolean;
+  }) {
   return (
     <div
       data-slot="dialog-footer"
-      className={cn(
-        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
-        className,
-      )}
+      className={cn(dialogFooterVariants({ variant }), className)}
       {...props}
     >
       {children}
@@ -116,14 +216,29 @@ function DialogFooter({
   );
 }
 
-function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
+const dialogTitleVariants = cva("font-heading font-medium", {
+  variants: {
+    size: {
+      default: "text-base leading-none",
+      lg: "text-lg leading-tight font-semibold",
+      /** Large title that grows one step from the sm breakpoint. */
+      xl: "text-lg leading-tight font-semibold sm:text-xl",
+    },
+  },
+  defaultVariants: {
+    size: "default",
+  },
+});
+
+function DialogTitle({
+  className,
+  size,
+  ...props
+}: DialogPrimitive.Title.Props & VariantProps<typeof dialogTitleVariants>) {
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn(
-        "font-heading text-base leading-none font-medium",
-        className,
-      )}
+      className={cn(dialogTitleVariants({ size }), className)}
       {...props}
     />
   );
@@ -147,6 +262,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,

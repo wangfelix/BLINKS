@@ -48,17 +48,24 @@ export const StudyNavbar = () => {
 
   return (
     <>
-      <nav
-        className="border-b border-border/60 bg-background/55 backdrop-blur-xl"
-        aria-label="Study navigation"
-      >
-        <div className="flex min-h-16 w-full flex-wrap items-center justify-between gap-2 px-4 py-2 sm:px-8">
-          <div className="flex items-center gap-3">
+      <nav className="surface-bar" aria-label="Study navigation">
+        <Row
+          gap="sm"
+          align="center"
+          justify="between"
+          wrap
+          className="min-h-16 w-full px-4 py-2 sm:px-8"
+        >
+          <Row gap="md" align="center">
             <BlinksLogo className="h-10 w-[140px]" sizes="140px" priority />
-            <span className="hidden border-l pl-3 text-xs text-muted-foreground sm:block">
+            <Text
+              as="span"
+              variant="caption"
+              className="hidden border-l pl-3 sm:block"
+            >
               KIT · KD2Lab
-            </span>
-          </div>
+            </Text>
+          </Row>
           <Row gap="sm" align="center" wrap className="shrink-0">
             {canManagePhotos && (
               <Button
@@ -70,7 +77,7 @@ export const StudyNavbar = () => {
                 Manage Photos
               </Button>
             )}
-            <Text variant="secondary" className="text-xs sm:text-sm">
+            <Text variant="caption" className="sm:text-sm">
               Participant: {profileQuery.data?.username ?? "…"}
             </Text>
             <Button variant="ghost" size="sm" onClick={handleSignOut}>
@@ -78,7 +85,7 @@ export const StudyNavbar = () => {
               Sign out
             </Button>
           </Row>
-        </div>
+        </Row>
       </nav>
 
       {canManagePhotos && (

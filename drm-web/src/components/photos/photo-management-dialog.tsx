@@ -11,17 +11,22 @@ import {
   Trash2Icon,
 } from "lucide-react";
 
+import { SectionBar } from "@/components/layout/section-bar";
 import type { Frame } from "@/lib/api-types";
 import { ApiError, frameImageSrc } from "@/lib/api-client";
 import { formatTimeOfDay } from "@/lib/time";
 import { mergeClassNames } from "@/lib/utils";
+import { IconTile } from "@/components/layout/icon-tile";
 import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -261,16 +266,14 @@ export const PhotoManagementDialog = ({
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl border-border/70 bg-background p-0 sm:max-w-6xl [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5">
-          <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7 sm:py-6 sm:pr-20">
+        <DialogContent variant="panel" closePosition="inset">
+          <DialogHeader variant="bar-spacious">
             <Row gap="md" align="start">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
-                <ImagesIcon className="size-5" aria-hidden />
-              </div>
+              <IconTile>
+                <ImagesIcon aria-hidden />
+              </IconTile>
               <Column gap="xs" className="min-w-0">
-                <DialogTitle className="text-lg leading-tight font-semibold sm:text-xl">
-                  {title}
-                </DialogTitle>
+                <DialogTitle size="xl">{title}</DialogTitle>
                 <DialogDescription className="leading-relaxed">
                   {description}
                 </DialogDescription>
@@ -279,30 +282,30 @@ export const PhotoManagementDialog = ({
           </DialogHeader>
 
           {!isLoading && loadError === null && (
-            <Row
-              gap="md"
-              align="center"
-              justify="between"
-              wrap
-              className="min-h-14 border-b border-border/70 bg-muted/20 px-5 py-3 sm:px-7"
+            <SectionBar
+              tone="muted"
+              inset="dialog"
+              layout="toolbar"
+              className="min-h-14"
             >
               {isSelectionMode ? (
                 <>
                   <Row gap="sm" align="center" wrap>
-                    <span
-                      className="rounded-lg bg-foreground px-2.5 py-1 text-xs font-medium text-background tabular-nums"
+                    <Badge
+                      variant="pill"
+                      tone="selection"
+                      numeric
                       aria-live="polite"
                     >
                       {selectedKeys.size} selected
-                    </span>
-                    <Text variant="nudge" className="hidden sm:block">
+                    </Badge>
+                    <Text variant="caption" className="hidden sm:block">
                       Shift-click to select a continuous range.
                     </Text>
                   </Row>
                   <Button
                     variant="outline"
                     size="sm"
-                    className="bg-background"
                     disabled={deletion.isPending}
                     onClick={closeSelectionMode}
                   >
@@ -312,22 +315,21 @@ export const PhotoManagementDialog = ({
               ) : (
                 <>
                   <Row gap="sm" align="center" wrap>
-                    <span className="inline-flex items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1.5 text-xs font-medium tabular-nums">
+                    <Badge variant="pill" tone="counter" numeric>
                       <ImagesIcon
                         className="size-3.5 text-muted-foreground"
                         aria-hidden
                       />
                       {liveFrameCount}{" "}
                       {liveFrameCount === 1 ? "photo" : "photos"}
-                    </span>
+                    </Badge>
                     {deletedFrameCount > 0 && (
-                      <Text variant="nudge">{deletedFrameCount} deleted</Text>
+                      <Text variant="caption">{deletedFrameCount} deleted</Text>
                     )}
                   </Row>
                   <Button
                     variant="outline"
                     size="sm"
-                    className="bg-background"
                     disabled={liveFrameCount === 0}
                     onClick={() => setIsSelectionMode(true)}
                   >
@@ -335,30 +337,38 @@ export const PhotoManagementDialog = ({
                   </Button>
                 </>
               )}
-            </Row>
+            </SectionBar>
           )}
 
           {!isLoading && loadError === null && deletion.isError && (
-            <div className="border-b border-destructive/20 bg-destructive/5 px-5 py-3 sm:px-7">
-              <Text variant="destructive" role="alert">
+            <SectionBar tone="destructive" inset="dialog">
+              <Text tone="destructive" role="alert">
                 {deletion.error instanceof ApiError
                   ? deletion.error.message
                   : "Some photos could not be deleted. The gallery was refreshed; please try again."}
               </Text>
-            </div>
+            </SectionBar>
           )}
 
           {isLoading ? (
-            <div className="flex min-h-72 items-center justify-center bg-muted/15 px-5 py-12">
+            <Row
+              align="center"
+              justify="center"
+              className="min-h-72 bg-muted/15 px-5 py-12"
+            >
               <Row gap="sm" align="center">
                 <LoaderCircleIcon className="animate-spin" aria-hidden />
-                <Text variant="secondary">Loading photos…</Text>
+                <Text tone="muted">Loading photos…</Text>
               </Row>
-            </div>
+            </Row>
           ) : loadError !== null ? (
-            <div className="flex min-h-72 items-center justify-center bg-muted/15 px-5 py-12">
+            <Row
+              align="center"
+              justify="center"
+              className="min-h-72 bg-muted/15 px-5 py-12"
+            >
               <Column gap="md" align="center" className="max-w-md text-center">
-                <Text variant="destructive" role="alert">
+                <Text tone="destructive" role="alert">
                   {loadError}
                 </Text>
                 {onRetry !== undefined && (
@@ -367,20 +377,24 @@ export const PhotoManagementDialog = ({
                   </Button>
                 )}
               </Column>
-            </div>
+            </Row>
           ) : orderedFrames.length === 0 ? (
-            <div className="flex min-h-72 items-center justify-center bg-muted/15 px-5 py-12">
+            <Row
+              align="center"
+              justify="center"
+              className="min-h-72 bg-muted/15 px-5 py-12"
+            >
               <Column gap="sm" align="center" className="max-w-md text-center">
-                <div className="flex size-12 items-center justify-center rounded-2xl border bg-background text-muted-foreground">
-                  <ImageOffIcon className="size-5" aria-hidden />
-                </div>
-                <Text variant="secondary">{emptyMessage}</Text>
+                <IconTile tone="outline" size="xl">
+                  <ImageOffIcon aria-hidden />
+                </IconTile>
+                <Text tone="muted">{emptyMessage}</Text>
               </Column>
-            </div>
+            </Row>
           ) : (
-            <div className="bg-muted/15 p-3 sm:p-5">
+            <DialogBody variant="media">
               {liveFrameCount === 0 && (
-                <Text variant="secondary" className="pb-3 text-center">
+                <Text tone="muted" className="pb-3 text-center">
                   No photos remaining. Deleted placeholders are shown below.
                 </Text>
               )}
@@ -412,17 +426,18 @@ export const PhotoManagementDialog = ({
                             style={{ height: thumbnailHeight }}
                           >
                             {isDeleted ? (
-                              <div className="flex size-full flex-col items-center justify-center gap-1.5 bg-muted/70 text-muted-foreground">
-                                <span className="flex size-9 items-center justify-center rounded-xl border border-border/70 bg-background/60">
-                                  <ImageOffIcon
-                                    className="size-4"
-                                    aria-hidden
-                                  />
-                                </span>
-                                <span className="text-xs font-medium">
+                              <Column
+                                align="center"
+                                justify="center"
+                                className="size-full gap-1.5 bg-muted/70 text-muted-foreground"
+                              >
+                                <IconTile tone="subtle" size="sm">
+                                  <ImageOffIcon aria-hidden />
+                                </IconTile>
+                                <Text as="span" variant="small">
                                   Deleted
-                                </span>
-                              </div>
+                                </Text>
+                              </Column>
                             ) : (
                               /* eslint-disable-next-line @next/next/no-img-element -- authenticated image; the Next image proxy cannot forward the auth cookie */
                               <img
@@ -440,9 +455,15 @@ export const PhotoManagementDialog = ({
                                 aria-hidden
                               />
                             )}
-                            <span className="pointer-events-none absolute bottom-2 left-2 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-[10px] font-medium text-white tabular-nums">
+                            <Badge
+                              variant="pill"
+                              tone="overlay"
+                              size="3xs"
+                              numeric
+                              className="pointer-events-none absolute bottom-2 left-2"
+                            >
                               {formatTimeOfDay(frame.captureEpochMs)}
-                            </span>
+                            </Badge>
                           </div>
                         );
 
@@ -462,15 +483,14 @@ export const PhotoManagementDialog = ({
                               onClick={(event) => toggleSelection(frame, event)}
                               className={mergeClassNames(
                                 "relative overflow-hidden rounded-xl border bg-background text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed",
-                                isSelected &&
-                                  "border-blue-600 dark:border-blue-500",
+                                isSelected && "border-blue-600",
                                 isDeleted && "opacity-70",
                               )}
                             >
                               {content}
                               {isSelected && (
                                 <span
-                                  className="pointer-events-none absolute inset-0 z-10 rounded-[inherit] border-[3.5px] border-blue-600 dark:border-blue-500"
+                                  className="pointer-events-none absolute inset-0 z-10 rounded-[inherit] border-[3.5px] border-blue-600"
                                   aria-hidden
                                 />
                               )}
@@ -479,7 +499,7 @@ export const PhotoManagementDialog = ({
                                   className={mergeClassNames(
                                     "absolute top-2 left-2 z-20 flex size-7 items-center justify-center rounded-lg border-2 bg-background/95",
                                     isSelected &&
-                                      "border-blue-600 bg-blue-600 text-white dark:border-blue-500 dark:bg-blue-500",
+                                      "border-blue-600 bg-blue-600 text-white",
                                   )}
                                   aria-hidden
                                 >
@@ -503,9 +523,10 @@ export const PhotoManagementDialog = ({
                             {content}
                             {!isDeleted && (
                               <Button
-                                variant="destructive"
+                                variant="destructive-fill"
                                 size="icon-sm"
-                                className="absolute top-2 right-2 border border-destructive/15 bg-background/95 transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0 dark:hover:bg-destructive dark:hover:text-white dark:focus-visible:bg-destructive dark:focus-visible:text-white"
+                                surface="overlay"
+                                className="absolute top-2 right-2 border-destructive/15"
                                 aria-label={`Delete photo from ${formatTimeOfDay(frame.captureEpochMs)}`}
                                 disabled={deletion.isPending}
                                 onClick={() => setConfirmFrames([frame])}
@@ -520,17 +541,17 @@ export const PhotoManagementDialog = ({
                   ))}
                 </div>
               </div>
-            </div>
+            </DialogBody>
           )}
 
           {!isLoading && loadError === null && isSelectionMode && (
-            <div className="flex flex-col-reverse gap-2 border-t border-border/70 bg-background px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
-              <Text variant="nudge" className="text-center sm:text-left">
+            <DialogFooter variant="split">
+              <Text variant="caption" className="text-center sm:text-left">
                 Deleted files cannot be restored.
               </Text>
               <Button
-                variant="destructive"
-                className="transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0 sm:min-w-44 dark:hover:bg-destructive dark:hover:text-white dark:focus-visible:bg-destructive dark:focus-visible:text-white"
+                variant="destructive-fill"
+                className="sm:min-w-44"
                 disabled={selectedFrames.length === 0 || deletion.isPending}
                 onClick={() => setConfirmFrames(selectedFrames)}
               >
@@ -539,7 +560,7 @@ export const PhotoManagementDialog = ({
                 )}
                 Delete Selected ({selectedFrames.length})
               </Button>
-            </div>
+            </DialogFooter>
           )}
         </DialogContent>
       </Dialog>
@@ -550,13 +571,13 @@ export const PhotoManagementDialog = ({
           if (!nextOpen && !deletion.isPending) setConfirmFrames(null);
         }}
       >
-        <DialogContent className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-md">
-          <div className="px-5 py-6 pr-14 sm:px-6">
+        <DialogContent variant="confirm">
+          <DialogBody>
             <DialogHeader>
-              <div className="mb-2 flex size-11 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
-                <Trash2Icon className="size-5" aria-hidden />
-              </div>
-              <DialogTitle className="text-lg leading-tight font-semibold">
+              <IconTile tone="destructive" size="lg" className="mb-2">
+                <Trash2Icon aria-hidden />
+              </IconTile>
+              <DialogTitle size="lg">
                 Delete {confirmationCount} {confirmationNoun}?
               </DialogTitle>
               <DialogDescription className="leading-relaxed">
@@ -565,19 +586,17 @@ export const PhotoManagementDialog = ({
                 marked as deleted.
               </DialogDescription>
             </DialogHeader>
-          </div>
-          <div className="flex flex-col-reverse gap-2 border-t bg-muted/30 p-4 sm:flex-row sm:justify-end">
+          </DialogBody>
+          <DialogFooter variant="flush">
             <Button
               variant="outline"
-              className="bg-background"
               disabled={deletion.isPending}
               onClick={() => setConfirmFrames(null)}
             >
               Cancel
             </Button>
             <Button
-              variant="destructive"
-              className="transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white active:translate-y-0 dark:hover:bg-destructive dark:hover:text-white dark:focus-visible:bg-destructive dark:focus-visible:text-white"
+              variant="destructive-fill"
               disabled={deletion.isPending}
               onClick={confirmDeletion}
             >
@@ -586,7 +605,7 @@ export const PhotoManagementDialog = ({
               )}
               Delete
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

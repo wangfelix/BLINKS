@@ -7,6 +7,11 @@ import type { RoundState } from "@/lib/api-types";
 import { getStudyState } from "@/lib/api-client";
 import { getStudyConfig } from "@/lib/study-config-store";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Column } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
+import { Container } from "@/components/layout/container";
+import { Box } from "@/components/layout/box";
+import { Text } from "@/components/layout/text";
 import { mergeClassNames } from "@/lib/utils";
 
 type StudyPage = "reconstruction" | "surveys";
@@ -44,21 +49,18 @@ const roundStepState = (
 };
 
 const StepperSkeleton = () => (
-  <div className="relative mx-auto grid w-full max-w-[440px] grid-cols-3 py-2.5">
+  <Grid cols={3} className="relative mx-auto w-full max-w-[440px] py-2.5">
     <div
       className="absolute top-6 right-1/6 left-1/6 h-px bg-border"
       aria-hidden
     />
     {[1, 2, 3].map((step) => (
-      <div
-        key={step}
-        className="relative z-10 flex flex-col items-center gap-1.5"
-      >
+      <Column key={step} align="center" className="relative z-10 gap-1.5">
         <Skeleton className="size-7 rounded-full" />
         <Skeleton className="h-3 w-20" />
-      </div>
+      </Column>
     ))}
-  </div>
+  </Grid>
 );
 
 const Stepper = ({ steps }: { steps: DisplayStep[] }) => {
@@ -66,7 +68,7 @@ const Stepper = ({ steps }: { steps: DisplayStep[] }) => {
   const secondConnectorComplete = steps[1]?.state === "completed";
 
   return (
-    <div className="relative mx-auto w-full max-w-[440px] py-2.5">
+    <Container className="relative max-w-[440px] py-2.5">
       <div
         className={mergeClassNames(
           "absolute top-6 left-1/6 h-px w-1/3",
@@ -113,19 +115,19 @@ const Stepper = ({ steps }: { steps: DisplayStep[] }) => {
                   step.number
                 )}
               </span>
-              <span
-                className={mergeClassNames(
-                  "mt-1.5 px-1 text-xs leading-4 font-medium",
-                  !isActive && !isCompleted && "text-muted-foreground",
-                )}
+              <Text
+                as="span"
+                variant="small"
+                tone={!isActive && !isCompleted ? "muted" : "inherit"}
+                className="mt-1.5 px-1 leading-4"
               >
                 {step.label}
-              </span>
+              </Text>
             </li>
           );
         })}
       </ol>
-    </div>
+    </Container>
   );
 };
 
@@ -201,7 +203,7 @@ export const StudyProgress = ({
 
   return (
     <section className="border-b bg-muted" aria-label="Study progress">
-      <div className="px-4">{progressContent}</div>
+      <Box className="px-4">{progressContent}</Box>
     </section>
   );
 };

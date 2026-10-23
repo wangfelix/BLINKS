@@ -8,6 +8,8 @@ import { fetchStudyConfig } from "@/lib/api-client";
 import { installStudyConfig } from "@/lib/study-config-store";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Container } from "@/components/layout/container";
+import { Text } from "@/components/layout/text";
 
 export const STUDY_CONFIG_QUERY_KEY = ["study-config"] as const;
 
@@ -39,11 +41,13 @@ export const StudyConfigGate = ({ children }: { children: ReactNode }) => {
   if (config !== undefined) return <>{children}</>;
   if (configQuery.isError) {
     return (
-      <div className="mx-auto w-full max-w-lg p-6">
+      <Container size="lg" className="p-6">
         <Alert variant="destructive">
           <AlertTitle>The study could not be loaded</AlertTitle>
           <AlertDescription>
-            <p>Please check your connection and try again.</p>
+            <Text variant="inherit">
+              Please check your connection and try again.
+            </Text>
             <Button
               variant="outline"
               size="sm"
@@ -56,7 +60,7 @@ export const StudyConfigGate = ({ children }: { children: ReactNode }) => {
             </Button>
           </AlertDescription>
         </Alert>
-      </div>
+      </Container>
     );
   }
   return null;

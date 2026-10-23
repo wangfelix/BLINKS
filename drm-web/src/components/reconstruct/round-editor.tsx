@@ -23,9 +23,12 @@ import {
   formatTimeSpan,
   resolveTypedTimeOfDay,
 } from "@/lib/time";
+import { IconTile } from "@/components/layout/icon-tile";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -34,6 +37,7 @@ import {
 } from "@/components/ui/dialog";
 import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
+import { Box } from "@/components/layout/box";
 import {
   AssistedActivityRow,
   type MergeHighlightPhase,
@@ -149,7 +153,7 @@ const ActivityGapControls = ({
       size="xs"
       className={
         hasUnassignedImages
-          ? "h-9 border border-destructive/30 bg-destructive/10 px-3 text-destructive hover:bg-destructive/20"
+          ? "h-9 border-destructive/30 px-3"
           : "h-9 px-3 text-muted-foreground"
       }
       onClick={onInsert}
@@ -162,9 +166,9 @@ const ActivityGapControls = ({
       <PlusIcon />
       Insert activity
       {hasUnassignedImages && (
-        <span className="ml-1 rounded-full bg-destructive px-2 py-0.5 text-[10px] font-semibold text-white">
+        <Badge variant="pill" tone="alert" size="3xs" className="ml-1">
           Unassigned images
-        </span>
+        </Badge>
       )}
     </Button>
     {onMerge !== undefined && (
@@ -176,7 +180,7 @@ const ActivityGapControls = ({
         // Amber also keeps it clear of the yellow dev-mode injected-row tint.
         className={
           suggestsMerge
-            ? "h-9 border border-amber-300 bg-amber-100 px-3 font-medium text-amber-900 hover:bg-amber-200 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/60"
+            ? "h-9 border-amber-300 bg-amber-100 px-3 text-amber-900 hover:bg-amber-200"
             : "h-9 px-3 text-muted-foreground"
         }
         onClick={onMerge}
@@ -189,9 +193,9 @@ const ActivityGapControls = ({
         <FoldVerticalIcon />
         Merge
         {suggestsMerge && (
-          <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-amber-950">
+          <Badge variant="pill" tone="hint" size="3xs" className="ml-1">
             Same activity
-          </span>
+          </Badge>
         )}
       </Button>
     )}
@@ -713,14 +717,16 @@ export const RoundEditor = ({
     <Column gap="lg">
       <Row gap="sm" align="center" justify="between" wrap>
         <Column>
-          <h2 className="text-lg font-semibold">{formatDayLabel(day)}</h2>
-          <Text variant="secondary">{editorHint}</Text>
+          <Text as="h2" variant="heading">
+            {formatDayLabel(day)}
+          </Text>
+          <Text tone="muted">{editorHint}</Text>
         </Column>
         <Row gap="md" align="center">
           {saveState !== "idle" && (
-            <span className="text-xs text-muted-foreground" aria-live="polite">
+            <Text as="span" variant="caption" aria-live="polite">
               {SAVE_INDICATOR_TEXT[saveState]}
-            </span>
+            </Text>
           )}
           <Button
             disabled={!isReadyToSubmit}
@@ -742,7 +748,7 @@ export const RoundEditor = ({
             }
           />
           {hasNoActivities && (
-            <Text variant="secondary" className="py-4 text-center">
+            <Text tone="muted" className="py-4 text-center">
               No activities yet — use “Insert activity” to add the first one.
             </Text>
           )}
@@ -804,7 +810,7 @@ export const RoundEditor = ({
       ) : (
         <Column gap="md">
           {hasNoActivities && (
-            <Text variant="secondary" className="py-4 text-center">
+            <Text tone="muted" className="py-4 text-center">
               {roundTexts.selfEmptyStateHint}
             </Text>
           )}
@@ -847,15 +853,13 @@ export const RoundEditor = ({
           if (!open) setDeleteCandidateLocalId(null);
         }}
       >
-        <DialogContent className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-md">
-          <div className="px-5 py-6 pr-14 sm:px-6">
+        <DialogContent variant="confirm">
+          <DialogBody>
             <DialogHeader>
-              <div className="mb-2 flex size-11 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
-                <Trash2Icon className="size-5" aria-hidden />
-              </div>
-              <DialogTitle className="text-lg leading-tight font-semibold">
-                Delete this activity?
-              </DialogTitle>
+              <IconTile tone="destructive" size="lg" className="mb-2">
+                <Trash2Icon aria-hidden />
+              </IconTile>
+              <DialogTitle size="lg">Delete this activity?</DialogTitle>
               <DialogDescription className="leading-relaxed">
                 {deleteCandidateTimeSpan === null
                   ? "This activity will be removed from your reconstruction."
@@ -865,11 +869,10 @@ export const RoundEditor = ({
                 adjusting their time spans.
               </DialogDescription>
             </DialogHeader>
-          </div>
-          <div className="flex flex-col-reverse gap-2 border-t bg-muted/30 p-4 sm:flex-row sm:justify-end">
+          </DialogBody>
+          <DialogFooter variant="flush">
             <Button
               variant="outline"
-              className="bg-background"
               onClick={() => setDeleteCandidateLocalId(null)}
             >
               Cancel
@@ -878,7 +881,7 @@ export const RoundEditor = ({
               <Trash2Icon aria-hidden />
               Delete activity
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -893,7 +896,7 @@ export const RoundEditor = ({
             </DialogDescription>
           </DialogHeader>
           {submitMutation.isError && (
-            <Text variant="destructive">
+            <Text tone="destructive">
               {submitMutation.error instanceof ApiError
                 ? submitMutation.error.message
                 : "Submitting failed. Please try again."}
@@ -956,31 +959,37 @@ export const RoundEditor = ({
       )}
 
       {notice !== null && (
-        <div
+        <Row
           key={notice.id}
           role="status"
           aria-live="polite"
-          className="fixed right-4 bottom-4 z-[80] flex w-[min(24rem,calc(100vw-2rem))] items-start gap-3 rounded-xl border bg-background p-4 shadow-lg"
+          gap="md"
+          align="start"
+          className="fixed right-4 bottom-4 z-[80] w-[min(24rem,calc(100vw-2rem))] rounded-xl border bg-background p-4 shadow-lg"
         >
           <CircleCheckIcon
             className="mt-0.5 size-5 shrink-0 text-emerald-600"
             aria-hidden
           />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold">{notice.title}</p>
-            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+          <Box className="min-w-0 flex-1">
+            <Text variant="label" weight="semibold">
+              {notice.title}
+            </Text>
+            <Text tone="muted" className="mt-1 leading-relaxed">
               {notice.description}
-            </p>
-          </div>
-          <button
+            </Text>
+          </Box>
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground"
             aria-label="Dismiss notification"
             onClick={() => setNotice(null)}
-            className="rounded-md p-1 text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             <XIcon className="size-4" aria-hidden />
-          </button>
-        </div>
+          </Button>
+        </Row>
       )}
     </Column>
   );

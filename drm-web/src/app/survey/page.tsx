@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { sectionBarVariants } from "@/components/layout/section-bar";
 import { StudyConfigGate } from "@/components/study-config-gate";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -29,6 +30,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Column, Row } from "@/components/layout/flex";
+import { Container } from "@/components/layout/container";
+import { Text } from "@/components/layout/text";
 
 const SurveyContent = () => {
   const router = useRouter();
@@ -58,12 +62,17 @@ const SurveyContent = () => {
       maxWidthClassName="max-w-3xl"
       contentClassName="flex min-h-[420px] items-center"
     >
-      <div className="mx-auto w-full max-w-2xl">
+      <Container size="2xl">
         {profileQuery.isPending ? (
-          <div className="flex w-full items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Row
+            gap="sm"
+            align="center"
+            justify="center"
+            className="w-full text-sm text-muted-foreground"
+          >
             <LoaderCircleIcon className="animate-spin" aria-hidden />
             Preparing your questionnaire…
-          </div>
+          </Row>
         ) : profileQuery.isError ? (
           <Alert variant="destructive">
             <AlertTitle>Questionnaire unavailable</AlertTitle>
@@ -81,8 +90,13 @@ const SurveyContent = () => {
             </AlertDescription>
           </Alert>
         ) : (
-          <Card className="w-full overflow-hidden">
-            <CardHeader className="border-b bg-muted/30">
+          <Card className="w-full">
+            <CardHeader
+              className={sectionBarVariants({
+                inset: "none",
+                className: "border-border bg-muted/30",
+              })}
+            >
               <CardTitle>Final questionnaire</CardTitle>
               <CardDescription>
                 Thank you! Both reconstruction steps are submitted. Complete the
@@ -91,7 +105,7 @@ const SurveyContent = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5 pt-6">
-              <div className="flex flex-col items-center gap-3">
+              <Column gap="md" align="center">
                 <a
                   href={surveyUrl}
                   target="_blank"
@@ -131,17 +145,17 @@ const SurveyContent = () => {
                     <ExternalLinkIcon />
                   </Button>
                 )}
-              </div>
+              </Column>
 
-              <div className="space-y-3 border-t pt-5">
-                <p className="text-sm text-muted-foreground" aria-live="polite">
+              <Column gap="md" className="border-t pt-5">
+                <Text tone="muted" aria-live="polite">
                   {payoutLinkOpened
                     ? "The payout link opened in a new tab. Return here when you are ready to proceed."
                     : questionnaireOpened
                       ? "The questionnaire opened in a new tab. Complete it, then open the payout link."
                       : "Open and complete the final questionnaire first. The payout link will then become available."}
-                </p>
-                <div className="flex justify-end">
+                </Text>
+                <Row justify="end">
                   <Button
                     variant="secondary"
                     disabled={
@@ -164,7 +178,7 @@ const SurveyContent = () => {
                       </>
                     )}
                   </Button>
-                </div>
+                </Row>
                 {completeStudyMutation.isError && (
                   <Alert variant="destructive" aria-live="polite">
                     <AlertTitle>Could not finish the study</AlertTitle>
@@ -175,11 +189,11 @@ const SurveyContent = () => {
                     </AlertDescription>
                   </Alert>
                 )}
-              </div>
+              </Column>
             </CardContent>
           </Card>
         )}
-      </div>
+      </Container>
     </StudyWorkspaceShell>
   );
 };

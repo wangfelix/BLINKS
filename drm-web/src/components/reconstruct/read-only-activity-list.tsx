@@ -58,14 +58,14 @@ const ReadOnlyActivityCard = ({
   return (
     <Column gap="md" className="rounded-xl border bg-card p-4">
       <Row gap="md" align="center" wrap>
-        <span className="text-sm font-medium tabular-nums">
+        <Text as="span" variant="label" className="tabular-nums">
           {formatTimeSpan(activity.startMs, activity.endMs)}
-        </span>
-        <span className="flex-1 text-sm">
+        </Text>
+        <Text as="span" tone="inherit" className="flex-1">
           {activityDisplayLabel(activity.rawLabel) ?? "—"}
-        </span>
+        </Text>
         {ratingSummary !== null && (
-          <Text variant="nudge" className="tabular-nums">
+          <Text variant="caption" className="tabular-nums">
             {ratingSummary}
           </Text>
         )}
@@ -80,20 +80,27 @@ const ReadOnlyActivityCard = ({
           {thumbnails.map((frame) => (
             <figure key={frameIdentityKey(frame)} className="w-20 shrink-0">
               {frame.deletedAt !== null ? (
-                <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-0.5 rounded-md border bg-muted text-muted-foreground">
+                <Column
+                  gap="2xs"
+                  align="center"
+                  justify="center"
+                  className="aspect-photo w-full rounded-md border bg-muted text-muted-foreground"
+                >
                   <ImageOffIcon className="size-4" aria-hidden />
-                  <span className="text-[9px] font-medium">Deleted</span>
-                </div>
+                  <Text as="span" variant="small" className="text-4xs">
+                    Deleted
+                  </Text>
+                </Column>
               ) : (
                 /* eslint-disable-next-line @next/next/no-img-element -- authenticated cross-origin image; the Next image proxy cannot forward the auth cookie */
                 <img
                   src={frameImageSrc(frame.imageUrl!)}
                   alt={`Frame at ${formatTimeOfDay(frame.captureEpochMs)}`}
                   loading="lazy"
-                  className="aspect-[4/3] w-full rounded-md border bg-muted object-cover"
+                  className="aspect-photo w-full rounded-md border bg-muted object-cover"
                 />
               )}
-              <figcaption className="mt-0.5 text-center text-[10px] text-muted-foreground tabular-nums">
+              <figcaption className="mt-0.5 text-center text-3xs text-muted-foreground tabular-nums">
                 {formatTimeOfDay(frame.captureEpochMs)}
               </figcaption>
             </figure>
@@ -101,7 +108,7 @@ const ReadOnlyActivityCard = ({
         </Row>
       )}
       {frames !== null && !hasLivePhotos && (
-        <Text variant="secondary" className="text-sm">
+        <Text tone="muted" className="text-sm">
           {activityFrames.length === 0
             ? "No images available"
             : "No images remaining"}
@@ -121,7 +128,7 @@ export const ReadOnlyActivityList = ({
 }) => {
   if (activities.length === 0) {
     return (
-      <Text variant="secondary" className="py-8 text-center">
+      <Text tone="muted" className="py-8 text-center">
         No activities were recorded for this day.
       </Text>
     );

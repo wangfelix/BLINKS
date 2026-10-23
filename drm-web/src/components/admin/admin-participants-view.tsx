@@ -13,6 +13,7 @@ import {
   UserRoundIcon,
 } from "lucide-react";
 
+import { sectionBarVariants } from "@/components/layout/section-bar";
 import { createAdminParticipant } from "@/lib/admin-api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -23,8 +24,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Column, Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
+import { Container } from "@/components/layout/container";
+import { Text } from "@/components/layout/text";
 
 export const AdminParticipantsView = () => {
   const queryClient = useQueryClient();
@@ -84,22 +89,25 @@ export const AdminParticipantsView = () => {
 
   return (
     <section className="space-y-4" aria-labelledby="participants-heading">
-      <div>
-        <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-          Account provisioning
-        </p>
-        <h2 id="participants-heading" className="mt-1 text-2xl font-semibold">
+      <header>
+        <Text variant="overline">Account provisioning</Text>
+        <Text
+          as="h2"
+          variant="heading"
+          id="participants-heading"
+          className="mt-1 text-2xl"
+        >
           Participants
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        </Text>
+        <Text tone="muted" className="mt-1">
           Create a participant login and its matching recordings profile in one
           controlled step.
-        </p>
-      </div>
+        </Text>
+      </header>
 
-      <div className="max-w-4xl">
+      <Container size="4xl" center={false} fill={false}>
         <Card className="rounded-2xl bg-background/82 shadow-lg backdrop-blur-xl">
-          <CardHeader className="border-b border-border/70">
+          <CardHeader className={sectionBarVariants({ inset: "none" })}>
             <CardTitle className="flex items-center gap-2">
               <UserPlusIcon className="size-4.5" aria-hidden />
               Create participant
@@ -111,89 +119,82 @@ export const AdminParticipantsView = () => {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="space-y-2">
+              <Column gap="sm">
                 <Label htmlFor="new-participant-id">Participant ID</Label>
-                <div className="relative">
-                  <UserRoundIcon
-                    className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground"
-                    aria-hidden
-                  />
-                  <Input
-                    id="new-participant-id"
-                    name="participantId"
-                    autoComplete="off"
-                    value={participantId}
-                    onChange={(event) => setParticipantId(event.target.value)}
-                    placeholder="participant21"
-                    className="h-11 rounded-xl bg-background pl-11"
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">
+                <InputGroup
+                  icon={<UserRoundIcon />}
+                  size="lg"
+                  surface="solid"
+                  className="rounded-xl"
+                  id="new-participant-id"
+                  name="participantId"
+                  autoComplete="off"
+                  value={participantId}
+                  onChange={(event) => setParticipantId(event.target.value)}
+                  placeholder="participant21"
+                />
+                <Text variant="caption">
                   Letters, digits, hyphens, and underscores only.
-                </p>
-              </div>
+                </Text>
+              </Column>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
+              <Grid gap="lg" className="sm:grid-cols-2">
+                <Column gap="sm">
                   <Label htmlFor="new-participant-password">
                     Temporary password
                   </Label>
-                  <div className="relative">
-                    <LockKeyholeIcon
-                      className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground"
-                      aria-hidden
-                    />
-                    <Input
-                      id="new-participant-password"
-                      name="password"
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="new-password"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      className="h-11 rounded-xl bg-background pr-11 pl-11"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((visible) => !visible)}
-                      className="absolute top-1/2 right-2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                      aria-label={
-                        showPassword
-                          ? "Hide temporary password"
-                          : "Show temporary password"
-                      }
-                    >
-                      {showPassword ? (
-                        <EyeOffIcon className="size-4" aria-hidden />
-                      ) : (
-                        <EyeIcon className="size-4" aria-hidden />
-                      )}
-                    </button>
-                  </div>
-                </div>
+                  <InputGroup
+                    icon={<LockKeyholeIcon />}
+                    action={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground"
+                        onClick={() => setShowPassword((visible) => !visible)}
+                        aria-label={
+                          showPassword
+                            ? "Hide temporary password"
+                            : "Show temporary password"
+                        }
+                      >
+                        {showPassword ? (
+                          <EyeOffIcon aria-hidden />
+                        ) : (
+                          <EyeIcon aria-hidden />
+                        )}
+                      </Button>
+                    }
+                    size="lg"
+                    surface="solid"
+                    className="rounded-xl"
+                    id="new-participant-password"
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                </Column>
 
-                <div className="space-y-2">
+                <Column gap="sm">
                   <Label htmlFor="confirm-participant-password">
                     Confirm password
                   </Label>
-                  <div className="relative">
-                    <KeyRoundIcon
-                      className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground"
-                      aria-hidden
-                    />
-                    <Input
-                      id="confirm-participant-password"
-                      name="confirmPassword"
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="new-password"
-                      value={confirmPassword}
-                      onChange={(event) =>
-                        setConfirmPassword(event.target.value)
-                      }
-                      className="h-11 rounded-xl bg-background pl-11"
-                    />
-                  </div>
-                </div>
-              </div>
+                  <InputGroup
+                    icon={<KeyRoundIcon />}
+                    size="lg"
+                    surface="solid"
+                    className="rounded-xl"
+                    id="confirm-participant-password"
+                    name="confirmPassword"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                  />
+                </Column>
+              </Grid>
 
               {error !== null && (
                 <Alert variant="destructive" aria-live="polite">
@@ -204,7 +205,7 @@ export const AdminParticipantsView = () => {
 
               {createdParticipant !== null && (
                 <Alert
-                  className="border-emerald-500/25 bg-emerald-500/5 text-emerald-900 dark:text-emerald-200"
+                  className="border-emerald-500/25 bg-emerald-500/5 text-emerald-900"
                   aria-live="polite"
                 >
                   <CheckCircle2Icon aria-hidden />
@@ -217,7 +218,7 @@ export const AdminParticipantsView = () => {
                 </Alert>
               )}
 
-              <div className="flex justify-end">
+              <Row justify="end">
                 <Button
                   type="submit"
                   className="min-w-44 rounded-xl"
@@ -235,11 +236,11 @@ export const AdminParticipantsView = () => {
                     </>
                   )}
                 </Button>
-              </div>
+              </Row>
             </form>
           </CardContent>
         </Card>
-      </div>
+      </Container>
     </section>
   );
 };

@@ -6,6 +6,8 @@ import { StudyConfigGate } from "@/components/study-config-gate";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { StudyWorkspaceShell } from "@/components/study-workspace-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Column } from "@/components/layout/flex";
+import { Text } from "@/components/layout/text";
 
 const DoneContent = () => {
   return (
@@ -13,15 +15,17 @@ const DoneContent = () => {
       maxWidthClassName="max-w-2xl"
       contentClassName="flex min-h-[420px] items-center justify-center"
     >
-      <div className="flex w-full max-w-lg flex-col items-center gap-3 text-center">
+      <Column gap="md" align="center" className="w-full max-w-lg text-center">
         <CheckCircle2Icon className="size-12 text-primary" aria-hidden />
-        <h1 className="text-2xl font-semibold tracking-tight">All done</h1>
-        <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
+        <Text as="h1" variant="title">
+          All done
+        </Text>
+        <Text variant="lead" className="text-base leading-relaxed sm:text-lg">
           Thank you for taking part in the study. You can close this tab now.
           Please bring the glasses and the study phone back to the lab as
           arranged.
-        </p>
-        <Alert className="mt-5 border-sky-300/70 bg-sky-500/5 text-left dark:border-sky-400/30">
+        </Text>
+        <Alert className="mt-5 border-sky-300/70 bg-sky-500/5">
           <ImagesIcon aria-hidden />
           <AlertTitle>Your study photos remain available</AlertTitle>
           <AlertDescription>
@@ -30,7 +34,7 @@ const DoneContent = () => {
             navigation bar.
           </AlertDescription>
         </Alert>
-      </div>
+      </Column>
     </StudyWorkspaceShell>
   );
 };

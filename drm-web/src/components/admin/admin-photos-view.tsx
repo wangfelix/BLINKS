@@ -18,6 +18,10 @@ import {
   getAdminStudyConfig,
   type AdminPhoto,
 } from "@/lib/admin-api";
+import {
+  SectionBar,
+  sectionBarVariants,
+} from "@/components/layout/section-bar";
 import { captureTimeFormatter } from "@/lib/admin-capture-time";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +49,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Column, Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
+import { Text } from "@/components/layout/text";
 
 const PAGE_SIZE = 96;
 const countFormat = new Intl.NumberFormat("en");
@@ -121,21 +128,26 @@ export const AdminPhotosView = () => {
 
   return (
     <section className="space-y-4" aria-labelledby="photos-heading">
-      <div>
-        <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-          Anonymized image review
-        </p>
-        <h2 id="photos-heading" className="mt-1 text-2xl font-semibold">
+      <header>
+        <Text variant="overline">Anonymized image review</Text>
+        <Text
+          as="h2"
+          variant="heading"
+          id="photos-heading"
+          className="mt-1 text-2xl"
+        >
           Study photos
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        </Text>
+        <Text tone="muted" className="mt-1">
           Filter by participant and recording session. Only successfully
           face-anonymized, non-deleted files can be opened.
-        </p>
-      </div>
+        </Text>
+      </header>
 
       <Card className="gap-0 rounded-2xl bg-background/82 py-0 shadow-lg backdrop-blur-xl">
-        <CardHeader className="border-b border-border/70 py-5">
+        <CardHeader
+          className={sectionBarVariants({ inset: "none", className: "py-5" })}
+        >
           <CardTitle>Photo library</CardTitle>
           <CardDescription>
             {photosQuery.data === undefined
@@ -165,17 +177,17 @@ export const AdminPhotosView = () => {
         </CardHeader>
 
         {studyConfigQuery.isError ? (
-          <div className="border-b border-border/70 px-4 py-4 sm:px-5">
+          <SectionBar>
             <Alert variant="destructive">
               <AlertTitle>Capture times unavailable</AlertTitle>
               <AlertDescription>
-                <p>
+                <Text variant="inherit">
                   The study configuration could not be loaded, so capture times
                   cannot be shown in the study timezone.
                   {studyConfigQuery.error instanceof Error
                     ? ` (${studyConfigQuery.error.message})`
                     : ""}
-                </p>
+                </Text>
                 <Button
                   variant="outline"
                   size="sm"
@@ -193,11 +205,14 @@ export const AdminPhotosView = () => {
                 </Button>
               </AlertDescription>
             </Alert>
-          </div>
+          </SectionBar>
         ) : null}
 
-        <div className="grid gap-4 border-b border-border/70 bg-muted/20 px-4 py-4 sm:grid-cols-2 sm:px-5 lg:max-w-3xl">
-          <div className="space-y-2">
+        <SectionBar
+          tone="muted"
+          className="grid gap-4 sm:grid-cols-2 lg:max-w-3xl"
+        >
+          <Column gap="sm" className="pb-2">
             <Label htmlFor="admin-photo-participant">Participant ID</Label>
             <Select
               items={participantItems}
@@ -220,17 +235,21 @@ export const AdminPhotosView = () => {
                   <SelectItem key={item.participant} value={item.participant}>
                     <span className="flex w-full items-center justify-between gap-6">
                       <span>{item.participant}</span>
-                      <span className="text-xs text-muted-foreground tabular-nums">
+                      <Text
+                        as="span"
+                        variant="caption"
+                        className="tabular-nums"
+                      >
                         {countFormat.format(item.frame_count)} frames
-                      </span>
+                      </Text>
                     </span>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </Column>
 
-          <div className="space-y-2">
+          <Column gap="sm" className="pb-2">
             <Label htmlFor="admin-photo-session">Recording session</Label>
             <Select
               items={sessionItems}
@@ -253,18 +272,20 @@ export const AdminPhotosView = () => {
                 {participantSessions.map((item) => (
                   <SelectItem key={item.session} value={String(item.session)}>
                     <span className="flex flex-col py-0.5">
-                      <span className="font-mono text-xs">{item.session}</span>
-                      <span className="text-xs text-muted-foreground">
+                      <Text as="span" variant="mono">
+                        {item.session}
+                      </Text>
+                      <Text as="span" variant="caption">
                         {dateTimeFormat.format(item.started_at_ms)} ·{" "}
                         {countFormat.format(item.frame_count)} frames
-                      </span>
+                      </Text>
                     </span>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
-        </div>
+          </Column>
+        </SectionBar>
 
         {filtersQuery.isError || photosQuery.isError ? (
           <CardContent className="py-10">
@@ -299,7 +320,11 @@ export const AdminPhotosView = () => {
           </CardContent>
         ) : (
           <CardContent className="bg-muted/10 py-5">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8">
+            <Grid
+              cols={2}
+              gap="md"
+              className="sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8"
+            >
               {photosQuery.data?.frames.map((frame) => {
                 const available = frame.imageUrl !== null;
                 return (
@@ -310,7 +335,7 @@ export const AdminPhotosView = () => {
                     {available ? (
                       <button
                         type="button"
-                        className="relative block aspect-[4/3] w-full overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                        className="relative block aspect-photo w-full overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                         onClick={() => setSelectedPhoto(frame)}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element -- authenticated image; Next image optimization cannot attach the admin cookie */}
@@ -323,12 +348,21 @@ export const AdminPhotosView = () => {
                           className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.03] motion-reduce:transition-none"
                         />
                         <span className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/55 to-transparent" />
-                        <span className="absolute bottom-2 left-2 text-[10px] font-medium text-white tabular-nums">
+                        <Text
+                          as="span"
+                          variant="small"
+                          className="absolute bottom-2 left-2 text-3xs text-white tabular-nums"
+                        >
                           {dateTimeFormat.format(frame.captureEpochMs)}
-                        </span>
+                        </Text>
                       </button>
                     ) : (
-                      <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-muted/60 text-muted-foreground">
+                      <Column
+                        gap="sm"
+                        align="center"
+                        justify="center"
+                        className="aspect-photo bg-muted/60 text-muted-foreground"
+                      >
                         <ImageOffIcon className="size-5" aria-hidden />
                         <Badge
                           variant={
@@ -339,34 +373,48 @@ export const AdminPhotosView = () => {
                             ? frame.faceStatus
                             : "deleted"}
                         </Badge>
-                      </div>
+                      </Column>
                     )}
-                    <figcaption className="space-y-0.5 px-2.5 py-2 text-[11px]">
-                      <p className="truncate font-medium" title={frame.device}>
+                    <figcaption className="space-y-0.5 px-2.5 py-2 text-2xs">
+                      <Text
+                        variant="inherit"
+                        weight="medium"
+                        truncate
+                        title={frame.device}
+                      >
                         {frame.device}
-                      </p>
-                      <p className="text-muted-foreground tabular-nums">
+                      </Text>
+                      <Text
+                        variant="inherit"
+                        tone="muted"
+                        className="tabular-nums"
+                      >
                         Session {frame.session} · Frame {frame.frameIndex}
-                      </p>
+                      </Text>
                     </figcaption>
                   </figure>
                 );
               })}
-            </div>
+            </Grid>
           </CardContent>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-muted/25 px-4 py-3 sm:px-5">
-          <p className="text-xs text-muted-foreground tabular-nums">
+        <SectionBar
+          edge="top"
+          tone="muted"
+          inset="card-compact"
+          layout="toolbar"
+          className="bg-muted/25"
+        >
+          <Text variant="caption" className="tabular-nums">
             {photosQuery.data === undefined
               ? "Select a participant"
               : `${countFormat.format(photosQuery.data.total)} frames · Page ${page} of ${totalPages}`}
-          </p>
-          <div className="flex gap-2">
+          </Text>
+          <Row gap="sm">
             <Button
               variant="outline"
               size="sm"
-              className="bg-background"
               disabled={page <= 1 || photosQuery.data === undefined}
               onClick={() => setPage((current) => Math.max(1, current - 1))}
             >
@@ -376,15 +424,14 @@ export const AdminPhotosView = () => {
             <Button
               variant="outline"
               size="sm"
-              className="bg-background"
               disabled={page >= totalPages || photosQuery.data === undefined}
               onClick={() => setPage((current) => current + 1)}
             >
               Next
               <ChevronRightIcon aria-hidden />
             </Button>
-          </div>
-        </div>
+          </Row>
+        </SectionBar>
       </Card>
 
       <Dialog
@@ -393,8 +440,8 @@ export const AdminPhotosView = () => {
           if (!open) setSelectedPhoto(null);
         }}
       >
-        <DialogContent className="max-h-[calc(100dvh-1rem)] gap-0 overflow-hidden rounded-3xl border-border/70 bg-background p-0 sm:max-w-6xl">
-          <DialogHeader className="border-b border-border/70 px-5 py-5 pr-16 sm:px-7">
+        <DialogContent variant="panel">
+          <DialogHeader variant="bar">
             <DialogTitle>Study photo</DialogTitle>
             <DialogDescription>
               {selectedPhoto === null
@@ -403,14 +450,18 @@ export const AdminPhotosView = () => {
             </DialogDescription>
           </DialogHeader>
           {selectedPhoto?.imageUrl && (
-            <div className="flex max-h-[78vh] items-center justify-center bg-black/95 p-2 sm:p-4">
+            <Row
+              align="center"
+              justify="center"
+              className="max-h-[78vh] bg-black/95 p-2 sm:p-4"
+            >
               {/* eslint-disable-next-line @next/next/no-img-element -- authenticated image; Next image optimization cannot attach the admin cookie */}
               <img
                 src={adminFrameImageSrc(selectedPhoto.imageUrl)}
                 alt={`Participant ${selectedPhoto.participant}, frame ${selectedPhoto.frameIndex}`}
                 className="max-h-[74vh] max-w-full rounded-xl object-contain"
               />
-            </div>
+            </Row>
           )}
         </DialogContent>
       </Dialog>

@@ -96,9 +96,8 @@ export const SelfActivityRow = ({
           />
         </Column>
         <Button
-          variant="ghost"
+          variant="destructive-ghost"
           size="icon-sm"
-          className="text-muted-foreground transition-none hover:border-destructive hover:bg-destructive hover:text-white focus-visible:border-destructive focus-visible:bg-destructive focus-visible:text-white focus-visible:ring-destructive/20 active:translate-y-0 dark:hover:bg-destructive dark:hover:text-white dark:focus-visible:bg-destructive dark:focus-visible:text-white"
           aria-label="Delete activity"
           onClick={onDelete}
         >
@@ -119,7 +118,7 @@ export const SelfActivityRow = ({
         );
       })}
 
-      {showIssueMessage && <Text variant="destructive">{issue}</Text>}
+      {showIssueMessage && <Text tone="destructive">{issue}</Text>}
     </Column>
   );
 };

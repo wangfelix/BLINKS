@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
 
+import { Card } from "@/components/ui/card";
+import { SectionBar } from "@/components/layout/section-bar";
+import { Box } from "@/components/layout/box";
 import { StudyFlowBackground } from "@/components/study-flow-shell";
 import { StudyNavbar } from "@/components/study-navbar";
 import { mergeClassNames } from "@/lib/utils";
@@ -25,14 +28,19 @@ export const StudyWorkspaceShell = ({
     <main className="relative flex min-h-dvh flex-col overflow-x-clip bg-background">
       <StudyFlowBackground />
 
-      <div className="relative z-20">
+      <Box position="relative" layer="top">
         <StudyNavbar />
-      </div>
+      </Box>
 
       {progress !== undefined && progressPosition === "full-width" && (
-        <div className="relative z-10 border-b border-border/60 bg-background/55 px-4 py-4 backdrop-blur-xl sm:px-8 sm:py-5">
+        <SectionBar
+          edge="none"
+          tone="glass"
+          inset="none"
+          className="relative z-10 px-4 py-4 sm:px-8 sm:py-5"
+        >
           {progress}
-        </div>
+        </SectionBar>
       )}
 
       <section
@@ -41,29 +49,26 @@ export const StudyWorkspaceShell = ({
           maxWidthClassName,
         )}
       >
-        <div
-          className={mergeClassNames(
-            "w-full self-start",
-            !isPlain &&
-              "overflow-hidden rounded-3xl border border-white/50 bg-background/80 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.35)] ring-1 ring-foreground/5 backdrop-blur-2xl dark:border-white/10",
-          )}
+        <Card
+          variant={isPlain ? "none" : "panel"}
+          className="w-full self-start"
         >
           {progress !== undefined && progressPosition === "card" && (
-            <div className="border-b border-border/70 bg-muted/20 px-5 py-6 sm:px-10">
+            <SectionBar tone="muted" inset="page">
               {progress}
-            </div>
+            </SectionBar>
           )}
 
-          <div
+          <Box
+            position="relative"
             className={mergeClassNames(
-              "relative",
               !isPlain && "px-5 py-7 sm:px-8 sm:py-9",
               contentClassName,
             )}
           >
             {children}
-          </div>
-        </div>
+          </Box>
+        </Card>
       </section>
     </main>
   );

@@ -21,6 +21,11 @@ import { BlinksLogo } from "@/components/blinks-logo";
 import { StudyFlowBackground } from "@/components/study-flow-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Column, Row } from "@/components/layout/flex";
+import { Container } from "@/components/layout/container";
+import { Box } from "@/components/layout/box";
+import { Text } from "@/components/layout/text";
 
 type AdminSection = "data" | "photos" | "participants";
 
@@ -35,19 +40,19 @@ const Stat = ({
   label: string;
   value: number | undefined;
 }) => (
-  <div className="rounded-2xl border border-white/50 bg-background/75 p-4 shadow-sm ring-1 ring-foreground/5 backdrop-blur-xl dark:border-white/10">
-    <div className="flex items-center gap-3">
+  <Card variant="tile">
+    <Row gap="md" align="center">
       <span className="grid size-10 place-items-center rounded-xl bg-primary/8 text-primary ring-1 ring-primary/10">
         <Icon className="size-4.5" aria-hidden />
       </span>
-      <div>
-        <p className="text-xl font-semibold tracking-tight tabular-nums">
+      <Box>
+        <Text variant="stat">
           {value === undefined ? "—" : compactNumber.format(value)}
-        </p>
-        <p className="text-xs text-muted-foreground">{label}</p>
-      </div>
-    </div>
-  </div>
+        </Text>
+        <Text variant="caption">{label}</Text>
+      </Box>
+    </Row>
+  </Card>
 );
 
 export const AdminDashboard = ({
@@ -85,37 +90,46 @@ export const AdminDashboard = ({
       <StudyFlowBackground />
 
       <header className="sticky top-0 z-40 border-b border-border/60 bg-background/70 backdrop-blur-xl">
-        <div className="flex min-h-16 w-full flex-wrap items-center justify-between gap-3 px-4 py-2 sm:px-8">
-          <div className="flex items-center gap-3">
+        <Row
+          gap="md"
+          align="center"
+          justify="between"
+          wrap
+          className="min-h-16 w-full px-4 py-2 sm:px-8"
+        >
+          <Row gap="md" align="center">
             <BlinksLogo className="h-10 w-[140px]" sizes="140px" priority />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="hidden text-sm text-muted-foreground sm:inline">
+          </Row>
+          <Row gap="sm" align="center">
+            <Text as="span" tone="muted" className="hidden sm:inline">
               {username}
-            </span>
+            </Text>
             <Button variant="ghost" size="sm" onClick={signOut}>
               <LogOutIcon aria-hidden />
               Sign out
             </Button>
-          </div>
-        </div>
+          </Row>
+        </Row>
       </header>
 
-      <div className="relative z-10 mx-auto w-full max-w-[1600px] px-4 py-7 sm:px-6 sm:py-10 lg:px-8">
-        <div className="flex flex-col gap-8">
+      <Container
+        size="wide"
+        className="relative z-10 px-4 py-7 sm:px-6 sm:py-10 lg:px-8"
+      >
+        <Column gap="2xl">
           <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-            <div>
-              <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+            <header>
+              <Text variant="overline" className="tracking-[0.16em]">
                 BLINKS study operations
-              </p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
+              </Text>
+              <Text as="h1" variant="display" className="mt-2 sm:text-4xl">
                 Research dashboard
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
+              </Text>
+              <Text variant="lead" className="mt-2 max-w-2xl">
                 A read-only view of study data and anonymized photos, plus
                 controlled participant account provisioning.
-              </p>
-            </div>
+              </Text>
+            </header>
 
             <nav
               className="flex w-full gap-1 rounded-2xl border border-border/70 bg-background/70 p-1.5 shadow-sm backdrop-blur-xl lg:w-auto"
@@ -177,8 +191,8 @@ export const AdminDashboard = ({
           {section === "data" && <AdminTablesView />}
           {section === "photos" && <AdminPhotosView />}
           {section === "participants" && <AdminParticipantsView />}
-        </div>
-      </div>
+        </Column>
+      </Container>
     </main>
   );
 };

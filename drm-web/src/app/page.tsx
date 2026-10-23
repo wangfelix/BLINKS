@@ -23,10 +23,11 @@ import {
 } from "@/lib/api-client";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Column } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
+import { Container } from "@/components/layout/container";
 import { StudyTeamContactLink } from "@/components/study-team-contact-link";
 import { StudyFlowShell } from "@/components/study-flow-shell";
 
@@ -88,10 +89,10 @@ const LandingPage = () => {
       >
         <Column gap="sm" className="text-center">
           <Text variant="eyebrow">Karlsruhe Institute of Technology</Text>
-          <h1 className="text-2xl font-semibold tracking-tight outline-none sm:text-3xl">
+          <Text as="h1" variant="title" className="outline-none sm:text-3xl">
             Day Reconstruction Study
-          </h1>
-          <Text variant="secondary" className="leading-relaxed">
+          </Text>
+          <Text tone="muted" className="leading-relaxed">
             Sign in with the participant credentials you received from the study
             team. On your first visit, you will choose your own password and
             complete the short pre-study questionnaire. On the evening of your
@@ -99,66 +100,64 @@ const LandingPage = () => {
           </Text>
         </Column>
 
-        <div className="mx-auto w-full max-w-sm border-t border-border/60 pt-7">
-          <div className="text-center">
-            <h2 className="text-lg font-semibold tracking-tight">
+        <Container size="sm" className="border-t border-border/60 pt-7">
+          <header className="text-center">
+            <Text as="h2" variant="heading" className="tracking-tight">
               Participant sign-in
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            </Text>
+            <Text tone="muted" className="mt-1">
               Use the same credentials as in the BLINKS phone app.
-            </p>
-          </div>
+            </Text>
+          </header>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-5">
             <Column gap="sm">
               <Label htmlFor="username">Participant ID</Label>
-              <div className="relative">
-                <UserRoundIcon
-                  className="pointer-events-none absolute top-1/2 left-4 z-10 size-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden
-                />
-                <Input
-                  id="username"
-                  name="username"
-                  autoComplete="username"
-                  autoFocus
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-4 pl-11 text-base backdrop-blur-sm transition-[border-color,box-shadow,background-color] hover:bg-background/80 focus-visible:bg-background"
-                />
-              </div>
+              <InputGroup
+                icon={<UserRoundIcon />}
+                size="xl"
+                surface="frosted"
+                id="username"
+                name="username"
+                autoComplete="username"
+                autoFocus
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+              />
             </Column>
 
             <Column gap="sm">
               <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <LockKeyholeIcon
-                  className="pointer-events-none absolute top-1/2 left-4 z-10 size-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden
-                />
-                <Input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className="h-12 rounded-xl border-border/70 bg-background/60 pr-12 pl-11 text-base backdrop-blur-sm transition-[border-color,box-shadow,background-color] hover:bg-background/80 focus-visible:bg-background"
-                />
-                <button
-                  type="button"
-                  className="absolute top-1/2 right-2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  aria-pressed={showPassword}
-                  onClick={() => setShowPassword((visible) => !visible)}
-                >
-                  {showPassword ? (
-                    <EyeOffIcon className="size-4" aria-hidden />
-                  ) : (
-                    <EyeIcon className="size-4" aria-hidden />
-                  )}
-                </button>
-              </div>
+              <InputGroup
+                icon={<LockKeyholeIcon />}
+                action={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground"
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
+                    aria-pressed={showPassword}
+                    onClick={() => setShowPassword((visible) => !visible)}
+                  >
+                    {showPassword ? (
+                      <EyeOffIcon aria-hidden />
+                    ) : (
+                      <EyeIcon aria-hidden />
+                    )}
+                  </Button>
+                }
+                size="xl"
+                surface="frosted"
+                id="password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
             </Column>
 
             {loginMutation.isError && (
@@ -174,7 +173,8 @@ const LandingPage = () => {
 
             <Button
               type="submit"
-              className="relative h-12 w-full rounded-xl px-5 text-base shadow-md transition-[transform,box-shadow,background-color] hover:shadow-lg"
+              size="xl"
+              className="relative w-full px-5 shadow-md transition-[transform,box-shadow,background-color] hover:shadow-lg"
               disabled={isSignInDisabled}
             >
               {loginMutation.isPending ? (
@@ -193,9 +193,9 @@ const LandingPage = () => {
               )}
             </Button>
           </form>
-        </div>
+        </Container>
 
-        <Text variant="nudge" className="text-center">
+        <Text variant="caption" className="text-center">
           Questions or trouble signing in? <StudyTeamContactLink /> the study
           team.
         </Text>
