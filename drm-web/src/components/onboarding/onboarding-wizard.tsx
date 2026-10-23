@@ -397,7 +397,7 @@ export const OnboardingWizard = ({
             <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/10">
               <LockKeyholeIcon className="size-5" aria-hidden />
             </span>
-            <div>
+            <header>
               <h1
                 ref={headingRef}
                 tabIndex={-1}
@@ -409,7 +409,7 @@ export const OnboardingWizard = ({
                 Replace the temporary password from the study team with a
                 private password only you know.
               </p>
-            </div>
+            </header>
           </Row>
 
           <form onSubmit={handlePasswordSubmit} className="space-y-5">
@@ -534,7 +534,7 @@ export const OnboardingWizard = ({
             <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-violet-500/10 text-violet-700 ring-1 ring-violet-500/10">
               <ShieldCheckIcon className="size-5" aria-hidden />
             </span>
-            <div>
+            <header>
               <h1
                 ref={headingRef}
                 tabIndex={-1}
@@ -547,7 +547,7 @@ export const OnboardingWizard = ({
                 field day. It opens in a separate tab. Please come back to this
                 page after you finish the survey.
               </p>
-            </div>
+            </header>
           </Row>
 
           {surveyUrl === null ? (

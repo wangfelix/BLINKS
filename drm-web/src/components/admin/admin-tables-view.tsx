@@ -212,7 +212,7 @@ export const AdminTablesView = () => {
   return (
     <section className="space-y-4" aria-labelledby="database-heading">
       <Column gap="md" justify="between" className="sm:flex-row sm:items-end">
-        <div>
+        <header>
           <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
             Research database
           </p>
@@ -223,7 +223,7 @@ export const AdminTablesView = () => {
             Filter and browse 50 rows at a time or export a complete table as
             CSV.
           </p>
-        </div>
+        </header>
         <Button
           variant="outline"
           className="bg-background/80"

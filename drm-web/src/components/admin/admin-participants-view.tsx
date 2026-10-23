@@ -88,7 +88,7 @@ export const AdminParticipantsView = () => {
 
   return (
     <section className="space-y-4" aria-labelledby="participants-heading">
-      <div>
+      <header>
         <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
           Account provisioning
         </p>
@@ -99,7 +99,7 @@ export const AdminParticipantsView = () => {
           Create a participant login and its matching recordings profile in one
           controlled step.
         </p>
-      </div>
+      </header>
 
       <Container size="4xl" center={false} fill={false}>
         <Card className="rounded-2xl bg-background/82 shadow-lg backdrop-blur-xl">

@@ -116,7 +116,7 @@ export const AdminDashboard = ({
       >
         <Column gap="2xl">
           <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-            <div>
+            <header>
               <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
                 BLINKS study operations
               </p>
@@ -127,7 +127,7 @@ export const AdminDashboard = ({
                 A read-only view of study data and anonymized photos, plus
                 controlled participant account provisioning.
               </p>
-            </div>
+            </header>
 
             <nav
               className="flex w-full gap-1 rounded-2xl border border-border/70 bg-background/70 p-1.5 shadow-sm backdrop-blur-xl lg:w-auto"

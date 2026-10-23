@@ -127,7 +127,7 @@ export const AdminPhotosView = () => {
 
   return (
     <section className="space-y-4" aria-labelledby="photos-heading">
-      <div>
+      <header>
         <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
           Anonymized image review
         </p>
@@ -138,7 +138,7 @@ export const AdminPhotosView = () => {
           Filter by participant and recording session. Only successfully
           face-anonymized, non-deleted files can be opened.
         </p>
-      </div>
+      </header>
 
       <Card className="gap-0 rounded-2xl bg-background/82 py-0 shadow-lg backdrop-blur-xl">
         <CardHeader
