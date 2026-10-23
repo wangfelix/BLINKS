@@ -130,7 +130,9 @@ export const AssistedActivityRow = ({
                   {frame.deletedAt !== null ? (
                     <span className="flex size-full flex-col items-center justify-center gap-1 text-muted-foreground">
                       <ImageOffIcon className="size-6" aria-hidden />
-                      <span className="text-xs font-medium">Deleted</span>
+                      <Text as="span" variant="small">
+                        Deleted
+                      </Text>
                     </span>
                   ) : (
                     /* eslint-disable-next-line @next/next/no-img-element -- authenticated cross-origin image; the Next image proxy cannot forward the auth cookie */

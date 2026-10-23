@@ -431,9 +431,9 @@ export const PhotoManagementDialog = ({
                                 <IconTile tone="subtle" size="sm">
                                   <ImageOffIcon aria-hidden />
                                 </IconTile>
-                                <span className="text-xs font-medium">
+                                <Text as="span" variant="small">
                                   Deleted
-                                </span>
+                                </Text>
                               </Column>
                             ) : (
                               /* eslint-disable-next-line @next/next/no-img-element -- authenticated image; the Next image proxy cannot forward the auth cookie */

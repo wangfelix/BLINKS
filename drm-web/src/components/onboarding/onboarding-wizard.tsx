@@ -132,9 +132,9 @@ const WizardProgress = ({ step }: { step: WizardStep }) => {
               >
                 {complete ? <StepCheck /> : item.number}
               </span>
-              <span className="text-xs font-medium sm:text-sm">
+              <Text as="span" variant="small" className="sm:text-sm">
                 {item.label}
-              </span>
+              </Text>
             </li>
             {index === 0 && (
               <li
@@ -473,10 +473,12 @@ export const OnboardingWizard = ({
                 justify="between"
                 className="text-xs"
               >
-                <span className="font-medium">Password strength</span>
-                <span className="text-muted-foreground">
+                <Text as="span" variant="inherit" weight="medium">
+                  Password strength
+                </Text>
+                <Text as="span" variant="inherit" tone="muted">
                   {strengthLabel || "Start typing"}
-                </span>
+                </Text>
               </Row>
               <Grid cols={4} className="mt-2 gap-1.5" aria-hidden>
                 {[1, 2, 3, 4].map((level) => (
@@ -571,9 +573,9 @@ export const OnboardingWizard = ({
             >
               <Box className="shrink-0">
                 <Text variant="label">Participant ID</Text>
-                <p className="mt-1 font-mono text-sm text-muted-foreground">
+                <Text variant="mono" tone="muted" className="mt-1 text-sm">
                   {username}
-                </p>
+                </Text>
               </Box>
               <a
                 href={surveyUrl}

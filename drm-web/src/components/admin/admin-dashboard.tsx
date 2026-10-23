@@ -46,9 +46,9 @@ const Stat = ({
         <Icon className="size-4.5" aria-hidden />
       </span>
       <Box>
-        <p className="text-xl font-semibold tracking-tight tabular-nums">
+        <Text variant="stat">
           {value === undefined ? "—" : compactNumber.format(value)}
-        </p>
+        </Text>
         <Text variant="caption">{label}</Text>
       </Box>
     </Row>

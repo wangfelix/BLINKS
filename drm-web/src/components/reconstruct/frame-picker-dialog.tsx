@@ -501,7 +501,9 @@ export const FramePickerDialog = ({
                 startMs !== null && "border-blue-200 bg-blue-50 text-blue-700",
               )}
             >
-              <span className="text-muted-foreground">Start</span>
+              <Text as="span" variant="inherit" tone="muted">
+                Start
+              </Text>
               <select
                 aria-label="Activity start time"
                 value={startMs ?? ""}
@@ -528,7 +530,9 @@ export const FramePickerDialog = ({
                 endMs !== null && "border-blue-200 bg-blue-50 text-blue-700",
               )}
             >
-              <span className="text-muted-foreground">End</span>
+              <Text as="span" variant="inherit" tone="muted">
+                End
+              </Text>
               <select
                 aria-label="Activity end time"
                 value={endMs ?? ""}
@@ -649,12 +653,16 @@ export const FramePickerDialog = ({
                               groupHeaderClasses(group.kind),
                             )}
                           >
-                            <span className="truncate">
+                            <Text as="span" variant="inherit" truncate>
                               {groupLabel(group)}
-                            </span>
-                            <span className="shrink-0 tabular-nums">
+                            </Text>
+                            <Text
+                              as="span"
+                              variant="inherit"
+                              className="shrink-0 tabular-nums"
+                            >
                               {formatTimeSpan(groupStartMs, groupEndMs)}
-                            </span>
+                            </Text>
                           </Row>
 
                           <Grid
@@ -765,9 +773,14 @@ export const FramePickerDialog = ({
                                       groupDividerClasses(group.kind),
                                     )}
                                   >
-                                    <span className="text-xs font-semibold tabular-nums">
+                                    <Text
+                                      as="span"
+                                      variant="small"
+                                      weight="semibold"
+                                      className="tabular-nums"
+                                    >
                                       {timeSpan}
-                                    </span>
+                                    </Text>
                                   </Row>
 
                                   {previews.length === 0 ? (
@@ -780,9 +793,13 @@ export const FramePickerDialog = ({
                                         className="size-5"
                                         aria-hidden
                                       />
-                                      <span className="text-2xs font-medium">
+                                      <Text
+                                        as="span"
+                                        variant="small"
+                                        className="text-2xs"
+                                      >
                                         No images available
-                                      </span>
+                                      </Text>
                                     </Column>
                                   ) : (
                                     <Grid

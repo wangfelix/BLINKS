@@ -105,15 +105,18 @@ const CellValue = ({ value }: { value: AdminCellValue }) => {
   }
   const text = String(value);
   return (
-    <span
+    <Text
+      as="span"
+      variant="mono"
+      truncate
       className={mergeClassNames(
-        "block max-w-[30rem] truncate font-mono text-xs",
+        "block max-w-[30rem]",
         typeof value === "number" && "text-right tabular-nums",
       )}
       title={text}
     >
       {text}
-    </span>
+    </Text>
   );
 };
 
@@ -272,25 +275,27 @@ export const AdminTablesView = () => {
               >
                 <DatabaseIcon className="size-4" aria-hidden />
               </span>
-              <span className="font-mono text-sm tabular-nums">
+              <Text as="span" variant="mono" className="text-sm tabular-nums">
                 {overviewQuery.data === undefined
                   ? "—"
                   : countFormat.format(
                       overviewQuery.data.tableCounts[candidate],
                     )}
-              </span>
+              </Text>
             </Row>
-            <p className="mt-3 font-semibold">{copyOf(candidate).label}</p>
-            <p
+            <Text variant="inherit" weight="semibold" className="mt-3">
+              {copyOf(candidate).label}
+            </Text>
+            <Text
+              variant="caption"
+              tone={table === candidate ? "inherit" : "muted"}
               className={mergeClassNames(
-                "mt-1 text-xs leading-relaxed",
-                table === candidate
-                  ? "text-background/70"
-                  : "text-muted-foreground",
+                "mt-1 leading-relaxed",
+                table === candidate && "text-background/70",
               )}
             >
               {copyOf(candidate).description}
-            </p>
+            </Text>
           </button>
         ))}
       </Grid>
@@ -352,7 +357,9 @@ export const AdminTablesView = () => {
                 <SelectItem value="all">All columns</SelectItem>
                 {tableColumns.map((column) => (
                   <SelectItem key={column} value={column}>
-                    <span className="font-mono text-xs">{column}</span>
+                    <Text as="span" variant="mono">
+                      {column}
+                    </Text>
                   </SelectItem>
                 ))}
               </SelectContent>
