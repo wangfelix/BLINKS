@@ -12,6 +12,7 @@ import {
 import { AdminDashboard } from "@/components/admin/admin-dashboard";
 import { AdminLogin } from "@/components/admin/admin-login";
 import { StudyFlowBackground } from "@/components/study-flow-shell";
+import { Row } from "@/components/layout/flex";
 
 type AuthState = "checking" | "signed-out" | "signed-in";
 
@@ -45,10 +46,14 @@ export const AdminPageClient = () => {
     return (
       <main className="relative grid min-h-dvh place-items-center overflow-hidden px-4">
         <StudyFlowBackground />
-        <div className="relative flex items-center gap-2 rounded-full border bg-background/80 px-5 py-3 text-sm text-muted-foreground shadow-lg backdrop-blur-xl">
+        <Row
+          gap="sm"
+          align="center"
+          className="relative rounded-full border bg-background/80 px-5 py-3 text-sm text-muted-foreground shadow-lg backdrop-blur-xl"
+        >
           <LoaderCircleIcon className="animate-spin" aria-hidden />
           Verifying administrator session…
-        </div>
+        </Row>
       </main>
     );
   }

@@ -55,6 +55,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Column, Row } from "@/components/layout/flex";
 
 const PAGE_SIZE = 50;
 
@@ -208,7 +209,7 @@ export const AdminTablesView = () => {
 
   return (
     <section className="space-y-4" aria-labelledby="database-heading">
-      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+      <Column gap="md" justify="between" className="sm:flex-row sm:items-end">
         <div>
           <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
             Research database
@@ -234,7 +235,7 @@ export const AdminTablesView = () => {
           )}
           Download {copyOf(table).label} CSV
         </Button>
-      </div>
+      </Column>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {ADMIN_TABLES.map((candidate) => (
@@ -250,7 +251,7 @@ export const AdminTablesView = () => {
             )}
             aria-pressed={table === candidate}
           >
-            <div className="flex items-start justify-between gap-3">
+            <Row gap="md" align="start" justify="between">
               <span
                 className={mergeClassNames(
                   "grid size-9 place-items-center rounded-xl",
@@ -268,7 +269,7 @@ export const AdminTablesView = () => {
                       overviewQuery.data.tableCounts[candidate],
                     )}
               </span>
-            </div>
+            </Row>
             <p className="mt-3 font-semibold">{copyOf(candidate).label}</p>
             <p
               className={mergeClassNames(
@@ -365,7 +366,7 @@ export const AdminTablesView = () => {
             />
           </div>
 
-          <div className="flex gap-2">
+          <Row gap="sm">
             <Button type="submit" className="flex-1 md:flex-none">
               <ListFilterIcon aria-hidden />
               Apply filter
@@ -376,7 +377,7 @@ export const AdminTablesView = () => {
                 Clear
               </Button>
             )}
-          </div>
+          </Row>
         </form>
 
         {tableQuery.isError ? (
@@ -443,7 +444,7 @@ export const AdminTablesView = () => {
               ? "Loading row count…"
               : `${countFormat.format(tableQuery.data.total)}${hasActiveFilter ? " matching" : ""} rows · Page ${page} of ${totalPages}`}
           </p>
-          <div className="flex gap-2">
+          <Row gap="sm">
             <Button
               variant="outline"
               size="sm"
@@ -462,7 +463,7 @@ export const AdminTablesView = () => {
               Next
               <ChevronRightIcon aria-hidden />
             </Button>
-          </div>
+          </Row>
         </SectionBar>
       </Card>
     </section>
