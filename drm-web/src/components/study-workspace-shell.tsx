@@ -33,9 +33,14 @@ export const StudyWorkspaceShell = ({
       </Box>
 
       {progress !== undefined && progressPosition === "full-width" && (
-        <div className="relative z-10 surface-bar px-4 py-4 sm:px-8 sm:py-5">
+        <SectionBar
+          edge="none"
+          tone="glass"
+          inset="none"
+          className="relative z-10 px-4 py-4 sm:px-8 sm:py-5"
+        >
           {progress}
-        </div>
+        </SectionBar>
       )}
 
       <section
