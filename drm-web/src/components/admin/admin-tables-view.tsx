@@ -322,7 +322,7 @@ export const AdminTablesView = () => {
               "grid gap-3 md:grid-cols-[minmax(180px,0.55fr)_minmax(260px,1fr)_auto] md:items-end",
           })}
         >
-          <div className="space-y-2">
+          <Column gap="sm">
             <Label htmlFor="admin-table-filter-column">Search column</Label>
             <Select
               items={columnItems}
@@ -349,9 +349,9 @@ export const AdminTablesView = () => {
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </Column>
 
-          <div className="space-y-2">
+          <Column gap="sm">
             <Label htmlFor="admin-table-filter-value">Contains</Label>
             <InputGroup
               icon={<SearchIcon />}
@@ -366,7 +366,7 @@ export const AdminTablesView = () => {
               }
               maxLength={200}
             />
-          </div>
+          </Column>
 
           <Row gap="sm">
             <Button type="submit" className="flex-1 md:flex-none">

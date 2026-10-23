@@ -208,7 +208,7 @@ export const AdminPhotosView = () => {
           tone="muted"
           className="grid gap-4 sm:grid-cols-2 lg:max-w-3xl"
         >
-          <div className="space-y-2">
+          <Column gap="sm">
             <Label htmlFor="admin-photo-participant">Participant ID</Label>
             <Select
               items={participantItems}
@@ -239,9 +239,9 @@ export const AdminPhotosView = () => {
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </Column>
 
-          <div className="space-y-2">
+          <Column gap="sm">
             <Label htmlFor="admin-photo-session">Recording session</Label>
             <Select
               items={sessionItems}
@@ -274,7 +274,7 @@ export const AdminPhotosView = () => {
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </Column>
         </SectionBar>
 
         {filtersQuery.isError || photosQuery.isError ? (

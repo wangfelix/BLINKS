@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/card";
 import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Row } from "@/components/layout/flex";
+import { Column, Row } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
 import { Container } from "@/components/layout/container";
 
@@ -115,7 +115,7 @@ export const AdminParticipantsView = () => {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="space-y-2">
+              <Column gap="sm">
                 <Label htmlFor="new-participant-id">Participant ID</Label>
                 <InputGroup
                   icon={<UserRoundIcon />}
@@ -132,10 +132,10 @@ export const AdminParticipantsView = () => {
                 <p className="text-xs text-muted-foreground">
                   Letters, digits, hyphens, and underscores only.
                 </p>
-              </div>
+              </Column>
 
               <Grid gap="lg" className="sm:grid-cols-2">
-                <div className="space-y-2">
+                <Column gap="sm">
                   <Label htmlFor="new-participant-password">
                     Temporary password
                   </Label>
@@ -171,9 +171,9 @@ export const AdminParticipantsView = () => {
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                   />
-                </div>
+                </Column>
 
-                <div className="space-y-2">
+                <Column gap="sm">
                   <Label htmlFor="confirm-participant-password">
                     Confirm password
                   </Label>
@@ -189,7 +189,7 @@ export const AdminParticipantsView = () => {
                     value={confirmPassword}
                     onChange={(event) => setConfirmPassword(event.target.value)}
                   />
-                </div>
+                </Column>
               </Grid>
 
               {error !== null && (

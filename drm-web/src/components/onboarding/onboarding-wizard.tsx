@@ -413,7 +413,7 @@ export const OnboardingWizard = ({
           </Row>
 
           <form onSubmit={handlePasswordSubmit} className="space-y-5">
-            <div className="space-y-2">
+            <Column gap="sm">
               <Label htmlFor="new-password">New password</Label>
               <InputGroup
                 action={
@@ -436,9 +436,9 @@ export const OnboardingWizard = ({
                 }}
                 aria-invalid={passwordError !== null}
               />
-            </div>
+            </Column>
 
-            <div className="space-y-2">
+            <Column gap="sm">
               <Label htmlFor="confirm-password">Confirm password</Label>
               <InputGroup
                 action={
@@ -460,7 +460,7 @@ export const OnboardingWizard = ({
                 }}
                 aria-invalid={passwordError !== null}
               />
-            </div>
+            </Column>
 
             <Card variant="inset">
               <Row
@@ -593,7 +593,10 @@ export const OnboardingWizard = ({
 
           <div className="mt-6 min-h-24" aria-live="polite">
             {questionnaireOpened && (
-              <div className="onboarding-confirm-enter space-y-3 border-t pt-5">
+              <Column
+                gap="md"
+                className="onboarding-confirm-enter border-t pt-5"
+              >
                 <p className="text-sm text-muted-foreground">
                   Return here once you reach the questionnaire&apos;s
                   confirmation page.
@@ -626,7 +629,7 @@ export const OnboardingWizard = ({
                       : "Onboarding could not be completed."}
                   </p>
                 )}
-              </div>
+              </Column>
             )}
           </div>
         </Container>
