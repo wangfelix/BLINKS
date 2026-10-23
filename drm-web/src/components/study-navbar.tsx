@@ -73,7 +73,7 @@ export const StudyNavbar = () => {
                 Manage Photos
               </Button>
             )}
-            <Text variant="secondary" className="text-xs sm:text-sm">
+            <Text variant="caption" className="sm:text-sm">
               Participant: {profileQuery.data?.username ?? "…"}
             </Text>
             <Button variant="ghost" size="sm" onClick={handleSignOut}>

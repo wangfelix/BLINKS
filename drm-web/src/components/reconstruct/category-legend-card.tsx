@@ -30,8 +30,8 @@ export const CategoryLegendCard = ({ className }: { className?: string }) => (
       <Fragment key={category.value}>
         {index > 0 && <Separator />}
         <Column gap="xs">
-          <Text className="font-medium">{category.label}</Text>
-          <Text variant="secondary">{category.description}</Text>
+          <Text weight="medium">{category.label}</Text>
+          <Text tone="muted">{category.description}</Text>
         </Column>
       </Fragment>
     ))}

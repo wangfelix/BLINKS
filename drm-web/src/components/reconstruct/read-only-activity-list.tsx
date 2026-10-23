@@ -65,7 +65,7 @@ const ReadOnlyActivityCard = ({
           {activityDisplayLabel(activity.rawLabel) ?? "—"}
         </span>
         {ratingSummary !== null && (
-          <Text variant="nudge" className="tabular-nums">
+          <Text variant="caption" className="tabular-nums">
             {ratingSummary}
           </Text>
         )}
@@ -106,7 +106,7 @@ const ReadOnlyActivityCard = ({
         </Row>
       )}
       {frames !== null && !hasLivePhotos && (
-        <Text variant="secondary" className="text-sm">
+        <Text tone="muted" className="text-sm">
           {activityFrames.length === 0
             ? "No images available"
             : "No images remaining"}
@@ -126,7 +126,7 @@ export const ReadOnlyActivityList = ({
 }) => {
   if (activities.length === 0) {
     return (
-      <Text variant="secondary" className="py-8 text-center">
+      <Text tone="muted" className="py-8 text-center">
         No activities were recorded for this day.
       </Text>
     );

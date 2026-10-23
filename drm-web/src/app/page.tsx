@@ -92,7 +92,7 @@ const LandingPage = () => {
           <h1 className="text-2xl font-semibold tracking-tight outline-none sm:text-3xl">
             Day Reconstruction Study
           </h1>
-          <Text variant="secondary" className="leading-relaxed">
+          <Text tone="muted" className="leading-relaxed">
             Sign in with the participant credentials you received from the study
             team. On your first visit, you will choose your own password and
             complete the short pre-study questionnaire. On the evening of your
@@ -195,7 +195,7 @@ const LandingPage = () => {
           </form>
         </Container>
 
-        <Text variant="nudge" className="text-center">
+        <Text variant="caption" className="text-center">
           Questions or trouble signing in? <StudyTeamContactLink /> the study
           team.
         </Text>

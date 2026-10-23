@@ -296,7 +296,7 @@ export const PhotoManagementDialog = ({
                     >
                       {selectedKeys.size} selected
                     </span>
-                    <Text variant="nudge" className="hidden sm:block">
+                    <Text variant="caption" className="hidden sm:block">
                       Shift-click to select a continuous range.
                     </Text>
                   </Row>
@@ -321,7 +321,7 @@ export const PhotoManagementDialog = ({
                       {liveFrameCount === 1 ? "photo" : "photos"}
                     </span>
                     {deletedFrameCount > 0 && (
-                      <Text variant="nudge">{deletedFrameCount} deleted</Text>
+                      <Text variant="caption">{deletedFrameCount} deleted</Text>
                     )}
                   </Row>
                   <Button
@@ -339,7 +339,7 @@ export const PhotoManagementDialog = ({
 
           {!isLoading && loadError === null && deletion.isError && (
             <SectionBar tone="destructive" inset="dialog">
-              <Text variant="destructive" role="alert">
+              <Text tone="destructive" role="alert">
                 {deletion.error instanceof ApiError
                   ? deletion.error.message
                   : "Some photos could not be deleted. The gallery was refreshed; please try again."}
@@ -355,7 +355,7 @@ export const PhotoManagementDialog = ({
             >
               <Row gap="sm" align="center">
                 <LoaderCircleIcon className="animate-spin" aria-hidden />
-                <Text variant="secondary">Loading photos…</Text>
+                <Text tone="muted">Loading photos…</Text>
               </Row>
             </Row>
           ) : loadError !== null ? (
@@ -365,7 +365,7 @@ export const PhotoManagementDialog = ({
               className="min-h-72 bg-muted/15 px-5 py-12"
             >
               <Column gap="md" align="center" className="max-w-md text-center">
-                <Text variant="destructive" role="alert">
+                <Text tone="destructive" role="alert">
                   {loadError}
                 </Text>
                 {onRetry !== undefined && (
@@ -385,13 +385,13 @@ export const PhotoManagementDialog = ({
                 <IconTile tone="outline" size="xl">
                   <ImageOffIcon aria-hidden />
                 </IconTile>
-                <Text variant="secondary">{emptyMessage}</Text>
+                <Text tone="muted">{emptyMessage}</Text>
               </Column>
             </Row>
           ) : (
             <DialogBody variant="media">
               {liveFrameCount === 0 && (
-                <Text variant="secondary" className="pb-3 text-center">
+                <Text tone="muted" className="pb-3 text-center">
                   No photos remaining. Deleted placeholders are shown below.
                 </Text>
               )}
@@ -537,7 +537,7 @@ export const PhotoManagementDialog = ({
 
           {!isLoading && loadError === null && isSelectionMode && (
             <DialogFooter variant="split">
-              <Text variant="nudge" className="text-center sm:text-left">
+              <Text variant="caption" className="text-center sm:text-left">
                 Deleted files cannot be restored.
               </Text>
               <Button

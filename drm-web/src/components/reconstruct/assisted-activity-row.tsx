@@ -263,7 +263,7 @@ export const AssistedActivityRow = ({
 
         {showIssueMessage && (
           <Box className="py-3">
-            <Text variant="destructive">{issue}</Text>
+            <Text tone="destructive">{issue}</Text>
           </Box>
         )}
       </Box>

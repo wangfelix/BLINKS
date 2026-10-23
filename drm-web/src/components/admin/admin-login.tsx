@@ -60,7 +60,7 @@ export const AdminLogin = ({
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
             Research dashboard
           </h1>
-          <Text variant="secondary" className="leading-relaxed">
+          <Text tone="muted" className="leading-relaxed">
             Review research tables, export structured data, inspect anonymized
             study photos, and provision participant accounts.
           </Text>

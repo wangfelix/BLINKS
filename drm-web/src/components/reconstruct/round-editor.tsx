@@ -717,7 +717,7 @@ export const RoundEditor = ({
       <Row gap="sm" align="center" justify="between" wrap>
         <Column>
           <h2 className="text-lg font-semibold">{formatDayLabel(day)}</h2>
-          <Text variant="secondary">{editorHint}</Text>
+          <Text tone="muted">{editorHint}</Text>
         </Column>
         <Row gap="md" align="center">
           {saveState !== "idle" && (
@@ -745,7 +745,7 @@ export const RoundEditor = ({
             }
           />
           {hasNoActivities && (
-            <Text variant="secondary" className="py-4 text-center">
+            <Text tone="muted" className="py-4 text-center">
               No activities yet — use “Insert activity” to add the first one.
             </Text>
           )}
@@ -807,7 +807,7 @@ export const RoundEditor = ({
       ) : (
         <Column gap="md">
           {hasNoActivities && (
-            <Text variant="secondary" className="py-4 text-center">
+            <Text tone="muted" className="py-4 text-center">
               {roundTexts.selfEmptyStateHint}
             </Text>
           )}
@@ -893,7 +893,7 @@ export const RoundEditor = ({
             </DialogDescription>
           </DialogHeader>
           {submitMutation.isError && (
-            <Text variant="destructive">
+            <Text tone="destructive">
               {submitMutation.error instanceof ApiError
                 ? submitMutation.error.message
                 : "Submitting failed. Please try again."}
