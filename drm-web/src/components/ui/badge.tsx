@@ -18,6 +18,12 @@ const badgeVariants = cva(
           "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost: "hover:bg-muted hover:text-muted-foreground",
         link: "text-primary underline-offset-4 hover:underline",
+        /**
+         * Pill for status labels, counters and image overlay chips. Drops the
+         * fixed height and the border so padding sets the size; colors,
+         * padding, border and corner radius come from `className`.
+         */
+        pill: "h-auto border-0",
       },
     },
     defaultVariants: {
