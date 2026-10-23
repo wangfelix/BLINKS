@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
+import { Box } from "@/components/layout/box";
 import {
   AssistedActivityRow,
   type MergeHighlightPhase,
@@ -967,12 +968,12 @@ export const RoundEditor = ({
             className="mt-0.5 size-5 shrink-0 text-emerald-600"
             aria-hidden
           />
-          <div className="min-w-0 flex-1">
+          <Box className="min-w-0 flex-1">
             <p className="text-sm font-semibold">{notice.title}</p>
             <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
               {notice.description}
             </p>
-          </div>
+          </Box>
           <Button
             type="button"
             variant="ghost"

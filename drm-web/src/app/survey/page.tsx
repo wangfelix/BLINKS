@@ -146,7 +146,7 @@ const SurveyContent = () => {
                 )}
               </Column>
 
-              <div className="space-y-3 border-t pt-5">
+              <Column gap="md" className="border-t pt-5">
                 <p className="text-sm text-muted-foreground" aria-live="polite">
                   {payoutLinkOpened
                     ? "The payout link opened in a new tab. Return here when you are ready to proceed."
@@ -188,7 +188,7 @@ const SurveyContent = () => {
                     </AlertDescription>
                   </Alert>
                 )}
-              </div>
+              </Column>
             </CardContent>
           </Card>
         )}

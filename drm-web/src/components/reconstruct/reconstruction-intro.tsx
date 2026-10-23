@@ -84,7 +84,7 @@ export const ReconstructionIntro = ({
           >
             <Icon className="size-5 sm:size-6" aria-hidden />
           </span>
-          <div>
+          <header>
             <h1
               ref={headingRef}
               tabIndex={-1}
@@ -96,7 +96,7 @@ export const ReconstructionIntro = ({
               {description}
             </p>
             {round === 2 && <AssistedRoundReminder className="mt-6" />}
-          </div>
+          </header>
         </Row>
 
         <Row justify="end" className="mt-9">

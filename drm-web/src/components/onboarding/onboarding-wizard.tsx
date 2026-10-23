@@ -40,9 +40,11 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Card } from "@/components/ui/card";
 import { Column, Row } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
 import { Container } from "@/components/layout/container";
+import { Box } from "@/components/layout/box";
 import { mergeClassNames } from "@/lib/utils";
 
 type WizardStep = 1 | 2 | "complete";
@@ -396,7 +398,7 @@ export const OnboardingWizard = ({
             <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/10">
               <LockKeyholeIcon className="size-5" aria-hidden />
             </span>
-            <div>
+            <header>
               <h1
                 ref={headingRef}
                 tabIndex={-1}
@@ -408,11 +410,11 @@ export const OnboardingWizard = ({
                 Replace the temporary password from the study team with a
                 private password only you know.
               </p>
-            </div>
+            </header>
           </Row>
 
           <form onSubmit={handlePasswordSubmit} className="space-y-5">
-            <div className="space-y-2">
+            <Column gap="sm">
               <Label htmlFor="new-password">New password</Label>
               <InputGroup
                 action={
@@ -435,9 +437,9 @@ export const OnboardingWizard = ({
                 }}
                 aria-invalid={passwordError !== null}
               />
-            </div>
+            </Column>
 
-            <div className="space-y-2">
+            <Column gap="sm">
               <Label htmlFor="confirm-password">Confirm password</Label>
               <InputGroup
                 action={
@@ -459,9 +461,9 @@ export const OnboardingWizard = ({
                 }}
                 aria-invalid={passwordError !== null}
               />
-            </div>
+            </Column>
 
-            <div className="rounded-2xl border bg-muted/25 p-4">
+            <Card variant="inset">
               <Row
                 gap="md"
                 align="center"
@@ -492,13 +494,13 @@ export const OnboardingWizard = ({
                   Both entries match
                 </Requirement>
               </ul>
-            </div>
+            </Card>
 
-            <div className="min-h-5" aria-live="polite" aria-atomic="true">
+            <Box className="min-h-5" aria-live="polite" aria-atomic="true">
               {passwordError && (
                 <p className="text-sm text-destructive">{passwordError}</p>
               )}
-            </div>
+            </Box>
 
             <Row justify="end">
               <Button
@@ -533,7 +535,7 @@ export const OnboardingWizard = ({
             <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-violet-500/10 text-violet-700 ring-1 ring-violet-500/10">
               <ShieldCheckIcon className="size-5" aria-hidden />
             </span>
-            <div>
+            <header>
               <h1
                 ref={headingRef}
                 tabIndex={-1}
@@ -546,7 +548,7 @@ export const OnboardingWizard = ({
                 field day. It opens in a separate tab. Please come back to this
                 page after you finish the survey.
               </p>
-            </div>
+            </header>
           </Row>
 
           {surveyUrl === null ? (
@@ -564,12 +566,12 @@ export const OnboardingWizard = ({
               justify="between"
               className="rounded-2xl border bg-gradient-to-br from-primary/[0.06] to-violet-500/[0.06] p-5 sm:p-6"
             >
-              <div className="shrink-0">
+              <Box className="shrink-0">
                 <p className="text-sm font-medium">Participant ID</p>
                 <p className="mt-1 font-mono text-sm text-muted-foreground">
                   {username}
                 </p>
-              </div>
+              </Box>
               <a
                 href={surveyUrl}
                 target="_blank"
@@ -590,9 +592,12 @@ export const OnboardingWizard = ({
             </Row>
           )}
 
-          <div className="mt-6 min-h-24" aria-live="polite">
+          <Box className="mt-6 min-h-24" aria-live="polite">
             {questionnaireOpened && (
-              <div className="onboarding-confirm-enter space-y-3 border-t pt-5">
+              <Column
+                gap="md"
+                className="onboarding-confirm-enter border-t pt-5"
+              >
                 <p className="text-sm text-muted-foreground">
                   Return here once you reach the questionnaire&apos;s
                   confirmation page.
@@ -625,9 +630,9 @@ export const OnboardingWizard = ({
                       : "Onboarding could not be completed."}
                   </p>
                 )}
-              </div>
+              </Column>
             )}
-          </div>
+          </Box>
         </Container>
       ) : (
         <Column

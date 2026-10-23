@@ -127,7 +127,7 @@ export const AdminPhotosView = () => {
 
   return (
     <section className="space-y-4" aria-labelledby="photos-heading">
-      <div>
+      <header>
         <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
           Anonymized image review
         </p>
@@ -138,7 +138,7 @@ export const AdminPhotosView = () => {
           Filter by participant and recording session. Only successfully
           face-anonymized, non-deleted files can be opened.
         </p>
-      </div>
+      </header>
 
       <Card className="gap-0 rounded-2xl bg-background/82 py-0 shadow-lg backdrop-blur-xl">
         <CardHeader
@@ -208,7 +208,7 @@ export const AdminPhotosView = () => {
           tone="muted"
           className="grid gap-4 sm:grid-cols-2 lg:max-w-3xl"
         >
-          <div className="space-y-2">
+          <Column gap="sm" className="pb-2">
             <Label htmlFor="admin-photo-participant">Participant ID</Label>
             <Select
               items={participantItems}
@@ -239,9 +239,9 @@ export const AdminPhotosView = () => {
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </Column>
 
-          <div className="space-y-2">
+          <Column gap="sm" className="pb-2">
             <Label htmlFor="admin-photo-session">Recording session</Label>
             <Select
               items={sessionItems}
@@ -274,7 +274,7 @@ export const AdminPhotosView = () => {
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </Column>
         </SectionBar>
 
         {filtersQuery.isError || photosQuery.isError ? (

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { BugIcon, XIcon } from "lucide-react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Column, Row } from "@/components/layout/flex";
 import { mergeClassNames } from "@/lib/utils";
 
@@ -27,7 +28,7 @@ export const DevNavigator = () => {
   return (
     <Column gap="sm" align="end" className="fixed right-4 bottom-4 z-50">
       {isOpen && (
-        <div className="w-56 rounded-xl border border-amber-300 bg-white p-2 shadow-xl">
+        <Card variant="floating" className="w-56 border-amber-300">
           <Row gap="sm" align="center" justify="between" className="px-2 py-1">
             <span className="text-xs font-semibold tracking-wide text-amber-800 uppercase">
               DRM dev mode
@@ -63,7 +64,7 @@ export const DevNavigator = () => {
               </Link>
             ))}
           </nav>
-        </div>
+        </Card>
       )}
 
       <Button

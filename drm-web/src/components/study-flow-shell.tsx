@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { Card } from "@/components/ui/card";
 import { SectionBar } from "@/components/layout/section-bar";
 import { BlinksLogo } from "@/components/blinks-logo";
 import { Row } from "@/components/layout/flex";
@@ -50,7 +51,7 @@ export const StudyFlowShell = ({
         maxWidthClassName,
       )}
     >
-      <div className="w-full overflow-hidden rounded-3xl surface-glass">
+      <Card variant="panel" className="w-full">
         {progress !== undefined && (
           <SectionBar tone="muted" inset="page">
             {progress}
@@ -66,7 +67,7 @@ export const StudyFlowShell = ({
         >
           {children}
         </Box>
-      </div>
+      </Card>
     </section>
   </main>
 );

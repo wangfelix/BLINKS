@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Column } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
 import { Container } from "@/components/layout/container";
+import { Box } from "@/components/layout/box";
 import { mergeClassNames } from "@/lib/utils";
 
 type StudyPage = "reconstruction" | "surveys";
@@ -201,7 +202,7 @@ export const StudyProgress = ({
 
   return (
     <section className="border-b bg-muted" aria-label="Study progress">
-      <div className="px-4">{progressContent}</div>
+      <Box className="px-4">{progressContent}</Box>
     </section>
   );
 };

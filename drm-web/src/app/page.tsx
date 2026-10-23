@@ -101,14 +101,14 @@ const LandingPage = () => {
         </Column>
 
         <Container size="sm" className="border-t border-border/60 pt-7">
-          <div className="text-center">
+          <header className="text-center">
             <h2 className="text-lg font-semibold tracking-tight">
               Participant sign-in
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Use the same credentials as in the BLINKS phone app.
             </p>
-          </div>
+          </header>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-5">
             <Column gap="sm">
