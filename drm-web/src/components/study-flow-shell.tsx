@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { SectionBar } from "@/components/layout/section-bar";
 import { BlinksLogo } from "@/components/blinks-logo";
 import { Row } from "@/components/layout/flex";
+import { Box } from "@/components/layout/box";
 import { mergeClassNames } from "@/lib/utils";
 
 export const StudyFlowBackground = () => (
@@ -56,14 +57,15 @@ export const StudyFlowShell = ({
           </SectionBar>
         )}
 
-        <div
+        <Box
+          position="relative"
           className={mergeClassNames(
-            "relative min-h-[440px] px-5 py-7 sm:min-h-[470px] sm:px-10 sm:py-10",
+            "min-h-[440px] px-5 py-7 sm:min-h-[470px] sm:px-10 sm:py-10",
             contentClassName,
           )}
         >
           {children}
-        </div>
+        </Box>
       </div>
     </section>
   </main>

@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/select";
 import { Column, Row } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
+import { Box } from "@/components/layout/box";
 
 const PAGE_SIZE = 50;
 
@@ -404,7 +405,7 @@ export const AdminTablesView = () => {
               : "This table is empty."}
           </CardContent>
         ) : (
-          <div className="overflow-hidden">
+          <Box clip>
             <Table>
               <TableHeader className="bg-muted/55">
                 <TableRow>
@@ -430,7 +431,7 @@ export const AdminTablesView = () => {
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </Box>
         )}
 
         <SectionBar

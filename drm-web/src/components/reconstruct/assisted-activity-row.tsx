@@ -24,6 +24,7 @@ import {
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
 import { Column, Row } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
+import { Box } from "@/components/layout/box";
 
 export type MergeHighlightPhase = "holding" | "fading";
 
@@ -108,7 +109,7 @@ export const AssistedActivityRow = ({
           "transition-[background-color,border-color] duration-[800ms] ease-out motion-reduce:transition-none",
       )}
     >
-      <div className="relative isolate overflow-hidden bg-muted">
+      <Box position="relative" isolate clip className="bg-muted">
         {thumbnails.length > 0 ? (
           <Row className="h-40 overflow-x-auto sm:h-44">
             {thumbnails.map((frame) => (
@@ -210,7 +211,7 @@ export const AssistedActivityRow = ({
             No photos remaining
           </span>
         )}
-      </div>
+      </Box>
 
       <div className="px-4 sm:px-6">
         <AssistedFieldRow
