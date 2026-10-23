@@ -208,7 +208,7 @@ export const AdminPhotosView = () => {
           tone="muted"
           className="grid gap-4 sm:grid-cols-2 lg:max-w-3xl"
         >
-          <Column gap="sm">
+          <Column gap="sm" className="pb-2">
             <Label htmlFor="admin-photo-participant">Participant ID</Label>
             <Select
               items={participantItems}
@@ -241,7 +241,7 @@ export const AdminPhotosView = () => {
             </Select>
           </Column>
 
-          <Column gap="sm">
+          <Column gap="sm" className="pb-2">
             <Label htmlFor="admin-photo-session">Recording session</Label>
             <Select
               items={sessionItems}

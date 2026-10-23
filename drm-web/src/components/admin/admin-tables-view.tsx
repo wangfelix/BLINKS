@@ -322,7 +322,7 @@ export const AdminTablesView = () => {
               "grid gap-3 md:grid-cols-[minmax(180px,0.55fr)_minmax(260px,1fr)_auto] md:items-end",
           })}
         >
-          <Column gap="sm">
+          <Column gap="sm" className="pb-2">
             <Label htmlFor="admin-table-filter-column">Search column</Label>
             <Select
               items={columnItems}
