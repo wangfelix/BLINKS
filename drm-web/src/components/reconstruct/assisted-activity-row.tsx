@@ -45,7 +45,7 @@ const AssistedFieldRow = ({
     <Label htmlFor={htmlFor} color={invalid ? "destructive" : undefined}>
       {label}
     </Label>
-    <div className="w-full min-w-0 sm:w-80 sm:justify-self-end">{children}</div>
+    <Box className="w-full min-w-0 sm:w-80 sm:justify-self-end">{children}</Box>
   </Grid>
 );
 
@@ -213,7 +213,7 @@ export const AssistedActivityRow = ({
         )}
       </Box>
 
-      <div className="px-4 sm:px-6">
+      <Box className="px-4 sm:px-6">
         <AssistedFieldRow
           label="Activity"
           htmlFor={`${activity.localId}-label`}
@@ -262,11 +262,11 @@ export const AssistedActivityRow = ({
         })}
 
         {showIssueMessage && (
-          <div className="py-3">
+          <Box className="py-3">
             <Text variant="destructive">{issue}</Text>
-          </div>
+          </Box>
         )}
-      </div>
+      </Box>
     </article>
   );
 };

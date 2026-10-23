@@ -4,6 +4,7 @@ import type { StudyConfigExperienceItem } from "@/lib/api-types";
 import { Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
 import { Grid } from "@/components/layout/grid";
+import { Box } from "@/components/layout/box";
 import { mergeClassNames } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 
@@ -72,7 +73,7 @@ export const ExperienceRatingScale = ({
         <Label color={invalid ? "destructive" : undefined}>
           {item.question}
         </Label>
-        <div className="w-full min-w-0 sm:justify-self-end">
+        <Box className="w-full min-w-0 sm:justify-self-end">
           <Grid
             place="center"
             className="gap-1.5"
@@ -89,7 +90,7 @@ export const ExperienceRatingScale = ({
             <Text variant="nudge">{copy.lowAnchor}</Text>
             <Text variant="nudge">{copy.highAnchor}</Text>
           </Row>
-        </div>
+        </Box>
       </Grid>
     );
   }

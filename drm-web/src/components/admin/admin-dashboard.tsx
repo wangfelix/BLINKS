@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Column, Row } from "@/components/layout/flex";
 import { Container } from "@/components/layout/container";
+import { Box } from "@/components/layout/box";
 
 type AdminSection = "data" | "photos" | "participants";
 
@@ -43,12 +44,12 @@ const Stat = ({
       <span className="grid size-10 place-items-center rounded-xl bg-primary/8 text-primary ring-1 ring-primary/10">
         <Icon className="size-4.5" aria-hidden />
       </span>
-      <div>
+      <Box>
         <p className="text-xl font-semibold tracking-tight tabular-nums">
           {value === undefined ? "—" : compactNumber.format(value)}
         </p>
         <p className="text-xs text-muted-foreground">{label}</p>
-      </div>
+      </Box>
     </Row>
   </Card>
 );
