@@ -21,6 +21,7 @@ import { BlinksLogo } from "@/components/blinks-logo";
 import { StudyFlowBackground } from "@/components/study-flow-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Column, Row } from "@/components/layout/flex";
 import { Container } from "@/components/layout/container";
 
@@ -37,7 +38,7 @@ const Stat = ({
   label: string;
   value: number | undefined;
 }) => (
-  <div className="rounded-2xl border border-white/50 bg-background/75 p-4 shadow-sm ring-1 ring-foreground/5 backdrop-blur-xl">
+  <Card variant="tile">
     <Row gap="md" align="center">
       <span className="grid size-10 place-items-center rounded-xl bg-primary/8 text-primary ring-1 ring-primary/10">
         <Icon className="size-4.5" aria-hidden />
@@ -49,7 +50,7 @@ const Stat = ({
         <p className="text-xs text-muted-foreground">{label}</p>
       </div>
     </Row>
-  </div>
+  </Card>
 );
 
 export const AdminDashboard = ({

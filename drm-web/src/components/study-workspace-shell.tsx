@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { Card } from "@/components/ui/card";
 import { SectionBar } from "@/components/layout/section-bar";
 import { Box } from "@/components/layout/box";
 import { StudyFlowBackground } from "@/components/study-flow-shell";
@@ -43,11 +44,9 @@ export const StudyWorkspaceShell = ({
           maxWidthClassName,
         )}
       >
-        <div
-          className={mergeClassNames(
-            "w-full self-start",
-            !isPlain && "overflow-hidden rounded-3xl surface-glass",
-          )}
+        <Card
+          variant={isPlain ? "none" : "panel"}
+          className="w-full self-start"
         >
           {progress !== undefined && progressPosition === "card" && (
             <SectionBar tone="muted" inset="page">
@@ -64,7 +63,7 @@ export const StudyWorkspaceShell = ({
           >
             {children}
           </Box>
-        </div>
+        </Card>
       </section>
     </main>
   );

@@ -40,6 +40,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Card } from "@/components/ui/card";
 import { Column, Row } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
 import { Container } from "@/components/layout/container";
@@ -461,7 +462,7 @@ export const OnboardingWizard = ({
               />
             </div>
 
-            <div className="rounded-2xl border bg-muted/25 p-4">
+            <Card variant="inset">
               <Row
                 gap="md"
                 align="center"
@@ -492,7 +493,7 @@ export const OnboardingWizard = ({
                   Both entries match
                 </Requirement>
               </ul>
-            </div>
+            </Card>
 
             <div className="min-h-5" aria-live="polite" aria-atomic="true">
               {passwordError && (
