@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { sectionBarVariants } from "@/components/layout/section-bar";
 import { StudyConfigGate } from "@/components/study-config-gate";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -82,7 +83,12 @@ const SurveyContent = () => {
           </Alert>
         ) : (
           <Card className="w-full">
-            <CardHeader className="border-b bg-muted/30">
+            <CardHeader
+              className={sectionBarVariants({
+                inset: "none",
+                className: "border-border bg-muted/30",
+              })}
+            >
               <CardTitle>Final questionnaire</CardTitle>
               <CardDescription>
                 Thank you! Both reconstruction steps are submitted. Complete the

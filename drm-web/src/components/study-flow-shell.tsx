@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { SectionBar } from "@/components/layout/section-bar";
 import { BlinksLogo } from "@/components/blinks-logo";
 import { mergeClassNames } from "@/lib/utils";
 
@@ -49,9 +50,9 @@ export const StudyFlowShell = ({
     >
       <div className="w-full overflow-hidden rounded-3xl surface-glass">
         {progress !== undefined && (
-          <div className="border-b border-border/70 bg-muted/20 px-5 py-6 sm:px-10">
+          <SectionBar tone="muted" inset="page">
             {progress}
-          </div>
+          </SectionBar>
         )}
 
         <div

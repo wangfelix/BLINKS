@@ -38,7 +38,7 @@ import {
   StudyFlowShell,
 } from "@/components/study-flow-shell";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { mergeClassNames } from "@/lib/utils";
 
@@ -57,14 +57,20 @@ const PasswordVisibilityButton = ({
   visible: boolean;
   onToggle: () => void;
 }) => (
-  <button
+  <Button
     type="button"
+    variant="ghost"
+    size="icon"
+    className="text-muted-foreground"
     onClick={onToggle}
-    className="absolute top-1/2 right-2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     aria-label={visible ? "Hide password" : "Show password"}
   >
-    {visible ? <EyeOffIcon aria-hidden /> : <EyeIcon aria-hidden />}
-  </button>
+    {visible ? (
+      <EyeOffIcon className="size-6" aria-hidden />
+    ) : (
+      <EyeIcon className="size-6" aria-hidden />
+    )}
+  </Button>
 );
 
 const StepCheck = () => (
@@ -397,51 +403,51 @@ export const OnboardingWizard = ({
           <form onSubmit={handlePasswordSubmit} className="space-y-5">
             <div className="space-y-2">
               <Label htmlFor="new-password">New password</Label>
-              <div className="relative">
-                <Input
-                  id="new-password"
-                  name="new-password"
-                  type={passwordVisible ? "text" : "password"}
-                  autoComplete="new-password"
-                  autoFocus
-                  value={newPassword}
-                  onChange={(event) => {
-                    setNewPassword(event.target.value);
-                    setValidationError(null);
-                    passwordMutation.reset();
-                  }}
-                  className="h-11 pr-11"
-                  aria-invalid={passwordError !== null}
-                />
-                <PasswordVisibilityButton
-                  visible={passwordVisible}
-                  onToggle={() => setPasswordVisible((value) => !value)}
-                />
-              </div>
+              <InputGroup
+                action={
+                  <PasswordVisibilityButton
+                    visible={passwordVisible}
+                    onToggle={() => setPasswordVisible((value) => !value)}
+                  />
+                }
+                size="lg"
+                id="new-password"
+                name="new-password"
+                type={passwordVisible ? "text" : "password"}
+                autoComplete="new-password"
+                autoFocus
+                value={newPassword}
+                onChange={(event) => {
+                  setNewPassword(event.target.value);
+                  setValidationError(null);
+                  passwordMutation.reset();
+                }}
+                aria-invalid={passwordError !== null}
+              />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="confirm-password">Confirm password</Label>
-              <div className="relative">
-                <Input
-                  id="confirm-password"
-                  name="confirm-password"
-                  type={passwordVisible ? "text" : "password"}
-                  autoComplete="new-password"
-                  value={confirmPassword}
-                  onChange={(event) => {
-                    setConfirmPassword(event.target.value);
-                    setValidationError(null);
-                    passwordMutation.reset();
-                  }}
-                  className="h-11 pr-11"
-                  aria-invalid={passwordError !== null}
-                />
-                <PasswordVisibilityButton
-                  visible={passwordVisible}
-                  onToggle={() => setPasswordVisible((value) => !value)}
-                />
-              </div>
+              <InputGroup
+                action={
+                  <PasswordVisibilityButton
+                    visible={passwordVisible}
+                    onToggle={() => setPasswordVisible((value) => !value)}
+                  />
+                }
+                size="lg"
+                id="confirm-password"
+                name="confirm-password"
+                type={passwordVisible ? "text" : "password"}
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(event) => {
+                  setConfirmPassword(event.target.value);
+                  setValidationError(null);
+                  passwordMutation.reset();
+                }}
+                aria-invalid={passwordError !== null}
+              />
             </div>
 
             <div className="rounded-2xl border bg-muted/25 p-4">
