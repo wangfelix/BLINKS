@@ -11,6 +11,7 @@ import {
 import { frameImageSrc } from "@/lib/api-client";
 import { mergeClassNames } from "@/lib/utils";
 import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/layout/text";
@@ -175,9 +176,12 @@ export const AssistedActivityRow = ({
           align="start"
           className="absolute inset-x-3 top-3 z-10 sm:flex-row sm:items-start sm:justify-between"
         >
-          <span className="rounded-full border border-white/20 bg-black/75 px-3 py-1.5 text-sm font-medium text-white tabular-nums">
+          <Badge
+            variant="pill"
+            className="border border-white/20 bg-black/75 px-3 py-1.5 text-sm text-white tabular-nums"
+          >
             {formatTimeSpan(startMs, endMs)}
-          </span>
+          </Badge>
 
           <Row align="center" justify="end" wrap className="gap-1.5">
             <Button
@@ -211,9 +215,12 @@ export const AssistedActivityRow = ({
         </Column>
 
         {!hasLivePhotos && thumbnails.length > 0 && (
-          <span className="absolute bottom-3 left-3 rounded-full bg-background/95 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+          <Badge
+            variant="pill"
+            className="absolute bottom-3 left-3 bg-background/95 px-3 py-1.5 text-muted-foreground"
+          >
             No photos remaining
-          </span>
+          </Badge>
         )}
       </Box>
 

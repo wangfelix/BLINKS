@@ -16,6 +16,7 @@ import { activityDisplayLabel } from "@/lib/activity-vocabulary";
 import { windowMinuteAdjective, windowMs } from "@/lib/study-config-store";
 import { formatTimeOfDay, formatTimeSpan } from "@/lib/time";
 import { IconTile } from "@/components/layout/icon-tile";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -836,16 +837,20 @@ export const FramePickerDialog = ({
                                   )}
 
                                   {slot.frames.length > MAX_SLOT_PREVIEWS && (
-                                    <span className="pointer-events-none absolute bottom-2 left-2 z-30 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-4xs font-medium text-white">
+                                    <Badge
+                                      variant="pill"
+                                      className="pointer-events-none absolute bottom-2 left-2 z-30 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-4xs text-white"
+                                    >
                                       +{slot.frames.length - MAX_SLOT_PREVIEWS}{" "}
                                       images
-                                    </span>
+                                    </Badge>
                                   )}
 
                                   {(isStart || isEnd) && (
-                                    <span
+                                    <Badge
+                                      variant="pill"
                                       className={mergeClassNames(
-                                        "pointer-events-none absolute z-30 inline-flex min-h-7 items-center rounded-lg bg-blue-600 px-3 py-1.5 text-2xs font-bold tracking-wider text-white uppercase shadow-lg ring-2 ring-white/90",
+                                        "pointer-events-none absolute z-30 min-h-7 rounded-lg bg-blue-600 px-3 py-1.5 text-2xs font-bold tracking-wider text-white uppercase shadow-lg ring-2 ring-white/90",
                                         isStart && !isEnd
                                           ? "top-12 left-2"
                                           : "right-2 bottom-2",
@@ -856,7 +861,7 @@ export const FramePickerDialog = ({
                                         : isStart
                                           ? "Start"
                                           : "End"}
-                                    </span>
+                                    </Badge>
                                   )}
                                 </button>
                               );

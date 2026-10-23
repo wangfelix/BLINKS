@@ -32,6 +32,7 @@ import {
   storeOnboardingRoutingState,
 } from "@/lib/api-client";
 import { surveyUrlForParticipant } from "@/lib/study-config";
+import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   StudyFlowBackground,
@@ -361,9 +362,12 @@ export const OnboardingWizard = ({
       progress={<WizardProgress step={activeStep!} />}
       headerTrailing={
         preview ? (
-          <span className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
+          <Badge
+            variant="pill"
+            className="border border-amber-300 bg-amber-100 px-3 py-1 font-semibold text-amber-900"
+          >
             Developer preview
-          </span>
+          </Badge>
         ) : (
           <Button variant="ghost" size="sm" onClick={handleSignOut}>
             Sign out

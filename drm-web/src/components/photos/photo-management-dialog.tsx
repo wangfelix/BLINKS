@@ -19,6 +19,7 @@ import { mergeClassNames } from "@/lib/utils";
 import { IconTile } from "@/components/layout/icon-tile";
 import { Column, Row } from "@/components/layout/flex";
 import { Text } from "@/components/layout/text";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -290,12 +291,13 @@ export const PhotoManagementDialog = ({
               {isSelectionMode ? (
                 <>
                   <Row gap="sm" align="center" wrap>
-                    <span
-                      className="rounded-lg bg-foreground px-2.5 py-1 text-xs font-medium text-background tabular-nums"
+                    <Badge
+                      variant="pill"
+                      className="rounded-lg bg-foreground px-2.5 py-1 text-background tabular-nums"
                       aria-live="polite"
                     >
                       {selectedKeys.size} selected
-                    </span>
+                    </Badge>
                     <Text variant="caption" className="hidden sm:block">
                       Shift-click to select a continuous range.
                     </Text>
@@ -312,14 +314,17 @@ export const PhotoManagementDialog = ({
               ) : (
                 <>
                   <Row gap="sm" align="center" wrap>
-                    <span className="inline-flex items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1.5 text-xs font-medium tabular-nums">
+                    <Badge
+                      variant="pill"
+                      className="gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 tabular-nums [&>svg]:size-3.5!"
+                    >
                       <ImagesIcon
                         className="size-3.5 text-muted-foreground"
                         aria-hidden
                       />
                       {liveFrameCount}{" "}
                       {liveFrameCount === 1 ? "photo" : "photos"}
-                    </span>
+                    </Badge>
                     {deletedFrameCount > 0 && (
                       <Text variant="caption">{deletedFrameCount} deleted</Text>
                     )}
@@ -452,9 +457,12 @@ export const PhotoManagementDialog = ({
                                 aria-hidden
                               />
                             )}
-                            <span className="pointer-events-none absolute bottom-2 left-2 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-3xs font-medium text-white tabular-nums">
+                            <Badge
+                              variant="pill"
+                              className="pointer-events-none absolute bottom-2 left-2 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-3xs text-white tabular-nums"
+                            >
                               {formatTimeOfDay(frame.captureEpochMs)}
-                            </span>
+                            </Badge>
                           </div>
                         );
 
