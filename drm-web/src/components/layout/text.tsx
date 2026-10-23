@@ -27,13 +27,27 @@ const textVariants = cva("", {
   },
 });
 
-type TextProps = React.ComponentPropsWithoutRef<"p"> &
+/** Elements Text can render as; `p` is the default. */
+type TextElement = "p" | "span" | "div" | "h1" | "h2" | "h3" | "label";
+
+type TextProps<T extends TextElement> = {
+  /** The element to render, e.g. `h1` for a page title or `span` inline. */
+  as?: T;
+} & Omit<React.ComponentProps<NoInfer<T>>, "as"> &
   VariantProps<typeof textVariants>;
 
-/** A paragraph with the app's standard text styles baked in. */
-export const Text = ({ className, variant, ...paragraphProps }: TextProps) => (
-  <p
-    className={mergeClassNames(textVariants({ variant }), className)}
-    {...paragraphProps}
-  />
-);
+/** Text with the app's standard text styles, rendered as `as` (default `p`). */
+export const Text = <T extends TextElement = "p">({
+  as,
+  className,
+  variant,
+  ...elementProps
+}: TextProps<T>) => {
+  const Element = (as ?? "p") as React.ElementType;
+  return (
+    <Element
+      className={mergeClassNames(textVariants({ variant }), className)}
+      {...elementProps}
+    />
+  );
+};
