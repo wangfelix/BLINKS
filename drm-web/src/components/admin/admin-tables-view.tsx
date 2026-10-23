@@ -56,6 +56,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Column, Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
 
 const PAGE_SIZE = 50;
 
@@ -237,7 +238,7 @@ export const AdminTablesView = () => {
         </Button>
       </Column>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Grid gap="md" className="sm:grid-cols-2 xl:grid-cols-4">
         {ADMIN_TABLES.map((candidate) => (
           <button
             key={candidate}
@@ -283,7 +284,7 @@ export const AdminTablesView = () => {
             </p>
           </button>
         ))}
-      </div>
+      </Grid>
 
       {downloadError !== null && (
         <Alert variant="destructive">

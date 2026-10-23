@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Column, Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
 import {
   sampleEvenly,
   type EditableActivity,
@@ -652,8 +653,8 @@ export const FramePickerDialog = ({
                             </span>
                           </Row>
 
-                          <div
-                            className="grid min-h-0 flex-1"
+                          <Grid
+                            className="min-h-0 flex-1"
                             style={{
                               gridTemplateColumns: `repeat(${groupColumns}, minmax(0, 1fr))`,
                               gridTemplateRows: `repeat(${Math.ceil(
@@ -780,13 +781,10 @@ export const FramePickerDialog = ({
                                       </span>
                                     </Column>
                                   ) : (
-                                    <div
-                                      className={mergeClassNames(
-                                        "grid min-h-0 flex-1 gap-0.5 bg-muted",
-                                        previews.length === 1
-                                          ? "grid-cols-1"
-                                          : "grid-cols-2",
-                                      )}
+                                    <Grid
+                                      gap="2xs"
+                                      cols={previews.length === 1 ? 1 : 2}
+                                      className="min-h-0 flex-1 bg-muted"
                                     >
                                       {previews.map((frame) => (
                                         /* eslint-disable-next-line @next/next/no-img-element -- authenticated image; the Next proxy cannot forward the auth cookie */
@@ -800,7 +798,7 @@ export const FramePickerDialog = ({
                                           className="size-full min-h-0 object-cover"
                                         />
                                       ))}
-                                    </div>
+                                    </Grid>
                                   )}
 
                                   {isSelected && (
@@ -842,7 +840,7 @@ export const FramePickerDialog = ({
                                 </button>
                               );
                             })}
-                          </div>
+                          </Grid>
                         </section>
                       );
                     })}

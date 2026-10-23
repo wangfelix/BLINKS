@@ -41,6 +41,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Column, Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
 import { mergeClassNames } from "@/lib/utils";
 
 type WizardStep = 1 | 2 | "complete";
@@ -469,7 +470,7 @@ export const OnboardingWizard = ({
                   {strengthLabel || "Start typing"}
                 </span>
               </Row>
-              <div className="mt-2 grid grid-cols-4 gap-1.5" aria-hidden>
+              <Grid cols={4} className="mt-2 gap-1.5" aria-hidden>
                 {[1, 2, 3, 4].map((level) => (
                   <span
                     key={level}
@@ -479,7 +480,7 @@ export const OnboardingWizard = ({
                     )}
                   />
                 ))}
-              </div>
+              </Grid>
               <ul className="mt-4 grid gap-2 sm:grid-cols-2">
                 <Requirement met={passwordHasMinimumLength}>
                   At least 8 characters

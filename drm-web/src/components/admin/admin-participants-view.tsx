@@ -27,6 +27,7 @@ import {
 import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
 
 export const AdminParticipantsView = () => {
   const queryClient = useQueryClient();
@@ -132,7 +133,7 @@ export const AdminParticipantsView = () => {
                 </p>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <Grid gap="lg" className="sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="new-participant-password">
                     Temporary password
@@ -188,7 +189,7 @@ export const AdminParticipantsView = () => {
                     onChange={(event) => setConfirmPassword(event.target.value)}
                   />
                 </div>
-              </div>
+              </Grid>
 
               {error !== null && (
                 <Alert variant="destructive" aria-live="polite">

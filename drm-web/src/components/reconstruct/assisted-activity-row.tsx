@@ -23,6 +23,7 @@ import {
 } from "@/components/reconstruct/editor-types";
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
 import { Column, Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
 
 export type MergeHighlightPhase = "holding" | "fading";
 
@@ -39,17 +40,12 @@ const AssistedFieldRow = ({
   className?: string;
   children: ReactNode;
 }) => (
-  <div
-    className={mergeClassNames(
-      "grid gap-2 sm:grid-cols-field-row sm:items-center sm:gap-6",
-      className,
-    )}
-  >
+  <Grid gap="sm" layout="field-row" className={className}>
     <Label htmlFor={htmlFor} color={invalid ? "destructive" : undefined}>
       {label}
     </Label>
     <div className="w-full min-w-0 sm:w-80 sm:justify-self-end">{children}</div>
-  </div>
+  </Grid>
 );
 
 /** One assisted-condition activity row: time span, frame thumbnails, labels. */

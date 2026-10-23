@@ -50,6 +50,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Column, Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
 
 const PAGE_SIZE = 96;
 const countFormat = new Intl.NumberFormat("en");
@@ -309,7 +310,11 @@ export const AdminPhotosView = () => {
           </CardContent>
         ) : (
           <CardContent className="bg-muted/10 py-5">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8">
+            <Grid
+              cols={2}
+              gap="md"
+              className="sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8"
+            >
               {photosQuery.data?.frames.map((frame) => {
                 const available = frame.imageUrl !== null;
                 return (
@@ -367,7 +372,7 @@ export const AdminPhotosView = () => {
                   </figure>
                 );
               })}
-            </div>
+            </Grid>
           </CardContent>
         )}
 
