@@ -176,10 +176,7 @@ export const AssistedActivityRow = ({
           align="start"
           className="absolute inset-x-3 top-3 z-10 sm:flex-row sm:items-start sm:justify-between"
         >
-          <Badge
-            variant="pill"
-            className="border border-white/20 bg-black/75 px-3 py-1.5 text-sm text-white tabular-nums"
-          >
+          <Badge variant="pill" tone="overlay-strong" size="sm" numeric>
             {formatTimeSpan(startMs, endMs)}
           </Badge>
 
@@ -217,7 +214,8 @@ export const AssistedActivityRow = ({
         {!hasLivePhotos && thumbnails.length > 0 && (
           <Badge
             variant="pill"
-            className="absolute bottom-3 left-3 bg-background/95 px-3 py-1.5 text-muted-foreground"
+            tone="note"
+            className="absolute bottom-3 left-3"
           >
             No photos remaining
           </Badge>

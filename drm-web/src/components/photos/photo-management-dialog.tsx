@@ -293,7 +293,8 @@ export const PhotoManagementDialog = ({
                   <Row gap="sm" align="center" wrap>
                     <Badge
                       variant="pill"
-                      className="rounded-lg bg-foreground px-2.5 py-1 text-background tabular-nums"
+                      tone="selection"
+                      numeric
                       aria-live="polite"
                     >
                       {selectedKeys.size} selected
@@ -314,10 +315,7 @@ export const PhotoManagementDialog = ({
               ) : (
                 <>
                   <Row gap="sm" align="center" wrap>
-                    <Badge
-                      variant="pill"
-                      className="gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 tabular-nums [&>svg]:size-3.5!"
-                    >
+                    <Badge variant="pill" tone="counter" numeric>
                       <ImagesIcon
                         className="size-3.5 text-muted-foreground"
                         aria-hidden
@@ -459,7 +457,10 @@ export const PhotoManagementDialog = ({
                             )}
                             <Badge
                               variant="pill"
-                              className="pointer-events-none absolute bottom-2 left-2 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-3xs text-white tabular-nums"
+                              tone="overlay"
+                              size="3xs"
+                              numeric
+                              className="pointer-events-none absolute bottom-2 left-2"
                             >
                               {formatTimeOfDay(frame.captureEpochMs)}
                             </Badge>

@@ -65,10 +65,7 @@ export const ReconstructionIntro = ({
       }
       headerTrailing={
         preview ? (
-          <Badge
-            variant="pill"
-            className="border border-amber-300 bg-amber-100 px-3 py-1 font-semibold text-amber-900"
-          >
+          <Badge variant="pill" tone="preview">
             Developer preview
           </Badge>
         ) : (

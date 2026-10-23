@@ -839,7 +839,9 @@ export const FramePickerDialog = ({
                                   {slot.frames.length > MAX_SLOT_PREVIEWS && (
                                     <Badge
                                       variant="pill"
-                                      className="pointer-events-none absolute bottom-2 left-2 z-30 rounded-md border border-white/15 bg-black/70 px-2 py-1 text-4xs text-white"
+                                      tone="overlay"
+                                      size="4xs"
+                                      className="pointer-events-none absolute bottom-2 left-2 z-30"
                                     >
                                       +{slot.frames.length - MAX_SLOT_PREVIEWS}{" "}
                                       images
@@ -849,8 +851,10 @@ export const FramePickerDialog = ({
                                   {(isStart || isEnd) && (
                                     <Badge
                                       variant="pill"
+                                      tone="marker"
+                                      size="2xs"
                                       className={mergeClassNames(
-                                        "pointer-events-none absolute z-30 min-h-7 rounded-lg bg-blue-600 px-3 py-1.5 text-2xs font-bold tracking-wider text-white uppercase shadow-lg ring-2 ring-white/90",
+                                        "pointer-events-none absolute z-30",
                                         isStart && !isEnd
                                           ? "top-12 left-2"
                                           : "right-2 bottom-2",

@@ -166,10 +166,7 @@ const ActivityGapControls = ({
       <PlusIcon />
       Insert activity
       {hasUnassignedImages && (
-        <Badge
-          variant="pill"
-          className="ml-1 bg-destructive text-3xs font-semibold text-white"
-        >
+        <Badge variant="pill" tone="alert" size="3xs" className="ml-1">
           Unassigned images
         </Badge>
       )}
@@ -196,10 +193,7 @@ const ActivityGapControls = ({
         <FoldVerticalIcon />
         Merge
         {suggestsMerge && (
-          <Badge
-            variant="pill"
-            className="ml-1 bg-amber-500 text-3xs font-semibold text-amber-950"
-          >
+          <Badge variant="pill" tone="hint" size="3xs" className="ml-1">
             Same activity
           </Badge>
         )}
