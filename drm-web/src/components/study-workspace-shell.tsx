@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { SectionBar } from "@/components/layout/section-bar";
+import { Box } from "@/components/layout/box";
 import { StudyFlowBackground } from "@/components/study-flow-shell";
 import { StudyNavbar } from "@/components/study-navbar";
 import { mergeClassNames } from "@/lib/utils";
@@ -26,9 +27,9 @@ export const StudyWorkspaceShell = ({
     <main className="relative flex min-h-dvh flex-col overflow-x-clip bg-background">
       <StudyFlowBackground />
 
-      <div className="relative z-20">
+      <Box position="relative" layer="top">
         <StudyNavbar />
-      </div>
+      </Box>
 
       {progress !== undefined && progressPosition === "full-width" && (
         <div className="relative z-10 surface-bar px-4 py-4 sm:px-8 sm:py-5">
@@ -54,15 +55,15 @@ export const StudyWorkspaceShell = ({
             </SectionBar>
           )}
 
-          <div
+          <Box
+            position="relative"
             className={mergeClassNames(
-              "relative",
               !isPlain && "px-5 py-7 sm:px-8 sm:py-9",
               contentClassName,
             )}
           >
             {children}
-          </div>
+          </Box>
         </div>
       </section>
     </main>

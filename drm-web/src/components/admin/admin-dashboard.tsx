@@ -22,6 +22,7 @@ import { StudyFlowBackground } from "@/components/study-flow-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Column, Row } from "@/components/layout/flex";
+import { Container } from "@/components/layout/container";
 
 type AdminSection = "data" | "photos" | "participants";
 
@@ -108,7 +109,10 @@ export const AdminDashboard = ({
         </Row>
       </header>
 
-      <div className="relative z-10 mx-auto w-full max-w-[1600px] px-4 py-7 sm:px-6 sm:py-10 lg:px-8">
+      <Container
+        size="wide"
+        className="relative z-10 px-4 py-7 sm:px-6 sm:py-10 lg:px-8"
+      >
         <Column gap="2xl">
           <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
@@ -185,7 +189,7 @@ export const AdminDashboard = ({
           {section === "photos" && <AdminPhotosView />}
           {section === "participants" && <AdminParticipantsView />}
         </Column>
-      </div>
+      </Container>
     </main>
   );
 };

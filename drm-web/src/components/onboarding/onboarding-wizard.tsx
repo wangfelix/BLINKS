@@ -41,6 +41,8 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { InputGroup } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Column, Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
+import { Container } from "@/components/layout/container";
 import { mergeClassNames } from "@/lib/utils";
 
 type WizardStep = 1 | 2 | "complete";
@@ -384,9 +386,11 @@ export const OnboardingWizard = ({
           </p>
         </Column>
       ) : activeStep === 1 ? (
-        <div
+        <Container
           key="password"
-          className="onboarding-step-enter onboarding-stagger mx-auto max-w-xl"
+          size="xl"
+          fill={false}
+          className="onboarding-step-enter onboarding-stagger"
         >
           <Row gap="lg" align="start" className="mb-7">
             <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/10">
@@ -469,7 +473,7 @@ export const OnboardingWizard = ({
                   {strengthLabel || "Start typing"}
                 </span>
               </Row>
-              <div className="mt-2 grid grid-cols-4 gap-1.5" aria-hidden>
+              <Grid cols={4} className="mt-2 gap-1.5" aria-hidden>
                 {[1, 2, 3, 4].map((level) => (
                   <span
                     key={level}
@@ -479,7 +483,7 @@ export const OnboardingWizard = ({
                     )}
                   />
                 ))}
-              </div>
+              </Grid>
               <ul className="mt-4 grid gap-2 sm:grid-cols-2">
                 <Requirement met={passwordHasMinimumLength}>
                   At least 8 characters
@@ -517,11 +521,13 @@ export const OnboardingWizard = ({
               </Button>
             </Row>
           </form>
-        </div>
+        </Container>
       ) : activeStep === 2 ? (
-        <div
+        <Container
           key="survey"
-          className="onboarding-step-enter onboarding-stagger mx-auto max-w-xl"
+          size="xl"
+          fill={false}
+          className="onboarding-step-enter onboarding-stagger"
         >
           <Row gap="lg" align="start" className="mb-8">
             <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-violet-500/10 text-violet-700 ring-1 ring-violet-500/10">
@@ -622,7 +628,7 @@ export const OnboardingWizard = ({
               </div>
             )}
           </div>
-        </div>
+        </Container>
       ) : (
         <Column
           key="complete"

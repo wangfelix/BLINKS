@@ -23,6 +23,8 @@ import {
 } from "@/components/reconstruct/editor-types";
 import { frameIdentityKey } from "@/components/photos/use-photo-deletion";
 import { Column, Row } from "@/components/layout/flex";
+import { Grid } from "@/components/layout/grid";
+import { Box } from "@/components/layout/box";
 
 export type MergeHighlightPhase = "holding" | "fading";
 
@@ -39,17 +41,12 @@ const AssistedFieldRow = ({
   className?: string;
   children: ReactNode;
 }) => (
-  <div
-    className={mergeClassNames(
-      "grid gap-2 sm:grid-cols-field-row sm:items-center sm:gap-6",
-      className,
-    )}
-  >
+  <Grid gap="sm" layout="field-row" className={className}>
     <Label htmlFor={htmlFor} color={invalid ? "destructive" : undefined}>
       {label}
     </Label>
     <div className="w-full min-w-0 sm:w-80 sm:justify-self-end">{children}</div>
-  </div>
+  </Grid>
 );
 
 /** One assisted-condition activity row: time span, frame thumbnails, labels. */
@@ -112,7 +109,7 @@ export const AssistedActivityRow = ({
           "transition-[background-color,border-color] duration-[800ms] ease-out motion-reduce:transition-none",
       )}
     >
-      <div className="relative isolate overflow-hidden bg-muted">
+      <Box position="relative" isolate clip className="bg-muted">
         {thumbnails.length > 0 ? (
           <Row className="h-40 overflow-x-auto sm:h-44">
             {thumbnails.map((frame) => (
@@ -214,7 +211,7 @@ export const AssistedActivityRow = ({
             No photos remaining
           </span>
         )}
-      </div>
+      </Box>
 
       <div className="px-4 sm:px-6">
         <AssistedFieldRow

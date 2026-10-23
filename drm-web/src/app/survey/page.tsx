@@ -31,6 +31,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Column, Row } from "@/components/layout/flex";
+import { Container } from "@/components/layout/container";
 
 const SurveyContent = () => {
   const router = useRouter();
@@ -60,7 +61,7 @@ const SurveyContent = () => {
       maxWidthClassName="max-w-3xl"
       contentClassName="flex min-h-[420px] items-center"
     >
-      <div className="mx-auto w-full max-w-2xl">
+      <Container size="2xl">
         {profileQuery.isPending ? (
           <Row
             gap="sm"
@@ -191,7 +192,7 @@ const SurveyContent = () => {
             </CardContent>
           </Card>
         )}
-      </div>
+      </Container>
     </StudyWorkspaceShell>
   );
 };
