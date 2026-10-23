@@ -723,9 +723,9 @@ export const RoundEditor = ({
         </Column>
         <Row gap="md" align="center">
           {saveState !== "idle" && (
-            <span className="text-xs text-muted-foreground" aria-live="polite">
+            <Text as="span" variant="caption" aria-live="polite">
               {SAVE_INDICATOR_TEXT[saveState]}
-            </span>
+            </Text>
           )}
           <Button
             disabled={!isReadyToSubmit}
@@ -971,10 +971,12 @@ export const RoundEditor = ({
             aria-hidden
           />
           <Box className="min-w-0 flex-1">
-            <p className="text-sm font-semibold">{notice.title}</p>
-            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+            <Text variant="label" weight="semibold">
+              {notice.title}
+            </Text>
+            <Text tone="muted" className="mt-1 leading-relaxed">
               {notice.description}
-            </p>
+            </Text>
           </Box>
           <Button
             type="button"

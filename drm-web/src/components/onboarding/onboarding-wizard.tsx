@@ -384,9 +384,9 @@ export const OnboardingWizard = ({
           <Text as="h2" variant="title" className="mt-6">
             Password saved
           </Text>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <Text tone="muted" className="mt-2">
             Your participant account is now secured.
-          </p>
+          </Text>
         </Column>
       ) : activeStep === 1 ? (
         <Container
@@ -500,9 +500,7 @@ export const OnboardingWizard = ({
             </Card>
 
             <Box className="min-h-5" aria-live="polite" aria-atomic="true">
-              {passwordError && (
-                <p className="text-sm text-destructive">{passwordError}</p>
-              )}
+              {passwordError && <Text tone="destructive">{passwordError}</Text>}
             </Box>
 
             <Row justify="end">
@@ -572,7 +570,7 @@ export const OnboardingWizard = ({
               className="rounded-2xl border bg-gradient-to-br from-primary/[0.06] to-violet-500/[0.06] p-5 sm:p-6"
             >
               <Box className="shrink-0">
-                <p className="text-sm font-medium">Participant ID</p>
+                <Text variant="label">Participant ID</Text>
                 <p className="mt-1 font-mono text-sm text-muted-foreground">
                   {username}
                 </p>
@@ -603,10 +601,10 @@ export const OnboardingWizard = ({
                 gap="md"
                 className="onboarding-confirm-enter border-t pt-5"
               >
-                <p className="text-sm text-muted-foreground">
+                <Text tone="muted">
                   Return here once you reach the questionnaire&apos;s
                   confirmation page.
-                </p>
+                </Text>
                 <Row justify="end">
                   <Button
                     variant="secondary"
@@ -629,11 +627,11 @@ export const OnboardingWizard = ({
                   </Button>
                 </Row>
                 {completionMutation.isError && (
-                  <p className="text-sm text-destructive" role="alert">
+                  <Text tone="destructive" role="alert">
                     {completionMutation.error instanceof Error
                       ? completionMutation.error.message
                       : "Onboarding could not be completed."}
-                  </p>
+                  </Text>
                 )}
               </Column>
             )}

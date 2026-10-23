@@ -1,5 +1,6 @@
 import { TriangleAlertIcon } from "lucide-react";
 
+import { Text } from "@/components/layout/text";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { getStudyConfig } from "@/lib/study-config-store";
@@ -20,9 +21,11 @@ export const AssistedRoundReminder = ({
       <TriangleAlertIcon aria-hidden />
       <AlertTitle>{texts.assistedReminderTitle}</AlertTitle>
       <AlertDescription className="text-amber-950/80">
-        <p>{texts.assistedReminderBody}</p>
+        <Text variant="inherit">{texts.assistedReminderBody}</Text>
         {texts.assistedReminderIncorrectLabelsNotice !== null && (
-          <p>{texts.assistedReminderIncorrectLabelsNotice}</p>
+          <Text variant="inherit">
+            {texts.assistedReminderIncorrectLabelsNotice}
+          </Text>
         )}
       </AlertDescription>
     </Alert>

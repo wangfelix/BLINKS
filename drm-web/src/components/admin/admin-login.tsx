@@ -71,9 +71,9 @@ export const AdminLogin = ({
             <Text as="h2" variant="heading" className="tracking-tight">
               Administrator sign-in
             </Text>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <Text tone="muted" className="mt-1">
               Participant accounts cannot access this area.
-            </p>
+            </Text>
           </header>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-5">

@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { Column, Row } from "@/components/layout/flex";
 import { Grid } from "@/components/layout/grid";
+import { Text } from "@/components/layout/text";
 import {
   sampleEvenly,
   type EditableActivity,
@@ -489,10 +490,8 @@ export const FramePickerDialog = ({
           className="min-h-16"
         >
           <Column gap="xs">
-            <p className="text-sm font-medium">Select the time span</p>
-            <p className="text-xs text-muted-foreground">
-              {selectionInstruction}
-            </p>
+            <Text variant="label">Select the time span</Text>
+            <Text variant="caption">{selectionInstruction}</Text>
           </Column>
 
           <Row gap="xs" align="center" wrap>

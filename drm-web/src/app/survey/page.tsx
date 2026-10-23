@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/card";
 import { Column, Row } from "@/components/layout/flex";
 import { Container } from "@/components/layout/container";
+import { Text } from "@/components/layout/text";
 
 const SurveyContent = () => {
   const router = useRouter();
@@ -147,13 +148,13 @@ const SurveyContent = () => {
               </Column>
 
               <Column gap="md" className="border-t pt-5">
-                <p className="text-sm text-muted-foreground" aria-live="polite">
+                <Text tone="muted" aria-live="polite">
                   {payoutLinkOpened
                     ? "The payout link opened in a new tab. Return here when you are ready to proceed."
                     : questionnaireOpened
                       ? "The questionnaire opened in a new tab. Complete it, then open the payout link."
                       : "Open and complete the final questionnaire first. The payout link will then become available."}
-                </p>
+                </Text>
                 <Row justify="end">
                   <Button
                     variant="secondary"

@@ -49,7 +49,7 @@ const Stat = ({
         <p className="text-xl font-semibold tracking-tight tabular-nums">
           {value === undefined ? "—" : compactNumber.format(value)}
         </p>
-        <p className="text-xs text-muted-foreground">{label}</p>
+        <Text variant="caption">{label}</Text>
       </Box>
     </Row>
   </Card>
@@ -101,9 +101,9 @@ export const AdminDashboard = ({
             <BlinksLogo className="h-10 w-[140px]" sizes="140px" priority />
           </Row>
           <Row gap="sm" align="center">
-            <span className="hidden text-sm text-muted-foreground sm:inline">
+            <Text as="span" tone="muted" className="hidden sm:inline">
               {username}
-            </span>
+            </Text>
             <Button variant="ghost" size="sm" onClick={signOut}>
               <LogOutIcon aria-hidden />
               Sign out

@@ -101,10 +101,10 @@ export const AdminParticipantsView = () => {
         >
           Participants
         </Text>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <Text tone="muted" className="mt-1">
           Create a participant login and its matching recordings profile in one
           controlled step.
-        </p>
+        </Text>
       </header>
 
       <Container size="4xl" center={false} fill={false}>
@@ -135,9 +135,9 @@ export const AdminParticipantsView = () => {
                   onChange={(event) => setParticipantId(event.target.value)}
                   placeholder="participant21"
                 />
-                <p className="text-xs text-muted-foreground">
+                <Text variant="caption">
                   Letters, digits, hyphens, and underscores only.
-                </p>
+                </Text>
               </Column>
 
               <Grid gap="lg" className="sm:grid-cols-2">

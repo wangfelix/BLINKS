@@ -97,7 +97,11 @@ const countFormat = new Intl.NumberFormat("en");
 
 const CellValue = ({ value }: { value: AdminCellValue }) => {
   if (value === null) {
-    return <span className="text-xs text-muted-foreground italic">NULL</span>;
+    return (
+      <Text as="span" variant="caption" className="italic">
+        NULL
+      </Text>
+    );
   }
   const text = String(value);
   return (
@@ -225,10 +229,10 @@ export const AdminTablesView = () => {
           >
             Data tables
           </Text>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <Text tone="muted" className="mt-1">
             Filter and browse 50 rows at a time or export a complete table as
             CSV.
-          </p>
+          </Text>
         </header>
         <Button
           variant="outline"
@@ -447,11 +451,11 @@ export const AdminTablesView = () => {
           layout="toolbar"
           className="bg-muted/25"
         >
-          <p className="text-xs text-muted-foreground tabular-nums">
+          <Text variant="caption" className="tabular-nums">
             {tableQuery.data === undefined
               ? "Loading row count…"
               : `${countFormat.format(tableQuery.data.total)}${hasActiveFilter ? " matching" : ""} rows · Page ${page} of ${totalPages}`}
-          </p>
+          </Text>
           <Row gap="sm">
             <Button
               variant="outline"

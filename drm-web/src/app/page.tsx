@@ -105,9 +105,9 @@ const LandingPage = () => {
             <Text as="h2" variant="heading" className="tracking-tight">
               Participant sign-in
             </Text>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <Text tone="muted" className="mt-1">
               Use the same credentials as in the BLINKS phone app.
-            </p>
+            </Text>
           </header>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-5">

@@ -58,9 +58,9 @@ const ReadOnlyActivityCard = ({
   return (
     <Column gap="md" className="rounded-xl border bg-card p-4">
       <Row gap="md" align="center" wrap>
-        <span className="text-sm font-medium tabular-nums">
+        <Text as="span" variant="label" className="tabular-nums">
           {formatTimeSpan(activity.startMs, activity.endMs)}
-        </span>
+        </Text>
         <span className="flex-1 text-sm">
           {activityDisplayLabel(activity.rawLabel) ?? "—"}
         </span>

@@ -58,9 +58,13 @@ export const StudyNavbar = () => {
         >
           <Row gap="md" align="center">
             <BlinksLogo className="h-10 w-[140px]" sizes="140px" priority />
-            <span className="hidden border-l pl-3 text-xs text-muted-foreground sm:block">
+            <Text
+              as="span"
+              variant="caption"
+              className="hidden border-l pl-3 sm:block"
+            >
               KIT · KD2Lab
-            </span>
+            </Text>
           </Row>
           <Row gap="sm" align="center" wrap className="shrink-0">
             {canManagePhotos && (
