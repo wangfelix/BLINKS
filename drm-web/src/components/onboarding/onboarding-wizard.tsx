@@ -409,10 +409,10 @@ export const OnboardingWizard = ({
               >
                 Choose your own password
               </Text>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground sm:text-base">
+              <Text variant="lead" className="mt-2">
                 Replace the temporary password from the study team with a
                 private password only you know.
-              </p>
+              </Text>
             </header>
           </Row>
 
@@ -546,11 +546,11 @@ export const OnboardingWizard = ({
               >
                 Complete the pre-study questionnaire
               </Text>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground sm:text-base">
+              <Text variant="lead" className="mt-2">
                 This questionnaire records the information needed before your
                 field day. It opens in a separate tab. Please come back to this
                 page after you finish the survey.
-              </p>
+              </Text>
             </header>
           </Row>
 
@@ -657,11 +657,11 @@ export const OnboardingWizard = ({
           >
             You&apos;re ready
           </Text>
-          <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground sm:text-base">
+          <Text variant="lead" className="mt-3 max-w-sm">
             Your setup is complete. You can now log out and start your recording
             day tomorrow. Log into this web application tomorrow evening to
             complete the study.
-          </p>
+          </Text>
           <Row gap="md" justify="center" wrap className="mt-7">
             {preview && (
               <Button variant="secondary" onClick={handleRestartPreview}>

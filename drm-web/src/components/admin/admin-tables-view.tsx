@@ -218,9 +218,7 @@ export const AdminTablesView = () => {
     <section className="space-y-4" aria-labelledby="database-heading">
       <Column gap="md" justify="between" className="sm:flex-row sm:items-end">
         <header>
-          <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
-            Research database
-          </p>
+          <Text variant="overline">Research database</Text>
           <Text
             as="h2"
             variant="heading"

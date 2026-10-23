@@ -59,7 +59,7 @@ export const ReconstructionStatusScreen = ({
             ? "No recorded day yet"
             : "The reconstruction opens in the evening"}
         </Text>
-        <p className="mt-3 text-sm leading-7 text-muted-foreground sm:text-base">
+        <Text variant="lead" className="mt-3 leading-7">
           {isWaitingForDay ? (
             <>
               Once the camera has recorded your day, it will appear here for
@@ -73,7 +73,7 @@ export const ReconstructionStatusScreen = ({
               the earliest.
             </>
           )}
-        </p>
+        </Text>
         <Button className="mt-8" size="lg" onClick={onSignOut}>
           <LogOutIcon aria-hidden />
           Log out

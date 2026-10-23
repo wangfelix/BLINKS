@@ -119,16 +119,16 @@ export const AdminDashboard = ({
         <Column gap="2xl">
           <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <header>
-              <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+              <Text variant="overline" className="tracking-[0.16em]">
                 BLINKS study operations
-              </p>
+              </Text>
               <Text as="h1" variant="display" className="mt-2 sm:text-4xl">
                 Research dashboard
               </Text>
-              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
+              <Text variant="lead" className="mt-2 max-w-2xl">
                 A read-only view of study data and anonymized photos, plus
                 controlled participant account provisioning.
-              </p>
+              </Text>
             </header>
 
             <nav

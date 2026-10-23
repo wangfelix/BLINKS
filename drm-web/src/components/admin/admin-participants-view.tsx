@@ -90,9 +90,7 @@ export const AdminParticipantsView = () => {
   return (
     <section className="space-y-4" aria-labelledby="participants-heading">
       <header>
-        <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
-          Account provisioning
-        </p>
+        <Text variant="overline">Account provisioning</Text>
         <Text
           as="h2"
           variant="heading"

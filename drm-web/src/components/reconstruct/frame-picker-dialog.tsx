@@ -555,9 +555,13 @@ export const FramePickerDialog = ({
               aria-label="Jump to time of day"
               className="hidden max-h-[62vh] w-20 shrink-0 overflow-y-auto rounded-xl border bg-background p-2 sm:block"
             >
-              <p className="px-1 pb-2 text-3xs font-medium tracking-wide text-muted-foreground uppercase">
+              <Text
+                variant="overline"
+                weight="medium"
+                className="px-1 pb-2 text-3xs tracking-wide"
+              >
                 Jump to
-              </p>
+              </Text>
               <Column gap="xs">
                 {timelineMarks.map((mark) => (
                   <button

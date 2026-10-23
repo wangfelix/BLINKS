@@ -20,11 +20,11 @@ const DoneContent = () => {
         <Text as="h1" variant="title">
           All done
         </Text>
-        <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
+        <Text variant="lead" className="text-base leading-relaxed sm:text-lg">
           Thank you for taking part in the study. You can close this tab now.
           Please bring the glasses and the study phone back to the lab as
           arranged.
-        </p>
+        </Text>
         <Alert className="mt-5 border-sky-300/70 bg-sky-500/5">
           <ImagesIcon aria-hidden />
           <AlertTitle>Your study photos remain available</AlertTitle>

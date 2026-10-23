@@ -8,6 +8,7 @@ import { BugIcon, XIcon } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Column, Row } from "@/components/layout/flex";
+import { Text } from "@/components/layout/text";
 import { mergeClassNames } from "@/lib/utils";
 
 const DEV_DESTINATIONS = [
@@ -30,9 +31,14 @@ export const DevNavigator = () => {
       {isOpen && (
         <Card variant="floating" className="w-56 border-amber-300">
           <Row gap="sm" align="center" justify="between" className="px-2 py-1">
-            <span className="text-xs font-semibold tracking-wide text-amber-800 uppercase">
+            <Text
+              as="span"
+              variant="overline"
+              tone="inherit"
+              className="tracking-wide text-amber-800"
+            >
               DRM dev mode
-            </span>
+            </Text>
             <Button
               variant="ghost"
               size="icon-xs"

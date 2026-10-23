@@ -95,9 +95,9 @@ export const ReconstructionIntro = ({
             >
               {title}
             </Text>
-            <p className="mt-3 text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">
+            <Text variant="lead" className="mt-3 leading-7 sm:leading-8">
               {description}
-            </p>
+            </Text>
             {round === 2 && <AssistedRoundReminder className="mt-6" />}
           </header>
         </Row>

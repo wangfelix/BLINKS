@@ -129,9 +129,7 @@ export const AdminPhotosView = () => {
   return (
     <section className="space-y-4" aria-labelledby="photos-heading">
       <header>
-        <p className="text-xs font-semibold tracking-label text-muted-foreground uppercase">
-          Anonymized image review
-        </p>
+        <Text variant="overline">Anonymized image review</Text>
         <Text
           as="h2"
           variant="heading"
